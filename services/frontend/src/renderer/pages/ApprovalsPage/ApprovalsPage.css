@@ -1,5 +1,3 @@
-/* ── v6: Page Header ── */
-
 .approval-page-header {
   display: flex;
   align-items: flex-end;
@@ -20,8 +18,6 @@
   margin: 0;
 }
 
-/* ── v6: Approval Card border-l-4 by status ── */
-
 .approval-card--pending {
   border-left: 4px solid var(--cds-support-warning);
 }
@@ -39,7 +35,6 @@
   opacity: 0.85;
 }
 
-/* Status badge in card header */
 .approval-card__status-badge {
   display: inline-flex;
   align-items: center;
@@ -79,19 +74,9 @@
   border-color: var(--cds-border-subtle);
 }
 
-/* ── Approvals Page ── */
-
-.approval-pending-badge {
-  font-size: var(--cds-type-xs);
-  font-weight: var(--cds-weight-semibold);
-  color: var(--cds-text-inverse);
-  background: var(--cds-support-error);
-  padding: 2px 8px;
-  border-radius: var(--cds-radius-circle);
-}
-
 .approval-filters {
   display: flex;
+  flex-wrap: wrap;
   gap: var(--cds-spacing-03);
   margin-bottom: var(--cds-spacing-05);
 }
@@ -124,10 +109,15 @@
   gap: var(--cds-spacing-04);
 }
 
+.approval-card {
+  border-bottom: 1px solid var(--cds-border-subtle);
+}
+
 .approval-card__header {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: var(--cds-spacing-04);
   margin-bottom: var(--cds-spacing-03);
 }
 
@@ -136,18 +126,21 @@
   font-size: var(--cds-type-sm);
 }
 
-.approval-card__status {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  font-size: var(--cds-type-sm);
-  font-weight: var(--cds-weight-medium);
+.approval-status--pending {
+  color: var(--cds-support-warning);
 }
 
-.approval-status--pending { color: var(--cds-support-warning); }
-.approval-status--approved { color: var(--cds-support-success); }
-.approval-status--rejected { color: var(--cds-support-error); }
-.approval-status--expired { color: var(--cds-text-placeholder); }
+.approval-status--approved {
+  color: var(--cds-support-success);
+}
+
+.approval-status--rejected {
+  color: var(--cds-support-error);
+}
+
+.approval-status--expired {
+  color: var(--cds-text-placeholder);
+}
 
 .approval-card__body {
   display: flex;
@@ -165,6 +158,7 @@
 
 .approval-card__meta {
   display: flex;
+  flex-wrap: wrap;
   gap: var(--cds-spacing-05);
   font-size: var(--cds-type-xs);
   font-family: var(--cds-font-mono);
@@ -225,7 +219,6 @@
   border-top: 1px solid var(--cds-border-subtle);
 }
 
-/* IX-1: Approve / Reject button color differentiation */
 .approval-btn--approve {
   background: var(--cds-support-success);
   border-color: var(--cds-support-success);
@@ -238,8 +231,7 @@
   color: var(--cds-text-inverse);
 }
 
-/* DARK-1: Card border visible in dark theme */
-.approval-card {
-  border-bottom: 1px solid var(--cds-border-subtle);
+.approval-dialog__comment-input {
+  width: 100%;
+  margin-bottom: var(--cds-spacing-04);
 }
-
