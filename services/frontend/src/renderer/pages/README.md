@@ -22,6 +22,27 @@ Avoid widening shared ownership unless a helper is reused by multiple pages.
 
 ## Integration checklist for the remaining refactors
 
+### AnalysisHistoryPage
+
+- Add a page-local regression test before or with the move (no current `AnalysisHistoryPage` test file exists)
+- Move `AnalysisHistoryPage.tsx` to `AnalysisHistoryPage/AnalysisHistoryPage.tsx`
+- Move `AnalysisHistoryPage.css` to `AnalysisHistoryPage/AnalysisHistoryPage.css`
+- Rewrite `../` imports to `../../` from the new folder depth
+- Prefer a temporary compatibility stub at `pages/AnalysisHistoryPage.tsx` so `App.tsx` can stay stable until final integration
+
+Audit note: the current file has **6** relative imports that will need depth updates after the move.
+
+### ApprovalsPage
+
+- Move `ApprovalsPage.tsx` to `ApprovalsPage/ApprovalsPage.tsx`
+- Move `ApprovalsPage.css` to `ApprovalsPage/ApprovalsPage.css`
+- Move `ApprovalsPage.test.tsx` to `ApprovalsPage/ApprovalsPage.test.tsx`
+- Rewrite page `../` imports to `../../` from the new folder depth
+- Rewrite test imports/mocks (`./ApprovalsPage`, `../api/*`, `../contexts/*`) for the new folder depth
+- Prefer a temporary compatibility stub at `pages/ApprovalsPage.tsx` so `App.tsx` can stay stable until final integration
+
+Audit note: the current page file has **7** relative imports, and the current test file has **4** relative import/mock paths that will need depth updates after the move.
+
 ### FilesPage
 
 - Move `FilesPage.tsx` to `FilesPage/FilesPage.tsx`
@@ -46,10 +67,12 @@ Audit note: the current file has **10** relative imports that will need depth up
 
 `src/renderer/App.tsx` is the only current shared import hotspot for the remaining page-per-directory moves:
 
+- `import { AnalysisHistoryPage } from "./pages/AnalysisHistoryPage";`
+- `import { ApprovalsPage } from "./pages/ApprovalsPage";`
 - `import { FilesPage } from "./pages/FilesPage";`
 - `import { VulnerabilitiesPage } from "./pages/VulnerabilitiesPage";`
 
-To keep worker ownership narrow, page-local moves should happen inside each page folder first, then the `App.tsx` import updates should be applied once during integration.
+To keep worker ownership narrow, page-local moves should happen inside each page folder first. When possible, leave a thin compatibility stub (`export { PageName } from "./PageName/PageName";`) in the flat page file so `App.tsx` does not need to change during each worker slice. Any remaining `App.tsx` import updates should be applied once during integration.
 
 ## Verification baseline
 
