@@ -2,11 +2,11 @@ import React, { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import type { Run } from "@aegis/shared";
 import { ChevronRight } from "lucide-react";
-import { fetchProjectRuns, logError } from "../api/client";
-import { useToast } from "../contexts/ToastContext";
-import { EmptyState, Spinner } from "../components/ui";
-import { formatDateTime, formatUptime } from "../utils/format";
-import { MODULE_META } from "../constants/modules";
+import { fetchProjectRuns, logError } from "../../api/client";
+import { useToast } from "../../contexts/ToastContext";
+import { EmptyState, Spinner } from "../../components/ui";
+import { formatDateTime, formatUptime } from "../../utils/format";
+import { MODULE_META } from "../../constants/modules";
 import "./AnalysisHistoryPage.css";
 
 const FILTER_OPTIONS: { value: string; label: string }[] = [
