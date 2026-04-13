@@ -6,7 +6,7 @@ import { PageHeader } from "../shared/ui";
 import "./ProjectBreadcrumbLayout.css";
 
 const pageNames: Record<string, string> = {
-  overview: "대시보드",
+  overview: "개요",
   "static-analysis": "정적 분석",
   files: "파일 탐색기",
   vulnerabilities: "취약점 목록",

@@ -35,6 +35,7 @@ describe("Sidebar", () => {
 
     expect(screen.getByText("Payments Platform")).toBeInTheDocument();
     expect(screen.getByText("프로젝트 작업 공간")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /개요/i })).toHaveAttribute("href", "/projects/p-1/overview");
     await waitFor(() => expect(mockFetchApprovalCount).toHaveBeenCalledWith("p-1"));
     expect(await screen.findByText("2")).toBeInTheDocument();
   });

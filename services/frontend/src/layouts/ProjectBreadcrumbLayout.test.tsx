@@ -37,7 +37,7 @@ describe("ProjectBreadcrumbLayout", () => {
     expect(screen.getByRole("navigation", { name: "프로젝트 경로" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "프로젝트" })).toHaveAttribute("href", "/dashboard");
     expect(screen.getByRole("link", { name: "Payments Platform" })).toHaveAttribute("href", "/projects/p-1/overview");
-    expect(screen.getByText("대시보드").closest(".breadcrumb-current")).toHaveAttribute("aria-current", "page");
+    expect(screen.getByText("개요").closest(".breadcrumb-current")).toHaveAttribute("aria-current", "page");
     expect(screen.getByText("overview child")).toBeInTheDocument();
   });
 

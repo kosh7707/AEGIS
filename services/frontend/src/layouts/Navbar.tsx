@@ -65,7 +65,7 @@ export const Navbar: React.FC = () => {
           className={`navbar-navlink${isDashboard ? " navbar-navlink--active" : ""}`}
           aria-current={isDashboard ? "page" : undefined}
         >
-          Dashboard
+          프로젝트
         </Link>
       </div>
 

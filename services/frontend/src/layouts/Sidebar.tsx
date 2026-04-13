@@ -24,7 +24,7 @@ import "./Sidebar.css";
 const ICON_SIZE = 18;
 
 const projectNavItems = [
-  { sub: "overview", label: "대시보드", icon: LayoutDashboard, comingSoon: false },
+  { sub: "overview", label: "개요", icon: LayoutDashboard, comingSoon: false },
   { sub: "files", label: "파일 탐색기", icon: Files, comingSoon: false },
   { sub: "vulnerabilities", label: "취약점 목록", icon: Shield, comingSoon: false },
   { sub: "static-analysis", label: "정적 분석", icon: FileSearch, comingSoon: false },
