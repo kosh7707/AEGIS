@@ -1,8 +1,9 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import { Archive, Settings } from "lucide-react";
 import type { RegisteredSdk, SdkRegistryStatus } from "../../api/sdk";
-import { deleteSdk, fetchProjectSdks } from "../../api/sdk";
+import type { SdkLogEvent } from "../../api/sdk";
+import { deleteSdk, fetchProjectSdks, fetchSdkInstallLog } from "../../api/sdk";
 import { logError } from "../../api/core";
 import { useToast } from "../../contexts/ToastContext";
 import { useSdkProgress, type SdkProgressDetails } from "../../hooks/useSdkProgress";
@@ -15,15 +16,43 @@ import { DangerZoneSection } from "./components/DangerZoneSection";
 import { PlaceholderSettingsSection } from "./components/PlaceholderSettingsSection";
 import "./ProjectSettingsPage.css";
 
+const SDK_LOG_TAIL_LINES = 200;
+
+interface SdkInstallLogState {
+  content: string;
+  truncated: boolean;
+  loading: boolean;
+  logPath?: string;
+}
+
+function shouldSurfaceSdkLog(sdk: RegisteredSdk): boolean {
+  return sdk.status !== "ready" || sdk.status.endsWith("_failed");
+}
+
+function formatSdkLogLine(entry: SdkLogEvent): string {
+  const time = new Date(entry.timestamp).toLocaleTimeString("ko-KR", {
+    hour12: false,
+  });
+  const source = entry.source === "installer"
+    ? entry.stream ? `installer/${entry.stream}` : "installer"
+    : entry.kind === "heartbeat"
+      ? "aegis/heartbeat"
+      : "aegis";
+
+  return `[${time}] [${source}] ${entry.message}`;
+}
+
 export const ProjectSettingsPage: React.FC = () => {
   const { projectId } = useParams<{ projectId: string }>();
   const toast = useToast();
   const [activeSection, setActiveSection] = useState<SettingsSection>("general");
   const [registered, setRegistered] = useState<RegisteredSdk[]>([]);
   const [sdkProgressById, setSdkProgressById] = useState<Record<string, SdkProgressDetails>>({});
+  const [sdkLogsById, setSdkLogsById] = useState<Record<string, SdkInstallLogState>>({});
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<RegisteredSdk | null>(null);
+  const sdkLogRecoveryKeyRef = useRef<Record<string, string>>({});
 
   const { connectionState: sdkConnectionState } = useSdkProgress({
     projectId,
@@ -69,6 +98,25 @@ export const ProjectSettingsPage: React.FC = () => {
         return next;
       });
     }, []),
+    onLog: useCallback((sdkId: string, entry: SdkLogEvent) => {
+      const nextLine = formatSdkLogLine(entry);
+      setRegistered((prev) => prev.map((sdk) => (
+        sdk.id === sdkId && entry.logPath ? { ...sdk, installLogPath: entry.logPath } : sdk
+      )));
+      setSdkLogsById((prev) => {
+        const existing = prev[sdkId];
+        const content = existing?.content ? `${existing.content}\n${nextLine}` : nextLine;
+        return {
+          ...prev,
+          [sdkId]: {
+            content,
+            truncated: existing?.truncated ?? false,
+            loading: false,
+            logPath: entry.logPath ?? existing?.logPath,
+          },
+        };
+      });
+    }, []),
   });
 
   useEffect(() => {
@@ -92,6 +140,59 @@ export const ProjectSettingsPage: React.FC = () => {
   useEffect(() => {
     void load();
   }, [load]);
+
+  const hydrateSdkInstallLog = useCallback(async (sdk: RegisteredSdk) => {
+    if (!projectId) return;
+
+    setSdkLogsById((prev) => ({
+      ...prev,
+      [sdk.id]: {
+        content: prev[sdk.id]?.content ?? "",
+        truncated: prev[sdk.id]?.truncated ?? false,
+        loading: true,
+        logPath: prev[sdk.id]?.logPath ?? sdk.installLogPath,
+      },
+    }));
+
+    try {
+      const snapshot = await fetchSdkInstallLog(projectId, sdk.id, SDK_LOG_TAIL_LINES);
+      setSdkLogsById((prev) => ({
+        ...prev,
+        [sdk.id]: {
+          content: snapshot.content,
+          truncated: snapshot.truncated,
+          loading: false,
+          logPath: snapshot.logPath ?? sdk.installLogPath,
+        },
+      }));
+    } catch (error) {
+      logError("Recover SDK install log", error);
+      setSdkLogsById((prev) => ({
+        ...prev,
+        [sdk.id]: {
+          content: prev[sdk.id]?.content ?? "",
+          truncated: prev[sdk.id]?.truncated ?? false,
+          loading: false,
+          logPath: prev[sdk.id]?.logPath ?? sdk.installLogPath,
+        },
+      }));
+    }
+  }, [projectId]);
+
+  useEffect(() => {
+    if (activeSection !== "sdk" || !projectId) return;
+
+    const visibleLogTargets = registered.filter(shouldSurfaceSdkLog);
+    if (visibleLogTargets.length === 0) return;
+
+    const connectionCycle = sdkConnectionState === "connected" ? "connected" : "offline";
+    for (const sdk of visibleLogTargets) {
+      const recoveryKey = `${connectionCycle}:${sdk.status}:${sdk.installLogPath ?? ""}`;
+      if (sdkLogRecoveryKeyRef.current[sdk.id] === recoveryKey) continue;
+      sdkLogRecoveryKeyRef.current[sdk.id] = recoveryKey;
+      void hydrateSdkInstallLog(sdk);
+    }
+  }, [activeSection, hydrateSdkInstallLog, projectId, registered, sdkConnectionState]);
 
   const handleRegistered = useCallback((sdk: RegisteredSdk) => {
     setRegistered((prev) => [...prev, sdk]);
@@ -135,6 +236,7 @@ export const ProjectSettingsPage: React.FC = () => {
               projectId={projectId}
               registered={registered}
               sdkProgressById={sdkProgressById}
+              sdkLogsById={sdkLogsById}
               showForm={showForm}
               onToggleForm={() => setShowForm((prev) => !prev)}
               onRegistered={handleRegistered}

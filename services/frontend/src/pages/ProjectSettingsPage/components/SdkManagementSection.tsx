@@ -33,6 +33,7 @@ interface SdkManagementSectionProps {
   projectId: string;
   registered: RegisteredSdk[];
   sdkProgressById: Record<string, SdkProgressDetails>;
+  sdkLogsById: Record<string, { content: string; truncated: boolean; loading: boolean; logPath?: string }>;
   showForm: boolean;
   onToggleForm: () => void;
   onRegistered: (sdk: RegisteredSdk) => void;
@@ -131,6 +132,7 @@ export const SdkManagementSection: React.FC<SdkManagementSectionProps> = ({
   projectId,
   registered,
   sdkProgressById,
+  sdkLogsById,
   showForm,
   onToggleForm,
   onRegistered,
@@ -178,6 +180,8 @@ export const SdkManagementSection: React.FC<SdkManagementSectionProps> = ({
             ? `${formatBytes(details.uploadedBytes)} / ${formatBytes(details.totalBytes)}`
             : null;
           const uploadPercent = details?.percent != null ? Math.max(0, Math.min(100, details.percent)) : null;
+          const sdkLog = sdkLogsById[sdk.id];
+          const showLog = Boolean(sdkLog?.content) || Boolean(sdkLog?.loading);
 
           return (
             <div key={sdk.id} className={cardClassName}>
@@ -230,6 +234,16 @@ export const SdkManagementSection: React.FC<SdkManagementSectionProps> = ({
               {sdk.verifyError && <div className="sdk-card__error">{sdk.verifyError}</div>}
               {sdk.status.endsWith("_failed") && sdk.installLogPath && (
                 <div className="sdk-card__logpath"><strong>로그 경로:</strong> <code>{sdk.installLogPath}</code></div>
+              )}
+              {showLog && (
+                <div className="sdk-card__install-log">
+                  <div className="sdk-card__install-log-head">
+                    <span className="sdk-card__install-log-title">Install log</span>
+                    {sdkLog?.truncated && <span className="sdk-card__install-log-meta">최근 로그 tail 표시</span>}
+                    {sdkLog?.loading && <span className="sdk-card__install-log-meta">복구 중…</span>}
+                  </div>
+                  <pre className="sdk-card__install-log-body">{sdkLog?.content || ""}</pre>
+                </div>
               )}
               {sdk.profile && <ProfileDetail profile={sdk.profile} />}
             </div>

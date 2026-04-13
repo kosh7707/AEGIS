@@ -27,12 +27,14 @@ class MockWebSocket {
 }
 
 const mockFetchProjectSdks = vi.fn();
+const mockFetchSdkInstallLog = vi.fn();
 const mockRegisterSdkByUpload = vi.fn();
 const mockDeleteSdk = vi.fn();
 const mockToast = { error: vi.fn(), success: vi.fn(), info: vi.fn() };
 
 vi.mock("../../api/sdk", () => ({
   fetchProjectSdks: (...args: unknown[]) => mockFetchProjectSdks(...args),
+  fetchSdkInstallLog: (...args: unknown[]) => mockFetchSdkInstallLog(...args),
   registerSdkByUpload: (...args: unknown[]) => mockRegisterSdkByUpload(...args),
   deleteSdk: (...args: unknown[]) => mockDeleteSdk(...args),
   getSdkWsUrl: vi.fn(() => "ws://localhost:3000/ws/sdk?projectId=p-1"),
@@ -57,6 +59,12 @@ describe("ProjectSettingsPage", () => {
     MockWebSocket.instances = [];
     vi.stubGlobal("WebSocket", MockWebSocket);
     mockFetchProjectSdks.mockResolvedValue({ builtIn: [], registered: [] });
+    mockFetchSdkInstallLog.mockResolvedValue({
+      sdkId: "sdk-1",
+      logPath: "/uploads/p-1/sdk/sdk-1/install.log",
+      content: "",
+      truncated: false,
+    });
     mockRegisterSdkByUpload.mockResolvedValue({
       id: "sdk-1",
       projectId: "p-1",
@@ -293,6 +301,85 @@ describe("ProjectSettingsPage", () => {
     expect(screen.getByText("sdk.bin")).toBeInTheDocument();
     expect(screen.getByText("1.0 KB / 2.0 KB")).toBeInTheDocument();
     expect(screen.getByLabelText("SDK upload progress")).toBeInTheDocument();
+  });
+
+  it("hydrates install log tail when reopening the sdk management surface", async () => {
+    mockFetchProjectSdks.mockResolvedValue({
+      builtIn: [],
+      registered: [{
+        id: "sdk-1",
+        projectId: "p-1",
+        name: "Binary SDK",
+        path: "/uploads/p-1/sdk/sdk-1",
+        status: "installing",
+        installLogPath: "/uploads/p-1/sdk/sdk-1/install.log",
+        verified: false,
+        createdAt: "2026-04-04T00:00:00Z",
+        updatedAt: "2026-04-04T00:00:00Z",
+      }],
+    });
+    mockFetchSdkInstallLog.mockResolvedValue({
+      sdkId: "sdk-1",
+      logPath: "/uploads/p-1/sdk/sdk-1/install.log",
+      content: "[10:00:00] [aegis] install started\n[10:00:05] [aegis/heartbeat] installer still running",
+      truncated: true,
+    });
+
+    renderPage();
+
+    await waitFor(() => fireEvent.click(screen.getByText("SDK Management")));
+    await waitFor(() => expect(mockFetchSdkInstallLog).toHaveBeenCalledWith("p-1", "sdk-1", 200));
+
+    expect(await screen.findByText("Install log")).toBeInTheDocument();
+    expect(screen.getByText(/install started/i)).toBeInTheDocument();
+    expect(screen.getByText("최근 로그 tail 표시")).toBeInTheDocument();
+  });
+
+  it("appends live sdk-log websocket lines to the recovered install log", async () => {
+    mockFetchProjectSdks.mockResolvedValue({
+      builtIn: [],
+      registered: [{
+        id: "sdk-1",
+        projectId: "p-1",
+        name: "Binary SDK",
+        path: "/uploads/p-1/sdk/sdk-1",
+        status: "installing",
+        installLogPath: "/uploads/p-1/sdk/sdk-1/install.log",
+        verified: false,
+        createdAt: "2026-04-04T00:00:00Z",
+        updatedAt: "2026-04-04T00:00:00Z",
+      }],
+    });
+    mockFetchSdkInstallLog.mockResolvedValue({
+      sdkId: "sdk-1",
+      logPath: "/uploads/p-1/sdk/sdk-1/install.log",
+      content: "[10:00:00] [aegis] install started",
+      truncated: false,
+    });
+
+    renderPage();
+
+    await waitFor(() => fireEvent.click(screen.getByText("SDK Management")));
+    expect(await screen.findByText("Install log")).toBeInTheDocument();
+
+    act(() => {
+      MockWebSocket.instances[0].onmessage?.({
+        data: JSON.stringify({
+          type: "sdk-log",
+          payload: {
+            sdkId: "sdk-1",
+            timestamp: "2026-04-13T02:20:00Z",
+            source: "installer",
+            kind: "output",
+            stream: "stdout",
+            message: "install step running",
+            logPath: "/uploads/p-1/sdk/sdk-1/install.log",
+          },
+        }),
+      });
+    });
+
+    expect(await screen.findByText(/install step running/i)).toBeInTheDocument();
   });
 
   it("refreshes sdk metadata from the canonical list when sdk-complete arrives", async () => {

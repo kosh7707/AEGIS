@@ -28,6 +28,7 @@ vi.mock("../api/sdk", () => ({
   getSdkWsUrl: vi.fn((pid: string) => `ws://localhost:3000/ws/sdk?projectId=${pid}`),
   deleteSdk: vi.fn(),
   registerSdkByPath: vi.fn(),
+  fetchSdkInstallLog: vi.fn(),
 }));
 
 vi.mock("../api/core", () => ({
@@ -55,6 +56,7 @@ describe("useSdkProgress", () => {
         onProgress: vi.fn(),
         onComplete: vi.fn(),
         onError: vi.fn(),
+        onLog: vi.fn(),
       }),
     );
 
@@ -69,6 +71,7 @@ describe("useSdkProgress", () => {
         onProgress,
         onComplete: vi.fn(),
         onError: vi.fn(),
+        onLog: vi.fn(),
       }),
     );
 
@@ -90,6 +93,7 @@ describe("useSdkProgress", () => {
         onProgress: vi.fn(),
         onComplete,
         onError: vi.fn(),
+        onLog: vi.fn(),
       }),
     );
 
@@ -111,6 +115,7 @@ describe("useSdkProgress", () => {
         onProgress: vi.fn(),
         onComplete: vi.fn(),
         onError,
+        onLog: vi.fn(),
       }),
     );
 
@@ -132,6 +137,7 @@ describe("useSdkProgress", () => {
         onProgress,
         onComplete: vi.fn(),
         onError: vi.fn(),
+        onLog: vi.fn(),
       }),
     );
 
@@ -165,6 +171,7 @@ describe("useSdkProgress", () => {
         onProgress,
         onComplete: vi.fn(),
         onError: vi.fn(),
+        onLog: vi.fn(),
       }),
     );
 
@@ -192,6 +199,7 @@ describe("useSdkProgress", () => {
         onProgress: vi.fn(),
         onComplete: vi.fn(),
         onError,
+        onLog: vi.fn(),
       }),
     );
 
@@ -218,6 +226,7 @@ describe("useSdkProgress", () => {
         onProgress: vi.fn(),
         onComplete: vi.fn(),
         onError,
+        onLog: vi.fn(),
       }),
     );
 
@@ -244,10 +253,49 @@ describe("useSdkProgress", () => {
         onProgress: vi.fn(),
         onComplete: vi.fn(),
         onError: vi.fn(),
+        onLog: vi.fn(),
       }),
     );
 
     // Should still expose connectionState as disconnected
     expect(result.current.connectionState).toBe("disconnected");
+  });
+
+  it("calls onLog on sdk-log message", () => {
+    const onLog = vi.fn();
+    renderHook(() =>
+      useSdkProgress({
+        projectId: "p-1",
+        onProgress: vi.fn(),
+        onComplete: vi.fn(),
+        onError: vi.fn(),
+        onLog,
+      }),
+    );
+
+    act(() => {
+      simulateMessage({
+        type: "sdk-log",
+        payload: {
+          sdkId: "sdk-1",
+          timestamp: "2026-04-13T02:20:00Z",
+          source: "installer",
+          kind: "output",
+          stream: "stdout",
+          message: "install step running",
+          logPath: "/uploads/p-1/sdk/sdk-1/install.log",
+        },
+      });
+    });
+
+    expect(onLog).toHaveBeenCalledWith("sdk-1", {
+      sdkId: "sdk-1",
+      timestamp: "2026-04-13T02:20:00Z",
+      source: "installer",
+      kind: "output",
+      stream: "stdout",
+      message: "install step running",
+      logPath: "/uploads/p-1/sdk/sdk-1/install.log",
+    });
   });
 });

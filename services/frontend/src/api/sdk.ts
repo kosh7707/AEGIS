@@ -13,6 +13,27 @@ export type SdkArtifactKind = _SdkArtifactKind;
 export type SdkAnalyzedProfile = _SdkAnalyzedProfile;
 export type RegisteredSdk = _RegisteredSdk;
 
+export type SdkLogSource = "aegis" | "installer";
+export type SdkLogKind = "lifecycle" | "heartbeat" | "output" | "terminal";
+export type SdkLogStream = "stdout" | "stderr";
+
+export interface SdkLogEvent {
+  sdkId: string;
+  timestamp: string;
+  source: SdkLogSource;
+  kind: SdkLogKind;
+  stream?: SdkLogStream;
+  message: string;
+  logPath?: string;
+}
+
+export interface SdkLogTailResponse {
+  sdkId: string;
+  logPath?: string;
+  content: string;
+  truncated: boolean;
+}
+
 /* ── Local types (NOT migrated — SdkProfile.defaults shape differs from shared) ── */
 
 export interface SdkProfile {
@@ -47,6 +68,19 @@ export async function fetchProjectSdks(projectId: string): Promise<SdkListRespon
 export async function fetchSdkDetail(projectId: string, sdkId: string): Promise<RegisteredSdk> {
   const res = await apiFetch<{ success: boolean; data: RegisteredSdk }>(
     `/api/projects/${projectId}/sdk/${sdkId}`,
+  );
+  return res.data;
+}
+
+export async function fetchSdkInstallLog(
+  projectId: string,
+  sdkId: string,
+  tailLines = 200,
+): Promise<SdkLogTailResponse> {
+  const params = new URLSearchParams();
+  params.set("tailLines", String(tailLines));
+  const res = await apiFetch<{ success: boolean; data: SdkLogTailResponse }>(
+    `/api/projects/${projectId}/sdk/${sdkId}/log?${params.toString()}`,
   );
   return res.data;
 }

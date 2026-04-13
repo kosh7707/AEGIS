@@ -214,6 +214,17 @@ export async function mockApiFetch<T>(path: string, options?: RequestInit): Prom
         },
       } as T);
     }
+    if (sub === "/sdk/sdk-registered-1/log" && method === "GET") {
+      return delay({
+        success: true,
+        data: {
+          sdkId: "sdk-registered-1",
+          logPath: "/opt/toolchains/gcc-arm-none-eabi/install.log",
+          content: "[10:00:00] [aegis] install started",
+          truncated: false,
+        },
+      } as T);
+    }
 
     // Settings
     if (sub === "/settings" && method === "GET") {

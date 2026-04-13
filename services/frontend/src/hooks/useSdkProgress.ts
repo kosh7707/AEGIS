@@ -1,5 +1,5 @@
 import { useEffect, useRef, useCallback, useState } from "react";
-import type { SdkRegistryStatus, RegisteredSdk } from "../api/sdk";
+import type { SdkRegistryStatus, RegisteredSdk, SdkLogEvent } from "../api/sdk";
 import { fetchProjectSdks, getSdkWsUrl } from "../api/sdk";
 import { logError } from "../api/core";
 import { createSeqTracker, parseWsMessage, createReconnectingWs } from "../utils/wsEnvelope";
@@ -13,7 +13,7 @@ export interface SdkProgressDetails {
 }
 
 export interface SdkProgressEvent {
-  type: "sdk-progress" | "sdk-complete" | "sdk-error";
+  type: "sdk-progress" | "sdk-complete" | "sdk-error" | "sdk-log";
   sdkId: string;
   phase?: SdkRegistryStatus;
   profile?: RegisteredSdk["profile"];
@@ -27,6 +27,7 @@ interface UseSdkProgressOptions {
   onProgress: (sdkId: string, phase: SdkRegistryStatus, details?: SdkProgressDetails) => void;
   onComplete: (sdkId: string, profile: RegisteredSdk["profile"]) => void;
   onError: (sdkId: string, error: string, phase?: string, logPath?: string) => void;
+  onLog?: (sdkId: string, entry: SdkLogEvent) => void;
 }
 
 export function useSdkProgress({
@@ -34,11 +35,12 @@ export function useSdkProgress({
   onProgress,
   onComplete,
   onError,
+  onLog,
 }: UseSdkProgressOptions): ReconnectableHookResult {
   const [connectionState, setConnectionState] = useState<ConnectionState>("disconnected");
   const rwsRef = useRef<ReturnType<typeof createReconnectingWs> | null>(null);
-  const callbacksRef = useRef({ onProgress, onComplete, onError });
-  callbacksRef.current = { onProgress, onComplete, onError };
+  const callbacksRef = useRef({ onProgress, onComplete, onError, onLog });
+  callbacksRef.current = { onProgress, onComplete, onError, onLog };
 
   const cleanup = useCallback(() => {
     if (rwsRef.current) {
@@ -71,6 +73,16 @@ export function useSdkProgress({
             callbacksRef.current.onComplete(payload.sdkId, payload.profile);
           } else if (type === "sdk-error") {
             callbacksRef.current.onError(payload.sdkId, payload.error, payload.phase, payload.logPath);
+          } else if (type === "sdk-log") {
+            callbacksRef.current.onLog?.(payload.sdkId, {
+              sdkId: payload.sdkId,
+              timestamp: payload.timestamp,
+              source: payload.source,
+              kind: payload.kind,
+              stream: payload.stream,
+              message: payload.message,
+              logPath: payload.logPath,
+            });
           }
         } catch (e) {
           console.warn("[WS:sdk] malformed message:", e);
