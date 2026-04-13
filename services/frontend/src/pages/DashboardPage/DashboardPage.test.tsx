@@ -175,4 +175,24 @@ describe("DashboardPage", () => {
     expect(screen.getByText(/최근 프로젝트 상태를 한 번 점검해두면 충분합니다/)).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Project 1 열기" })).not.toBeInTheDocument();
   });
+
+  it("does not invent an analysis-complete activity before a project has ever been analyzed", async () => {
+    mockUseProjects.mockReturnValue({
+      projects: [
+        makeProject(1, {
+          lastAnalysisAt: undefined,
+          gateStatus: undefined,
+          unresolvedDelta: 0,
+          severitySummary: { critical: 0, high: 0, medium: 0, low: 0 },
+        }),
+      ],
+      loading: false,
+      createProject: mockCreateProject,
+    });
+
+    renderPage();
+
+    expect(screen.getByText("아직 활동 없음")).toBeInTheDocument();
+    expect(screen.queryByText("분석 완료")).not.toBeInTheDocument();
+  });
 });

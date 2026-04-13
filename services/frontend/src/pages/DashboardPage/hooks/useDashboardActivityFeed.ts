@@ -36,7 +36,7 @@ function buildActivity(projects: DashboardProject[]): ActivityEvent[] {
 }
 
 function buildPrimaryActivityEvent(project: DashboardProject): ActivityEvent | null {
-  const timestamp = project.lastAnalysisAt || project.updatedAt;
+  const timestamp = project.lastAnalysisAt;
   if (!timestamp) {
     return null;
   }
