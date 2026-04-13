@@ -1,5 +1,4 @@
 import { useMemo, useState } from "react";
-import { totalFindings } from "../dashboardProjectSignals";
 import type { ActivityEvent, DashboardProject } from "../dashboardTypes";
 
 interface UseDashboardActivityFeedOptions {
@@ -36,52 +35,25 @@ function buildActivity(projects: DashboardProject[]): ActivityEvent[] {
 }
 
 function buildPrimaryActivityEvent(project: DashboardProject): ActivityEvent | null {
-  const timestamp = project.lastAnalysisAt;
+  const timestamp = latestProjectTimestamp(project);
   if (!timestamp) {
     return null;
   }
 
-  const findingsTotal = totalFindings(project);
-
-  if (project.gateStatus === "fail") {
-    return {
-      id: `${project.id}-gate-fail`,
-      projectId: project.id,
-      projectName: project.name,
-      type: "gate_fail",
-      description: "품질 게이트에 실패했습니다",
-      timestamp,
-    };
-  }
-
-  if (project.gateStatus === "warning") {
-    return {
-      id: `${project.id}-gate-warning`,
-      projectId: project.id,
-      projectName: project.name,
-      type: "gate_warning",
-      description: "품질 게이트 경고 상태입니다",
-      timestamp,
-    };
-  }
-
-  if (findingsTotal > 0) {
-    return {
-      id: `${project.id}-vulnerability`,
-      projectId: project.id,
-      projectName: project.name,
-      type: "vulnerability",
-      description: `취약점 ${findingsTotal}건이 발견되었습니다`,
-      timestamp,
-    };
-  }
-
   return {
-    id: `${project.id}-analysis`,
+    id: `${project.id}-latest-update`,
     projectId: project.id,
     projectName: project.name,
-    type: project.gateStatus === "pass" ? "gate_pass" : "analysis",
-    description: project.gateStatus === "pass" ? "품질 게이트를 통과했습니다" : "정적 분석이 완료되었습니다",
+    description: "가장 마지막 수정",
     timestamp,
   };
+}
+
+function latestProjectTimestamp(project: DashboardProject): string | null {
+  const candidates = [project.updatedAt, project.lastAnalysisAt].filter((value): value is string => Boolean(value));
+  if (candidates.length === 0) {
+    return null;
+  }
+
+  return candidates.sort((left, right) => new Date(right).getTime() - new Date(left).getTime())[0] ?? null;
 }

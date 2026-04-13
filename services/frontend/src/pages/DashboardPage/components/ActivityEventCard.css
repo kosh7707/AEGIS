@@ -1,7 +1,8 @@
 .activity-event-card {
   display: flex;
-  flex-direction: column;
-  gap: 0.125rem;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--cds-spacing-03);
   padding: var(--cds-spacing-03) 0;
   border-bottom: 1px solid var(--cds-border-subtle);
   color: inherit;
@@ -23,13 +24,6 @@
   outline-offset: 2px;
 }
 
-.activity-event-card__meta {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--cds-spacing-03);
-}
-
 .activity-event-card__summary {
   display: flex;
   flex-direction: column;
@@ -47,47 +41,7 @@
   font-size: var(--cds-type-xs);
   color: var(--cds-text-placeholder);
   white-space: nowrap;
-}
-
-.activity-event-card__type {
-  display: inline-flex;
-  align-items: center;
-  min-height: 1.5rem;
-  padding: 0 0.5rem;
-  border-radius: var(--dashboard-radius-pill);
-  font-size: 0.6875rem;
-  font-weight: var(--cds-weight-medium);
-}
-
-.activity-event-card__type--analysis {
-  background: var(--aegis-severity-low-bg);
-  color: var(--aegis-severity-low);
-}
-
-.activity-event-card__type--gate_pass {
-  background: var(--cds-support-success-bg);
-  color: var(--cds-support-success);
-}
-
-.activity-event-card__type--gate_fail {
-  background: var(--aegis-severity-critical-bg);
-  color: var(--aegis-severity-critical);
-}
-
-.activity-event-card__type--gate_warning {
-  background: var(--aegis-severity-medium-bg);
-  color: var(--aegis-severity-medium);
-}
-
-.activity-event-card__type--vulnerability {
-  background: var(--aegis-severity-high-bg);
-  color: var(--aegis-severity-high);
-}
-
-.activity-event-card__type--approval,
-.activity-event-card__type--upload {
-  background: var(--cds-layer-01);
-  color: var(--cds-text-secondary);
+  margin-top: 0.125rem;
 }
 
 .activity-event-card__description {
@@ -98,8 +52,7 @@
 }
 
 @media (max-width: 640px) {
-  .activity-event-card__meta {
-    justify-content: flex-start;
-    flex-wrap: wrap;
+  .activity-event-card {
+    flex-direction: column;
   }
 }
