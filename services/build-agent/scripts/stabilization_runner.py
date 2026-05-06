@@ -493,6 +493,25 @@ def _post_json(url: str, payload: dict[str, Any], request_id: str, timeout_sec: 
     return json.loads(raw)
 
 
+def _live_error_response(exc: Exception) -> dict[str, Any]:
+    message = str(exc) or exc.__class__.__name__
+    if isinstance(exc, TimeoutError) or "timed out" in message.lower():
+        status = "timeout"
+        failure_code = "RUNNER_CLIENT_TIMEOUT"
+    else:
+        status = "model_error"
+        failure_code = "RUNNER_LIVE_REQUEST_ERROR"
+    return {
+        "status": status,
+        "failureCode": failure_code,
+        "failureDetail": message[:2000],
+        "runnerError": {
+            "type": exc.__class__.__name__,
+            "message": message[:2000],
+        },
+    }
+
+
 def run_live(cases: list[ManifestCase], manifest: Path, output_dir: Path, run_label: str, build_url: str, timeout_sec: int) -> dict[str, Any]:
     case_summaries: list[dict[str, Any]] = []
     all_passed = True
@@ -501,8 +520,13 @@ def run_live(cases: list[ManifestCase], manifest: Path, output_dir: Path, run_la
         request = make_build_request(case, run_label)
         request_id = request["taskId"]
         _write_json(case_dir / "build-req.json", request)
-        response = _post_json(build_url, request, request_id, timeout_sec)
-        _write_json(case_dir / "build-resp.json", response)
+        try:
+            response = _post_json(build_url, request, request_id, timeout_sec)
+            _write_json(case_dir / "build-resp.json", response)
+        except Exception as exc:
+            response = _live_error_response(exc)
+            _write_json(case_dir / "build-resp.json", response)
+            _write_json(case_dir / "build-error.json", response["runnerError"])
         classification = classify_response(case, response)
         comparison = compare_to_expected(classification, case.expected_oracle)
         _write_json(case_dir / "classification.json", comparison.to_json())

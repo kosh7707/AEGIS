@@ -230,6 +230,39 @@ def test_main_without_live_uses_dry_run_path(monkeypatch: pytest.MonkeyPatch, tm
     assert exit_code == 0
     assert called == {"dry_run": True}
 
+
+
+def test_live_run_records_timeout_and_continues_to_next_case(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    case_a = _case(tmp_path, case_id="alpha")
+    case_b = _case(tmp_path, case_id="beta")
+    output_dir = tmp_path / "out"
+    calls: list[str] = []
+
+    def fake_post_json(build_url, payload, request_id, timeout_sec):
+        calls.append(request_id)
+        if payload["context"]["trusted"]["buildTargetName"] == "alpha":
+            raise TimeoutError("timed out")
+        return _completed_response()
+
+    monkeypatch.setattr(runner, "_post_json", fake_post_json)
+
+    summary = runner.run_live([case_a, case_b], tmp_path / "manifest.json", output_dir, "unit-live", "http://build", 1)
+
+    assert summary["passed"] is False
+    assert [case["caseId"] for case in summary["cases"]] == ["alpha", "beta"]
+    alpha = summary["cases"][0]
+    beta = summary["cases"][1]
+    assert alpha["classification"]["taskClass"] == runner.TASK_FAILED
+    assert alpha["classification"]["status"] == "timeout"
+    assert alpha["classification"]["failureCode"] == "RUNNER_CLIENT_TIMEOUT"
+    assert beta["passed"] is True
+    assert (output_dir / "alpha" / "build-error.json").is_file()
+    assert (output_dir / "alpha" / "classification.json").is_file()
+    assert (output_dir / "beta" / "build-resp.json").is_file()
+    assert (output_dir / "summary.json").is_file()
+    assert len(calls) == 2
+
+
 def test_dry_run_writes_requests_and_summary(tmp_path: Path) -> None:
     case_a = _case(tmp_path, case_id="alpha")
     case_b = _case(tmp_path, case_id="beta", target="nested", script_hint=".aegis/build.sh")
