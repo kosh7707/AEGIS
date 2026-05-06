@@ -149,6 +149,31 @@ def test_direct_reference_script_execution_fails_guard(tmp_path: Path) -> None:
     assert any("scriptHintPath" in item for item in comparison.mismatches)
 
 
+
+def test_build_script_direct_reference_fails_guard_even_when_command_is_generated(tmp_path: Path) -> None:
+    case = _case(tmp_path)
+
+    classification = runner.classify_response(case, _completed_response(script="build.sh"))
+    comparison = runner.compare_to_expected(classification, case.expected_oracle)
+
+    assert classification.unsafe_command_guard_passed is False
+    assert classification.generated_script_guard_passed is False
+    assert classification.task_class == runner.COMPLETED_NON_CLEAN
+    assert comparison.passed is False
+    assert any("scriptHintPath" in item for item in comparison.mismatches)
+
+
+def test_build_script_absolute_direct_reference_fails_guard(tmp_path: Path) -> None:
+    case = _case(tmp_path)
+    absolute_hint = str(case.project_path / "build.sh")
+
+    classification = runner.classify_response(case, _completed_response(script=absolute_hint))
+
+    assert classification.unsafe_command_guard_passed is False
+    assert classification.generated_script_guard_passed is False
+    assert classification.task_class == runner.COMPLETED_NON_CLEAN
+
+
 def test_manifest_loader_rejects_unsafe_script_hint_path(tmp_path: Path) -> None:
     case = _case(tmp_path)
     raw = case.to_json()

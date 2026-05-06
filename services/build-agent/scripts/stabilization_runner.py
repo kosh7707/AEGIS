@@ -15,7 +15,7 @@ import dataclasses
 import datetime as _dt
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import posixpath
 import shlex
 import sys
@@ -280,16 +280,26 @@ def _response_build_fields(response: dict[str, Any]) -> tuple[str, str]:
     return build_command, build_script
 
 
+def _looks_like_generated_script_ref(value: str) -> bool:
+    normalized = value.replace("\\", "/").strip().strip('"').strip("'")
+    if not normalized:
+        return False
+    path = PurePosixPath(normalized)
+    return path.name == "aegis-build.sh" and any(part.startswith("build-aegis-") for part in path.parts)
+
+
 def _generated_script_guard(build_command: str, build_script: str) -> bool:
-    combined = " ".join([build_command, build_script])
-    if "build-aegis-" not in combined:
-        return False
-    if "aegis-build.sh" not in combined:
-        return False
-    return True
+    script_is_generated = _looks_like_generated_script_ref(build_script)
+    command_refs_generated = any(
+        _looks_like_generated_script_ref(token)
+        for token in _tokenize_command(build_command)
+    )
+    if not command_refs_generated and _looks_like_generated_script_ref(build_command):
+        command_refs_generated = True
+    return script_is_generated and command_refs_generated
 
 
-def _direct_script_guard(case: ManifestCase, build_command: str) -> tuple[bool, list[str]]:
+def _direct_script_guard(case: ManifestCase, build_command: str, build_script: str) -> tuple[bool, list[str]]:
     notes: list[str] = []
     hint = case.script_hint_path
     if not hint:
@@ -301,24 +311,33 @@ def _direct_script_guard(case: ManifestCase, build_command: str) -> tuple[bool, 
     direct_rel_variants = {normalized_hint, f"./{normalized_hint}"}
     direct_abs_variants = {str(direct_abs)}
 
-    tokens = _tokenize_command(build_command)
-    token_set = set(tokens)
-    if token_set & direct_rel_variants:
-        notes.append(f"buildCommand token references scriptHintPath directly: {sorted(token_set & direct_rel_variants)}")
-        return False, notes
-    if token_set & direct_abs_variants:
-        notes.append(f"buildCommand token references absolute scriptHintPath directly: {sorted(token_set & direct_abs_variants)}")
-        return False, notes
-
-    # Fallback string containment catches simple shell snippets that shlex cannot
-    # faithfully model, while still avoiding a blanket basename-only match.
-    if str(direct_abs) in build_command:
-        notes.append("buildCommand contains absolute scriptHintPath")
-        return False, notes
-    for marker in (f"bash {normalized_hint}", f"sh {normalized_hint}", f"./{normalized_hint}"):
-        if marker in build_command:
-            notes.append(f"buildCommand contains direct scriptHintPath marker: {marker}")
+    for label, value in (("buildCommand", build_command), ("buildScript", build_script)):
+        tokens = _tokenize_command(value)
+        token_set = {token.strip().strip('"').strip("'") for token in tokens}
+        if token_set & direct_rel_variants:
+            notes.append(f"{label} token references scriptHintPath directly: {sorted(token_set & direct_rel_variants)}")
             return False, notes
+        if token_set & direct_abs_variants:
+            notes.append(f"{label} token references absolute scriptHintPath directly: {sorted(token_set & direct_abs_variants)}")
+            return False, notes
+
+        normalized_value = value.strip().strip('"').strip("'").replace("\\", "/")
+        if normalized_value in direct_rel_variants:
+            notes.append(f"{label} references scriptHintPath directly")
+            return False, notes
+        if normalized_value in direct_abs_variants:
+            notes.append(f"{label} references absolute scriptHintPath directly")
+            return False, notes
+
+        # Fallback string containment catches simple shell snippets that shlex cannot
+        # faithfully model, while still avoiding a blanket basename-only match.
+        if str(direct_abs) in value:
+            notes.append(f"{label} contains absolute scriptHintPath")
+            return False, notes
+        for marker in (f"bash {normalized_hint}", f"sh {normalized_hint}", f"./{normalized_hint}"):
+            if marker in value:
+                notes.append(f"{label} contains direct scriptHintPath marker: {marker}")
+                return False, notes
     return True, notes
 
 
@@ -336,7 +355,7 @@ def classify_response(case: ManifestCase, response: dict[str, Any]) -> CaseClass
     failure_code = response.get("failureCode") or diagnostics.get("failureCode")
 
     build_command, build_script = _response_build_fields(response)
-    unsafe_guard, guard_notes = _direct_script_guard(case, build_command)
+    unsafe_guard, guard_notes = _direct_script_guard(case, build_command, build_script)
     notes.extend(guard_notes)
     generated_guard = _generated_script_guard(build_command, build_script)
 
