@@ -764,6 +764,8 @@ class ResultAssembler:
             if not normalized_raw or normalized_raw.startswith("../") or "/../" in normalized_raw:
                 continue
             candidates: list[str] = []
+            if len(PurePosixPath(normalized_raw).parts) > 1:
+                candidates.append(os.path.join(build_root, normalized_raw))
             if any(is_under_current_dir(normalized_raw, rel_dir) for rel_dir in current_rel_dirs):
                 candidates.append(os.path.join(build_root, normalized_raw))
             for rel_dir in current_rel_dirs:

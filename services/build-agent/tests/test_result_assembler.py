@@ -526,6 +526,54 @@ def test_strict_build_infers_artifact_from_project_build_dir_when_script_dir_dif
     assert resp.result.buildResult.artifactVerification.matched is True
 
 
+
+def test_strict_build_infers_project_relative_expected_artifact_path(tmp_path) -> None:
+    project_root = tmp_path / "project"
+    script_dir = project_root / "build-aegis-generated"
+    artifact_dir = project_root / "apps"
+    script_dir.mkdir(parents=True)
+    artifact_dir.mkdir(parents=True)
+    (script_dir / "aegis-build.sh").write_text("#!/usr/bin/env bash\n./Configure && make\n")
+    (artifact_dir / "openssl").write_text("binary")
+
+    assembler = ResultAssembler()
+    session = _make_session(
+        metadata=_strict_metadata(expected_artifacts=["apps/openssl"]),
+        trusted={
+            "projectPath": str(project_root),
+            "buildTargetPath": ".",
+            "buildTargetName": "openssl",
+        },
+    )
+    _record_build_success(session)
+    content = json.dumps({
+        "summary": "Build complete",
+        "claims": [],
+        "usedEvidenceRefs": ["ref-001"],
+        "needsHumanReview": False,
+        "recommendedNextSteps": [],
+        "policyFlags": [],
+        "buildResult": {
+            "success": True,
+            "buildCommand": f"bash {script_dir}/aegis-build.sh",
+            "buildScript": "build-aegis-generated/aegis-build.sh",
+            "buildDir": "build-aegis-generated",
+            "errorLog": None,
+            "producedArtifacts": [],
+        },
+    })
+
+    resp = assembler.build(content, session)
+
+    assert isinstance(resp, TaskSuccessResponse)
+    assert resp.result.buildResult is not None
+    produced_paths = [artifact.path for artifact in resp.result.buildResult.producedArtifacts]
+    assert "apps/openssl" in produced_paths
+    assert resp.result.buildResult.artifactVerification is not None
+    assert resp.result.buildResult.artifactVerification.matched is True
+    assert resp.result.cleanPass is True
+
+
 def test_strict_build_does_not_infer_stale_root_artifact(tmp_path) -> None:
     project_root = tmp_path / "project"
     project_root.mkdir(parents=True)
