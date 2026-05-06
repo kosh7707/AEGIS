@@ -54,6 +54,7 @@ def test_build_system_prompt_includes_script_hint_path_as_reference_only() -> No
     assert "명령 순서와 옵션은 가능한 한 보존" in prompt
     assert "자의적으로 다른 하위 디렉토리 make target으로 바꾸지 마라" in prompt
     assert "build-aegis-deadbeef/aegis-build.sh" in prompt
+    assert "write_file의 `path` 인자에는 `aegis-build.sh`만 넣어라" in prompt
     assert "UNTRUSTED SOURCE CONTENT" in prompt
     assert "BEGIN UNTRUSTED SOURCE CONTENT" in prompt
 

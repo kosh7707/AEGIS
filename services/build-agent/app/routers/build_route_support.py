@@ -275,6 +275,7 @@ def build_system_prompt(
         "**3턴째에는 반드시 write_file로 빌드 스크립트를 작성하라. 탐색을 더 하지 마라.**\n\n"
         "### 2단계: 빌드 스크립트 작성 (write_file)\n"
         f"`{build_subdir}/aegis-build.sh`에 빌드 스크립트를 작성하라. 스크립트 요구사항:\n"
+        f"- write_file의 `path` 인자에는 `aegis-build.sh`만 넣어라. `{build_subdir}/aegis-build.sh`는 최종 JSON의 `buildScript`와 try_build 명령에만 사용한다.\n"
         f"- 빌드 출력은 `{build_source}/{build_subdir}/`에 생성\n"
         f"- **중요: 호출자가 선언한 buildDir는 `{build_subdir}/` 자체다. `{build_subdir}/build`, `{build_subdir}/out`, 또 다른 `build-aegis-*` 중첩 디렉토리를 기본 빌드 디렉토리로 새로 만들지 마라.**\n"
         f"- CMake out-of-source build가 필요하면 `BUILD_DIR=\"${{PROJECT_ROOT}}/{build_subdir}\"` 로 두고 그 디렉토리에서 `cmake \"$PROJECT_ROOT\"` 를 실행하라.\n"

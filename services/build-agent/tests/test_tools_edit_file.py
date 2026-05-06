@@ -89,6 +89,22 @@ async def test_edit_nested_path(setup):
 
 
 @pytest.mark.asyncio
+async def test_edit_accepts_project_relative_generated_script_path_without_nesting(setup):
+    tool, policy, build = setup
+    build_dir = build.name
+    (build / "aegis-build.sh").write_text("#!/bin/bash\necho old")
+    policy.record_created("aegis-build.sh")
+
+    result = await tool.execute(
+        {"path": f"{build_dir}/aegis-build.sh", "content": "#!/bin/bash\necho new"}
+    )
+
+    assert result.success is True
+    assert (build / "aegis-build.sh").read_text() == "#!/bin/bash\necho new"
+    assert not (build / build_dir).exists()
+
+
+@pytest.mark.asyncio
 async def test_edit_returns_byte_count(setup):
     tool, policy, build = setup
     (build / "a.sh").write_text("x")

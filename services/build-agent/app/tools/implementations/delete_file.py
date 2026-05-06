@@ -5,6 +5,7 @@ import os
 
 from app.agent_runtime.schemas.agent import ToolResult
 from app.policy.file_policy import FilePolicy
+from app.tools.implementations.path_utils import normalize_generated_build_path
 
 
 class DeleteFileTool:
@@ -14,7 +15,7 @@ class DeleteFileTool:
         self._file_policy = file_policy
 
     async def execute(self, arguments: dict) -> ToolResult:
-        rel_path = arguments.get("path", "")
+        rel_path = normalize_generated_build_path(arguments.get("path", ""), self._build_dir)
 
         if not rel_path:
             return ToolResult(

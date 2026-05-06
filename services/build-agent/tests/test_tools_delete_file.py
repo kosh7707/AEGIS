@@ -75,3 +75,19 @@ async def test_delete_then_cannot_edit(setup):
 
     await tool.execute({"path": "script.sh"})
     assert policy.can_edit("script.sh") is False
+
+
+@pytest.mark.asyncio
+async def test_delete_accepts_project_relative_generated_script_path_without_nesting(setup):
+    tool, policy, build = setup
+    build_dir = build.name
+    f = build / "aegis-build.sh"
+    f.write_text("#!/bin/bash\necho stale")
+    policy.record_created("aegis-build.sh")
+
+    result = await tool.execute({"path": f"{build_dir}/aegis-build.sh"})
+
+    assert result.success is True
+    assert not f.exists()
+    assert not (build / build_dir).exists()
+    assert policy.can_edit("aegis-build.sh") is False

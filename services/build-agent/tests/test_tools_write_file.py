@@ -126,6 +126,38 @@ async def test_write_custom_build_dir(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_write_accepts_project_relative_generated_script_path_without_nesting(tmp_path):
+    """LLMs sometimes pass the final buildScript path to write_file.
+
+    The tool schema says path is relative to build_dir, but the final JSON and
+    operational command use ``{build_dir}/aegis-build.sh``. Accepting that
+    project-relative spelling prevents accidental build-aegis/build-aegis nesting.
+    """
+    build_dir = "build-aegis-deadbeef"
+    tool = WriteFileTool(project_path=str(tmp_path), build_dir=build_dir)
+
+    result = await tool.execute(
+        {"path": f"{build_dir}/aegis-build.sh", "content": "#!/bin/bash\necho ok\n"}
+    )
+
+    assert result.success is True
+    assert os.path.isfile(os.path.join(tmp_path, build_dir, "aegis-build.sh"))
+    assert not os.path.exists(os.path.join(tmp_path, build_dir, build_dir))
+    assert f'"written": "{build_dir}/aegis-build.sh"' in result.content
+
+
+@pytest.mark.asyncio
+async def test_write_prefixed_traversal_remains_blocked(tmp_path):
+    build_dir = "build-aegis-deadbeef"
+    tool = WriteFileTool(project_path=str(tmp_path), build_dir=build_dir)
+
+    result = await tool.execute({"path": f"{build_dir}/../escape.txt", "content": "pwned"})
+
+    assert result.success is False
+    assert not os.path.isfile(os.path.join(tmp_path, "escape.txt"))
+
+
+@pytest.mark.asyncio
 async def test_write_empty_path(tmp_path):
     """빈 path 시 에러 반환."""
     tool = WriteFileTool(project_path=str(tmp_path))

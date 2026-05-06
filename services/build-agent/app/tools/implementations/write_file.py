@@ -6,6 +6,7 @@ import os
 from typing import TYPE_CHECKING
 
 from app.agent_runtime.schemas.agent import ToolResult
+from app.tools.implementations.path_utils import normalize_generated_build_path
 
 if TYPE_CHECKING:
     from app.policy.file_policy import FilePolicy
@@ -19,7 +20,7 @@ class WriteFileTool:
         self._file_policy = file_policy
 
     async def execute(self, arguments: dict) -> ToolResult:
-        rel_path = arguments.get("path", "")
+        rel_path = normalize_generated_build_path(arguments.get("path", ""), self._build_dir)
         content = arguments.get("content", "")
         if not rel_path:
             return ToolResult(tool_call_id="", name="", success=False,
