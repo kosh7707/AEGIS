@@ -195,13 +195,15 @@ class Phase0Executor:
         self,
         setup_script: str | None = None,
         sdk_environment: dict[str, str] | None = None,
+        script_hint_path: str | None = None,
     ) -> str | None:
         """감지된 빌드 시스템에 맞는 초기 빌드 스크립트를 결정론적으로 생성한다.
 
-        unknown/shell인 경우 None (LLM이 자유 생성).
+        unknown인 경우 None (LLM이 자유 생성). shell + script hint가
+        있으면 request-scoped wrapper를 생성한다.
         """
         build_system = self._result.build_system if self._result else "unknown"
-        if build_system in ("unknown", "shell"):
+        if build_system == "unknown":
             return None
 
         sdk_setup = ""
@@ -214,10 +216,23 @@ class Phase0Executor:
         if setup_script:
             sdk_setup += f"source {shlex.quote(setup_script)}\n"
 
+        if build_system == "shell":
+            if not script_hint_path:
+                return None
+            script_hint = shlex.quote(script_hint_path)
+            return (
+                "#!/bin/bash\n"
+                "set -eo pipefail\n"
+                f"{sdk_setup}"
+                'PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"\n'
+                'cd "$PROJECT_ROOT"\n'
+                f"bash {script_hint}\n"
+            )
+
         templates = {
             "cmake": (
                 "#!/bin/bash\n"
-                "set -e\n"
+                "set -eo pipefail\n"
                 f'{sdk_setup}'
                 'PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"\n'
                 'cd "$PROJECT_ROOT"\n'
@@ -227,7 +242,7 @@ class Phase0Executor:
             ),
             "make": (
                 "#!/bin/bash\n"
-                "set -e\n"
+                "set -eo pipefail\n"
                 f'{sdk_setup}'
                 'PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"\n'
                 'cd "$PROJECT_ROOT"\n'
@@ -235,7 +250,7 @@ class Phase0Executor:
             ),
             "autotools": (
                 "#!/bin/bash\n"
-                "set -e\n"
+                "set -eo pipefail\n"
                 f'{sdk_setup}'
                 'PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"\n'
                 'cd "$PROJECT_ROOT"\n'

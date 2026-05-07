@@ -6,6 +6,9 @@ import hashlib
 import json
 import logging
 import os
+from datetime import datetime, timezone
+from pathlib import Path
+from time import monotonic
 
 from app.config import settings
 from app.agent_runtime.context import get_request_id
@@ -14,7 +17,22 @@ from app.routers.build_route_support import (
     run_build_request_preflight as _run_build_request_preflight,
 )
 from app.schemas.request import TaskRequest
-from app.schemas.response import TaskFailureResponse, TaskSuccessResponse
+from app.schemas.response import (
+    ArtifactVerification,
+    AssessmentResult,
+    AuditInfo,
+    BUILD_RESPONSE_SCHEMA_VERSION,
+    BuildArtifact,
+    BuildDiagnostics,
+    BuildOutcome,
+    BuildPreparation,
+    BuildResult,
+    TaskFailureResponse,
+    TaskSuccessResponse,
+    TokenUsage,
+    ValidationInfo,
+)
+from app.types import TaskStatus
 from app.validators.build_request_contract import normalize_contract_version
 
 logger = logging.getLogger(__name__)
@@ -26,8 +44,153 @@ def _request_scoped_build_subdir(request_id: str | None) -> str:
     return f"build-aegis-{digest}"
 
 
+def _expected_artifact_labels(preflight) -> list[str]:
+    labels: list[str] = []
+    for artifact in preflight.contract.expectedArtifacts:
+        labels.append(artifact.path or artifact.name or artifact.artifactType.value)
+    return labels
+
+
+def _collect_expected_artifacts(effective_root: str, preflight) -> tuple[list[BuildArtifact], list[str], list[str]]:
+    produced: list[BuildArtifact] = []
+    produced_labels: list[str] = []
+    missing: list[str] = []
+    root = Path(effective_root)
+    for artifact in preflight.contract.expectedArtifacts:
+        label = artifact.path or artifact.name or artifact.artifactType.value
+        found_path: Path | None = None
+        if artifact.path:
+            candidate = (root / artifact.path).resolve()
+            try:
+                candidate.relative_to(root.resolve())
+            except ValueError:
+                candidate = None
+            if candidate is not None and candidate.exists():
+                found_path = candidate
+        elif artifact.name:
+            for candidate in root.rglob(artifact.name):
+                if candidate.is_file() or candidate.is_dir():
+                    found_path = candidate
+                    break
+        if found_path is None:
+            missing.append(label)
+            produced.append(BuildArtifact(path=label, kind=artifact.artifactType.value, exists=False))
+        else:
+            rel = str(found_path.relative_to(root))
+            produced_labels.append(rel)
+            produced.append(BuildArtifact(path=rel, kind=artifact.artifactType.value, exists=True))
+    return produced, produced_labels, missing
+
+
+def _build_deterministic_success_response(
+    *,
+    request: TaskRequest,
+    preflight,
+    effective_root: str,
+    build_subdir: str,
+    build_environment: dict[str, str],
+    started_at: float,
+    tool_content: str,
+) -> TaskSuccessResponse:
+    build_command = f"bash {build_subdir}/aegis-build.sh"
+    expected = _expected_artifact_labels(preflight)
+    produced_artifacts, produced_labels, missing = _collect_expected_artifacts(effective_root, preflight)
+    clean_pass = not missing
+    outcome = "built" if clean_pass else "artifact_mismatch"
+    failure_code = None if clean_pass else "EXPECTED_ARTIFACTS_MISMATCH"
+    reasons = ["deterministic phase0 build script succeeded"]
+    if missing:
+        reasons.append("expected artifact mismatch")
+
+    build_result = BuildResult(
+        success=clean_pass,
+        declaredMode=preflight.contract.buildMode.value if preflight.contract.buildMode else None,
+        sdkId=preflight.contract.sdkId,
+        buildCommand=build_command,
+        buildScript=f"{build_subdir}/aegis-build.sh",
+        buildDir=build_subdir,
+        errorLog=None if clean_pass else "Expected artifacts were not found after deterministic build.",
+        producedArtifacts=produced_artifacts,
+        artifactVerification=ArtifactVerification(
+            strict=preflight.contract.strictMode is True,
+            expected=expected,
+            produced=produced_labels,
+            matched=clean_pass,
+            missing=missing,
+        ),
+    )
+    result = AssessmentResult(
+        summary=(
+            "Deterministic phase0 build wrapper completed with expected artifacts."
+            if clean_pass
+            else "Deterministic phase0 build wrapper ran, but expected artifacts were missing."
+        ),
+        claims=[],
+        caveats=[] if clean_pass else ["Expected artifacts were not found after deterministic build."],
+        usedEvidenceRefs=["eref-build-success"] if clean_pass else [],
+        confidence=1.0 if clean_pass else 0.6,
+        needsHumanReview=not clean_pass,
+        recommendedNextSteps=[] if clean_pass else ["Review expectedArtifacts or generated build output."],
+        policyFlags=["deterministic_phase0_build"],
+        buildResult=build_result,
+        buildPreparation=BuildPreparation(
+            declaredMode=build_result.declaredMode,
+            sdkId=build_result.sdkId,
+            buildCommand=build_result.buildCommand,
+            buildScript=build_result.buildScript,
+            buildDir=build_result.buildDir,
+            buildEnvironment=build_environment,
+            expectedArtifacts=expected,
+            producedArtifacts=produced_labels,
+        ),
+        buildOutcome=BuildOutcome(
+            outcome=outcome,
+            taskCompleted=True,
+            cleanPass=clean_pass,
+            reasons=reasons,
+        ),
+        cleanPass=clean_pass,
+        buildDiagnostics=BuildDiagnostics(
+            failureCode=failure_code,
+            failureCategory=None if clean_pass else "artifact_mismatch",
+            expectedArtifacts=expected,
+            producedArtifacts=produced_labels,
+            missingArtifacts=missing,
+            caveats=[] if clean_pass else ["Expected artifacts were not found after deterministic build."],
+        ),
+    )
+    input_str = json.dumps(request.model_dump(mode="json"), sort_keys=True)
+    input_hash = f"sha256:{hashlib.sha256(input_str.encode()).hexdigest()[:16]}"
+    return TaskSuccessResponse(
+        taskId=request.taskId,
+        taskType=request.taskType,
+        contractVersion=normalize_contract_version(preflight.contract),
+        strictMode=preflight.contract.strictMode,
+        status=TaskStatus.COMPLETED,
+        modelProfile="deterministic-phase0",
+        promptVersion="build-v3",
+        schemaVersion=BUILD_RESPONSE_SCHEMA_VERSION,
+        validation=ValidationInfo(valid=True, errors=[]),
+        result=result,
+        audit=AuditInfo(
+            inputHash=input_hash,
+            latencyMs=int((monotonic() - started_at) * 1000),
+            tokenUsage=TokenUsage(prompt=0, completion=0),
+            retryCount=0,
+            ragHits=0,
+            createdAt=datetime.now(timezone.utc).isoformat(),
+            agentAudit={
+                "phase": "deterministic-phase0-build",
+                "buildCommand": build_command,
+                "toolContentPreview": tool_content[:2000],
+            },
+        ),
+    )
+
+
 async def handle_build_resolve(request: TaskRequest) -> TaskSuccessResponse | TaskFailureResponse:
     """build-resolve v2: 빌드 스크립트 작성 + 빌드 성공."""
+    started_at = monotonic()
     from app.budget.manager import BudgetManager
     from app.budget.token_counter import TokenCounter
     from app.core.agent_loop import AgentLoop
@@ -115,6 +278,7 @@ async def handle_build_resolve(request: TaskRequest) -> TaskSuccessResponse | Ta
     initial_script = phase0.generate_initial_script(
         setup_script,
         sdk_environment=sdk_materialization.derived_environment if sdk_materialization else None,
+        script_hint_path=preflight.script_hint.path if preflight.script_hint else None,
     )
     initial_script_hint = ""
     if initial_script:
@@ -258,6 +422,25 @@ async def handle_build_resolve(request: TaskRequest) -> TaskSuccessResponse | Ta
     tool_router.register_implementation("edit_file", edit_tool)
     tool_router.register_implementation("delete_file", delete_tool)
     tool_router.register_implementation("try_build", build_tool)
+
+    if initial_script:
+        deterministic_result = await build_tool.execute({
+            "build_command": f"bash {build_subdir}/aegis-build.sh",
+        })
+        if deterministic_result.success:
+            return _build_deterministic_success_response(
+                request=request,
+                preflight=preflight,
+                effective_root=effective_root,
+                build_subdir=build_subdir,
+                build_environment=effective_build_environment,
+                started_at=started_at,
+                tool_content=deterministic_result.content,
+            )
+        logger.info(
+            "[build] deterministic phase0 build did not pass; continuing agent loop: %s",
+            deterministic_result.error or deterministic_result.content[:500],
+        )
 
     # ─── 6. 시스템 프롬프트 + LLM ───
     system_prompt = _build_system_prompt(

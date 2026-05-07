@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from app.config import settings
+from app.agent_runtime.schemas.agent import ToolResult
 from app.routers.build_resolve_handler import _request_scoped_build_subdir, handle_build_resolve
 from app.schemas.request import Context, TaskRequest
 from app.types import TaskType
@@ -103,13 +104,21 @@ async def test_build_script_hint_path_is_reference_only_not_directly_executed(mo
     (tmp_path / "scripts" / "build.sh").write_text("#!/bin/bash\necho should-not-run\n")
     calls: list[dict] = []
 
-    async def fail_if_direct_hint_executed(self, arguments):
+    async def reject_if_direct_hint_executed(self, arguments):
         calls.append(arguments)
-        raise AssertionError("scriptHintPath target must not be executed directly")
+        assert arguments["build_command"].startswith("bash build-aegis-")
+        assert "scripts/build.sh" not in arguments["build_command"]
+        return ToolResult(
+            tool_call_id="",
+            name="try_build",
+            success=False,
+            content='{"error":"unit deterministic build intentionally failed"}',
+            error="unit deterministic build intentionally failed",
+        )
 
     monkeypatch.setattr(
         "app.tools.implementations.try_build.TryBuildTool.execute",
-        fail_if_direct_hint_executed,
+        reject_if_direct_hint_executed,
     )
 
     request = TaskRequest(
@@ -134,7 +143,7 @@ async def test_build_script_hint_path_is_reference_only_not_directly_executed(mo
     finally:
         object.__setattr__(settings, "llm_mode", original_mode)
 
-    assert calls == []
+    assert len(calls) == 1
 
 
 @pytest.mark.asyncio
@@ -282,3 +291,96 @@ async def test_phase0_initial_script_exports_sdk_descriptor_environment(monkeypa
     assert f"export SDK_DIR='{sdk_root.resolve()}'" in script
     assert f"source '{env_script.resolve()}'" in script
     assert f"export SDKTARGETSYSROOT='{sysroot.resolve()}'" in script
+
+
+@pytest.mark.asyncio
+async def test_shell_script_hint_gets_request_scoped_descriptor_wrapper(monkeypatch, tmp_path: Path):
+    original_mode = settings.llm_mode
+    object.__setattr__(settings, "llm_mode", "mock")
+    (tmp_path / "scripts").mkdir()
+    (tmp_path / "scripts" / "cross_build.sh").write_text("#!/bin/bash\necho hinted\n")
+    sdk_root = tmp_path / "sdk root"
+    env_script = sdk_root / "linux-devkit" / "environment-setup-arm"
+    env_script.parent.mkdir(parents=True)
+    env_script.write_text("export CC=arm-gcc\n")
+
+    request = TaskRequest(
+        taskType=TaskType.BUILD_RESOLVE,
+        taskId="sdk-shell-wrapper-check",
+        contractVersion="build-resolve-v1",
+        strictMode=True,
+        context=Context(trusted={
+            "projectPath": str(tmp_path),
+            "buildTargetPath": ".",
+            "buildTargetName": "sdk-shell",
+            "build": {
+                "mode": "sdk",
+                "sdkId": "sdk-1",
+                "sdkRootPath": str(sdk_root),
+                "setupScript": "linux-devkit/environment-setup-arm",
+                "scriptHintPath": "scripts/cross_build.sh",
+            },
+            "expectedArtifacts": [{"kind": "file-set", "path": "sdk-shell"}],
+        }),
+    )
+
+    try:
+        await handle_build_resolve(request)
+    finally:
+        object.__setattr__(settings, "llm_mode", original_mode)
+
+    build_dir = _request_scoped_build_subdir("sdk-shell-wrapper-check")
+    script = (tmp_path / build_dir / "aegis-build.sh").read_text()
+    assert f"export AEGIS_SDK_ROOT='{sdk_root.resolve()}'" in script
+    assert f"source '{env_script.resolve()}'" in script
+    assert "bash scripts/cross_build.sh" in script
+
+
+@pytest.mark.asyncio
+async def test_deterministic_phase0_wrapper_success_short_circuits_agent_loop(monkeypatch, tmp_path: Path):
+    original_mode = settings.llm_mode
+    object.__setattr__(settings, "llm_mode", "real")
+    (tmp_path / "scripts").mkdir()
+    (tmp_path / "scripts" / "build.sh").write_text("#!/bin/bash\necho build\n")
+
+    async def fake_execute(self, arguments):
+        assert arguments["build_command"].endswith("/aegis-build.sh")
+        (tmp_path / "out.bin").write_text("built\n")
+        return ToolResult(
+            tool_call_id="",
+            name="try_build",
+            success=True,
+            content='{"buildEvidence":{"exitCode":0}}',
+            new_evidence_refs=["eref-build-success"],
+        )
+
+    async def fail_llm_call(*args, **kwargs):  # pragma: no cover - must not run
+        raise AssertionError("deterministic success should return before LLM")
+
+    monkeypatch.setattr("app.tools.implementations.try_build.TryBuildTool.execute", fake_execute)
+    monkeypatch.setattr("app.agent_runtime.llm.caller.LlmCaller.call", fail_llm_call)
+
+    request = TaskRequest(
+        taskType=TaskType.BUILD_RESOLVE,
+        taskId="deterministic-short-circuit",
+        contractVersion="build-resolve-v1",
+        strictMode=True,
+        context=Context(trusted={
+            "projectPath": str(tmp_path),
+            "buildTargetPath": ".",
+            "buildTargetName": "deterministic",
+            "build": {"mode": "native", "scriptHintPath": "scripts/build.sh"},
+            "expectedArtifacts": [{"kind": "file-set", "path": "out.bin"}],
+        }),
+    )
+
+    try:
+        result = await handle_build_resolve(request)
+    finally:
+        object.__setattr__(settings, "llm_mode", original_mode)
+
+    assert result.status == "completed"
+    assert result.modelProfile == "deterministic-phase0"
+    assert result.result.cleanPass is True
+    assert result.result.buildOutcome.outcome == "built"
+    assert result.result.buildResult.buildCommand.startswith("bash build-aegis-")
