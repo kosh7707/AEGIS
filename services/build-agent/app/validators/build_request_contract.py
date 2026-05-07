@@ -27,12 +27,29 @@ class BuildScriptHintMaterial:
 
 
 @dataclass(frozen=True)
+class SdkMaterialization:
+    """Validated SDK descriptor material for strict SDK-mode builds."""
+
+    sdk_root_path: str | None
+    setup_script: str | None
+    setup_script_raw: str | None
+    sysroot: str | None
+    sysroot_raw: str | None
+    toolchain_triplet: str | None
+    caller_environment: dict[str, str]
+    derived_environment: dict[str, str]
+    effective_environment: dict[str, str]
+    legacy_transitional: bool = False
+
+
+@dataclass(frozen=True)
 class BuildRequestPreflight:
     contract: BuildResolveContract
     project_path: str
     target_path: str
     target_name: str
     script_hint: BuildScriptHintMaterial | None = None
+    sdk_materialization: SdkMaterialization | None = None
 
 
 class BuildRequestContractValidator:
@@ -88,6 +105,14 @@ class BuildRequestContractValidator:
                 "or context.trusted.build.scriptHintPath",
             )
 
+        sdk_materialization: SdkMaterialization | None = None
+        if contract.buildMode == BuildMode.SDK:
+            sdk_materialization, sdk_errors = self._validate_sdk_materialization(
+                contract=contract,
+                strict_mode=strict_mode,
+            )
+            errors.extend(sdk_errors)
+
         script_hint: BuildScriptHintMaterial | None = None
         if contract.scriptHintPath:
             script_hint, hint_errors = self._load_script_hint(
@@ -107,7 +132,137 @@ class BuildRequestContractValidator:
             target_path=target_path,
             target_name=target_name,
             script_hint=script_hint,
+            sdk_materialization=sdk_materialization,
         ), []
+
+    @staticmethod
+    def _validate_sdk_materialization(
+        *,
+        contract: BuildResolveContract,
+        strict_mode: bool,
+    ) -> tuple[SdkMaterialization, list[str]]:
+        errors: list[str] = []
+        root_raw = contract.sdkRootPath
+        root_resolved: str | None = None
+        setup_resolved: str | None = None
+        sysroot_resolved: str | None = None
+        legacy_transitional = False
+
+        if root_raw:
+            if "\x00" in root_raw:
+                errors.append("context.trusted.build.sdkRootPath must not contain NUL bytes")
+            elif not os.path.isabs(root_raw):
+                errors.append("context.trusted.build.sdkRootPath must be an absolute server-visible path")
+            else:
+                root_resolved = os.path.realpath(root_raw)
+                if strict_mode and not os.path.isdir(root_resolved):
+                    errors.append("context.trusted.build.sdkRootPath must exist and be a directory")
+        elif strict_mode:
+            # The only no-root strict-SDK compatibility path is a legacy
+            # absolute setupScript. Relative setup paths, env-only requests, or
+            # scriptHint-only requests do not provide an uploaded-SDK trust
+            # boundary and must not satisfy the materialization contract.
+            if not (contract.setupScript and os.path.isabs(contract.setupScript)):
+                errors.append(
+                    "strict compile-first v1 sdk builds require context.trusted.build.sdkRootPath "
+                    "or a legacy absolute context.trusted.build.setupScript",
+                )
+
+        def _inside(candidate: str, parent: str) -> bool:
+            try:
+                return os.path.commonpath([candidate, parent]) == parent
+            except ValueError:
+                return False
+
+        def _resolve_descriptor_path(raw: str | None, field: str, *, must_be_file: bool) -> str | None:
+            nonlocal legacy_transitional
+            if not raw:
+                return None
+            if "\x00" in raw:
+                errors.append(f"context.trusted.build.{field} must not contain NUL bytes")
+                return None
+            if "\\" in raw:
+                errors.append(f"context.trusted.build.{field} must use POSIX '/' separators")
+                return None
+
+            if root_resolved:
+                if os.path.isabs(raw):
+                    candidate = os.path.realpath(raw)
+                else:
+                    normalized = os.path.normpath(raw)
+                    if normalized in ("", ".") or normalized.startswith("../") or normalized == "..":
+                        errors.append(
+                            f"context.trusted.build.{field} must resolve inside sdkRootPath",
+                        )
+                        return None
+                    if ".." in normalized.split(os.sep):
+                        errors.append(
+                            f"context.trusted.build.{field} must not contain path traversal",
+                        )
+                        return None
+                    candidate = os.path.realpath(os.path.join(root_resolved, normalized))
+                if not _inside(candidate, root_resolved):
+                    errors.append(f"context.trusted.build.{field} must resolve inside sdkRootPath")
+                    return None
+                if strict_mode:
+                    if must_be_file and not os.path.isfile(candidate):
+                        errors.append(f"context.trusted.build.{field} must resolve to a regular file")
+                    if not must_be_file and not os.path.isdir(candidate):
+                        errors.append(f"context.trusted.build.{field} must resolve to a directory")
+                return candidate
+
+            # Legacy transitional behavior: absolute setup/sysroot paths without
+            # sdkRootPath remain accepted so existing callers do not break. They
+            # are not proof of uploaded-SDK materialization and cannot provide a
+            # scoped root boundary.
+            if strict_mode and not os.path.isabs(raw):
+                errors.append(
+                    f"context.trusted.build.{field} requires sdkRootPath when using a relative path",
+                )
+                return None
+            legacy_transitional = True
+            return os.path.realpath(raw) if os.path.isabs(raw) else raw
+
+        setup_resolved = _resolve_descriptor_path(
+            contract.setupScript,
+            "setupScript",
+            must_be_file=True,
+        )
+        sysroot_resolved = _resolve_descriptor_path(
+            contract.sysroot,
+            "sysroot",
+            must_be_file=False,
+        )
+
+        derived_environment: dict[str, str] = {}
+        if root_resolved:
+            derived_environment["AEGIS_SDK_ROOT"] = root_resolved
+            derived_environment["SDK_DIR"] = root_resolved
+        if setup_resolved:
+            derived_environment["AEGIS_SDK_SETUP_SCRIPT"] = setup_resolved
+        if sysroot_resolved:
+            derived_environment["AEGIS_SDK_SYSROOT"] = sysroot_resolved
+            derived_environment["SDKTARGETSYSROOT"] = sysroot_resolved
+        if contract.toolchainTriplet:
+            derived_environment["AEGIS_TOOLCHAIN_TRIPLET"] = contract.toolchainTriplet
+
+        effective_environment = dict(contract.buildEnvironment)
+        # The trusted descriptor is authoritative; caller env remains
+        # supplemental and cannot override descriptor-derived paths.
+        effective_environment.update(derived_environment)
+
+        return SdkMaterialization(
+            sdk_root_path=root_resolved,
+            setup_script=setup_resolved,
+            setup_script_raw=contract.setupScript,
+            sysroot=sysroot_resolved,
+            sysroot_raw=contract.sysroot,
+            toolchain_triplet=contract.toolchainTriplet,
+            caller_environment=dict(contract.buildEnvironment),
+            derived_environment=derived_environment,
+            effective_environment=effective_environment,
+            legacy_transitional=legacy_transitional and root_resolved is None,
+        ), errors
 
     @staticmethod
     def _load_script_hint(

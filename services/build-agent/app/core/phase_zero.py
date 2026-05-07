@@ -4,6 +4,7 @@ from __future__ import annotations
 import glob
 import logging
 import os
+import shlex
 import time
 from dataclasses import dataclass, field
 
@@ -190,7 +191,11 @@ class Phase0Executor:
                 return True, c
         return False, ""
 
-    def generate_initial_script(self, setup_script: str | None = None) -> str | None:
+    def generate_initial_script(
+        self,
+        setup_script: str | None = None,
+        sdk_environment: dict[str, str] | None = None,
+    ) -> str | None:
         """감지된 빌드 시스템에 맞는 초기 빌드 스크립트를 결정론적으로 생성한다.
 
         unknown/shell인 경우 None (LLM이 자유 생성).
@@ -200,8 +205,14 @@ class Phase0Executor:
             return None
 
         sdk_setup = ""
+        if sdk_environment:
+            for key in sorted(sdk_environment):
+                if not key.replace("_", "").isalnum() or key[0].isdigit():
+                    continue
+                value = sdk_environment[key]
+                sdk_setup += f"export {key}={shlex.quote(value)}\n"
         if setup_script:
-            sdk_setup = f'source "{setup_script}"\n'
+            sdk_setup += f"source {shlex.quote(setup_script)}\n"
 
         templates = {
             "cmake": (

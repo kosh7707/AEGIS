@@ -88,7 +88,9 @@ class BuildResolveContract(BaseModel):
     targetName: str | None = None
     buildMode: BuildMode | None = None
     sdkId: str | None = None
+    sdkRootPath: str | None = None
     setupScript: str | None = None
+    sysroot: str | None = None
     toolchainTriplet: str | None = None
     buildEnvironment: dict[str, str] = Field(default_factory=dict)
     scriptHintPath: str | None = Field(default=None, max_length=4096)
@@ -107,21 +109,58 @@ class BuildResolveContract(BaseModel):
         if not isinstance(build_blob, dict):
             build_blob = {}
 
+        for sdk_path_key in ("sdkRootPath", "sysroot"):
+            if sdk_path_key in normalized:
+                raise ValueError(
+                    f"context.trusted.{sdk_path_key} is not supported; "
+                    f"use context.trusted.build.{sdk_path_key}",
+                )
+
         if normalized.get("buildTargetPath") is None and normalized.get("targetPath") is not None:
             normalized["buildTargetPath"] = normalized.get("targetPath")
         if normalized.get("buildTargetName") is None and normalized.get("targetName") is not None:
             normalized["buildTargetName"] = normalized.get("targetName")
 
-        if normalized.get("buildMode") is None and build_blob.get("mode") is not None:
-            normalized["buildMode"] = build_blob.get("mode")
-        if normalized.get("sdkId") is None and build_blob.get("sdkId") is not None:
-            normalized["sdkId"] = build_blob.get("sdkId")
-        if normalized.get("setupScript") is None and build_blob.get("setupScript") is not None:
-            normalized["setupScript"] = build_blob.get("setupScript")
-        if normalized.get("toolchainTriplet") is None and build_blob.get("toolchainTriplet") is not None:
-            normalized["toolchainTriplet"] = build_blob.get("toolchainTriplet")
-        if normalized.get("buildEnvironment") in (None, {}) and build_blob.get("environment") is not None:
-            normalized["buildEnvironment"] = build_blob.get("environment")
+        def _normalize_scalar(raw: Any) -> Any:
+            if isinstance(raw, str):
+                stripped = raw.strip()
+                return stripped or None
+            return raw
+
+        def _copy_build_scalar(build_key: str, target_key: str, *, legacy_label: str | None = None) -> None:
+            if build_key not in build_blob:
+                return
+            build_value = _normalize_scalar(build_blob.get(build_key))
+            legacy_present = target_key in normalized and normalized.get(target_key) is not None
+            if legacy_present:
+                legacy_value = _normalize_scalar(normalized.get(target_key))
+                if legacy_value != build_value:
+                    label = legacy_label or target_key
+                    raise ValueError(
+                        "conflicting canonical and legacy build fields: "
+                        f"context.trusted.build.{build_key} differs from {label}",
+                    )
+            else:
+                normalized[target_key] = build_blob.get(build_key)
+
+        _copy_build_scalar("mode", "buildMode", legacy_label="buildMode")
+        _copy_build_scalar("sdkId", "sdkId")
+        _copy_build_scalar("sdkRootPath", "sdkRootPath")
+        _copy_build_scalar("setupScript", "setupScript")
+        _copy_build_scalar("sysroot", "sysroot")
+        _copy_build_scalar("toolchainTriplet", "toolchainTriplet")
+
+        if "environment" in build_blob:
+            build_environment = build_blob.get("environment")
+            legacy_environment = normalized.get("buildEnvironment")
+            if legacy_environment not in (None, {}):
+                if legacy_environment != build_environment:
+                    raise ValueError(
+                        "conflicting canonical and legacy build fields: "
+                        "context.trusted.build.environment differs from buildEnvironment",
+                    )
+            else:
+                normalized["buildEnvironment"] = build_environment
         legacy_hint_keys = [
             key for key in ("scriptHintText", "scriptHint")
             if key in build_blob
@@ -171,7 +210,9 @@ class BuildResolveContract(BaseModel):
         "targetPath",
         "targetName",
         "sdkId",
+        "sdkRootPath",
         "setupScript",
+        "sysroot",
         "toolchainTriplet",
         "scriptHintPath",
         mode="before",
@@ -287,6 +328,8 @@ class BuildResolveContract(BaseModel):
             )
         if self.buildMode == BuildMode.NATIVE and self.sdkId:
             raise ValueError("sdkId must be omitted when buildMode is 'native'")
+        if self.buildMode == BuildMode.NATIVE and (self.sdkRootPath or self.sysroot):
+            raise ValueError("sdkRootPath/sysroot must be omitted when buildMode is 'native'")
 
         return self
 

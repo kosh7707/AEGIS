@@ -136,6 +136,7 @@ class CaseClassification:
     failure_code: str | None
     unsafe_command_guard_passed: bool
     generated_script_guard_passed: bool
+    generated_script_audit_passed: bool
     notes: list[str]
 
     def to_json(self) -> dict[str, Any]:
@@ -149,6 +150,7 @@ class CaseClassification:
             "failureCode": self.failure_code,
             "unsafeCommandGuardPassed": self.unsafe_command_guard_passed,
             "generatedScriptGuardPassed": self.generated_script_guard_passed,
+            "generatedScriptAuditPassed": self.generated_script_audit_passed,
             "notes": self.notes,
         }
 
@@ -196,10 +198,18 @@ def _is_relative_to(child: Path, parent: Path) -> bool:
         return False
 
 
-def load_manifest(path: str | Path, selected_cases: set[str] | None = None) -> list[ManifestCase]:
+def load_manifest(
+    path: str | Path,
+    selected_cases: set[str] | None = None,
+    *,
+    include_controls: bool = False,
+) -> list[ManifestCase]:
     manifest_path = Path(path).expanduser()
     raw = json.loads(manifest_path.read_text())
-    cases = [ManifestCase.from_dict(item) for item in raw.get("cases", [])]
+    raw_cases = list(raw.get("cases", []))
+    if include_controls:
+        raw_cases.extend(raw.get("controls", []))
+    cases = [ManifestCase.from_dict(item) for item in raw_cases]
     if selected_cases:
         known = {case.case_id for case in cases}
         missing = sorted(selected_cases - known)
@@ -237,13 +247,52 @@ def validate_case(case: ManifestCase) -> None:
             raise CaseValidationError(f"{case.case_id}: scriptHintPath file not found: {hint_path}")
         if not _is_relative_to(hint_path, target_root):
             raise CaseValidationError(f"{case.case_id}: scriptHintPath escapes effective target root: {case.script_hint_path}")
+    if case.build_mode == "sdk":
+        _validate_sdk_descriptor(case)
+
+
+def _validate_sdk_descriptor(case: ManifestCase) -> None:
+    sdk_root_raw = case.build.get("sdkRootPath")
+    if sdk_root_raw is not None:
+        sdk_root = Path(str(sdk_root_raw)).expanduser()
+        if not sdk_root.is_absolute():
+            raise CaseValidationError(f"{case.case_id}: sdkRootPath must be absolute")
+        if not sdk_root.is_dir():
+            raise CaseValidationError(f"{case.case_id}: sdkRootPath does not exist: {sdk_root}")
+    else:
+        sdk_root = None
+
+    def resolve_inside_root(field: str, *, must_be_file: bool) -> None:
+        raw = case.build.get(field)
+        if not raw or sdk_root is None:
+            return
+        raw_text = str(raw)
+        if "\\" in raw_text or "\x00" in raw_text:
+            raise CaseValidationError(f"{case.case_id}: {field} must use safe POSIX path text")
+        candidate = Path(raw_text).expanduser()
+        if candidate.is_absolute():
+            resolved = candidate.resolve()
+        else:
+            normalized = posixpath.normpath(raw_text)
+            if normalized == ".." or normalized.startswith("../") or "/../" in f"/{normalized}/":
+                raise CaseValidationError(f"{case.case_id}: {field} must resolve inside sdkRootPath")
+            resolved = (sdk_root / normalized).resolve()
+        if not _is_relative_to(resolved, sdk_root):
+            raise CaseValidationError(f"{case.case_id}: {field} must resolve inside sdkRootPath")
+        if must_be_file and not resolved.is_file():
+            raise CaseValidationError(f"{case.case_id}: {field} file not found: {resolved}")
+        if not must_be_file and not resolved.is_dir():
+            raise CaseValidationError(f"{case.case_id}: {field} directory not found: {resolved}")
+
+    resolve_inside_root("setupScript", must_be_file=True)
+    resolve_inside_root("sysroot", must_be_file=False)
 
 
 def make_build_request(case: ManifestCase, run_label: str) -> dict[str, Any]:
     build = {"mode": case.build_mode}
     if case.script_hint_path:
         build["scriptHintPath"] = case.script_hint_path
-    for key in ("sdkId", "setupScript", "environment"):
+    for key in ("sdkId", "sdkRootPath", "setupScript", "sysroot", "toolchainTriplet", "environment"):
         if key in case.build:
             build[key] = case.build[key]
 
@@ -297,6 +346,78 @@ def _generated_script_guard(build_command: str, build_script: str) -> bool:
     if not command_refs_generated and _looks_like_generated_script_ref(build_command):
         command_refs_generated = True
     return script_is_generated and command_refs_generated
+
+
+def _extract_generated_script_path(case: ManifestCase, build_command: str, build_script: str) -> Path | None:
+    candidates: list[str] = []
+    if build_script:
+        candidates.append(build_script)
+    candidates.extend(_tokenize_command(build_command))
+    for value in candidates:
+        normalized = value.strip().strip('"').strip("'").replace("\\", "/")
+        if not _looks_like_generated_script_ref(normalized):
+            continue
+        candidate = Path(normalized)
+        if candidate.is_absolute():
+            resolved = candidate.resolve()
+        else:
+            resolved = (case.effective_target_root / normalized).resolve()
+        if _is_relative_to(resolved, case.effective_target_root):
+            return resolved
+    return None
+
+
+def _allowed_descriptor_paths(case: ManifestCase) -> set[str]:
+    allowed: set[str] = {str(case.project_path.resolve()), str(case.effective_target_root.resolve())}
+    sdk_root_raw = case.build.get("sdkRootPath")
+    if sdk_root_raw:
+        sdk_root = Path(str(sdk_root_raw)).expanduser()
+        allowed.add(str(sdk_root.resolve()))
+        for key in ("setupScript", "sysroot"):
+            raw = case.build.get(key)
+            if not raw:
+                continue
+            candidate = Path(str(raw)).expanduser()
+            if not candidate.is_absolute():
+                candidate = sdk_root / str(raw)
+            allowed.add(str(candidate.resolve()))
+    return allowed
+
+
+def _generated_script_content_audit(case: ManifestCase, build_command: str, build_script: str) -> tuple[bool, list[str]]:
+    script_path = _extract_generated_script_path(case, build_command, build_script)
+    if script_path is None:
+        return False, ["generated script audit could not locate build-aegis-*/aegis-build.sh"]
+    if not script_path.is_file():
+        return False, [f"generated script audit could not read missing script: {script_path}"]
+    try:
+        content = script_path.read_text(errors="replace")
+    except OSError as exc:
+        return False, [f"generated script audit could not read script: {exc}"]
+
+    notes: list[str] = []
+    forbidden_markers = [
+        "ti-processor-sdk-linux-am335x-evm-08.02.00.24",
+        "${HOME}/ti-processor-sdk",
+        "$HOME/ti-processor-sdk",
+        "/home/kosh/ti-processor-sdk",
+    ]
+    for marker in forbidden_markers:
+        if marker in content:
+            notes.append(f"generated script contains forbidden host/SDK default marker: {marker}")
+
+    sdk_root_raw = case.build.get("sdkRootPath")
+    if "/home/kosh/ti-sdk" in content and str(sdk_root_raw or "") != "/home/kosh/ti-sdk":
+        notes.append("generated script contains forbidden /home/kosh/ti-sdk path outside descriptor")
+
+    for case_marker in ("gateway-webserver", "gateway-central", "gateway-mqtt_broker", "gateway-coap_server", "gateway-lwm2m_server"):
+        if case_marker in content and case_marker != case.case_id:
+            notes.append(f"generated script appears to special-case another fixture name: {case_marker}")
+
+    # Absolute descriptor paths are allowed when they were supplied by the
+    # manifest. Any stricter host-path policy belongs in the static guard.
+    _ = _allowed_descriptor_paths(case)
+    return not notes, notes
 
 
 def _direct_script_guard(case: ManifestCase, build_command: str, build_script: str) -> tuple[bool, list[str]]:
@@ -358,9 +479,20 @@ def classify_response(case: ManifestCase, response: dict[str, Any]) -> CaseClass
     unsafe_guard, guard_notes = _direct_script_guard(case, build_command, build_script)
     notes.extend(guard_notes)
     generated_guard = _generated_script_guard(build_command, build_script)
+    script_audit_guard = True
+    if status == "completed":
+        script_audit_guard, script_audit_notes = _generated_script_content_audit(case, build_command, build_script)
+        notes.extend(script_audit_notes)
 
     if status == "completed":
-        if clean_pass is True and build_outcome_clean_pass is True and build_outcome == "built" and unsafe_guard and generated_guard:
+        if (
+            clean_pass is True
+            and build_outcome_clean_pass is True
+            and build_outcome == "built"
+            and unsafe_guard
+            and generated_guard
+            and script_audit_guard
+        ):
             task_class = COMPLETED_CLEAN
         else:
             task_class = COMPLETED_NON_CLEAN
@@ -370,6 +502,8 @@ def classify_response(case: ManifestCase, response: dict[str, Any]) -> CaseClass
                 notes.append(f"result.cleanPass=true but buildOutcome.outcome={build_outcome!r}")
             if clean_pass is True and not generated_guard:
                 notes.append("clean response lacks generated build-aegis-*/aegis-build.sh evidence")
+            if clean_pass is True and not script_audit_guard:
+                notes.append("clean response failed generated script content audit")
             if clean_pass is True and not unsafe_guard:
                 notes.append("clean response attempted direct reference script execution")
     elif status == "validation_failed":
@@ -389,6 +523,7 @@ def classify_response(case: ManifestCase, response: dict[str, Any]) -> CaseClass
         failure_code=str(failure_code) if failure_code is not None else None,
         unsafe_command_guard_passed=unsafe_guard,
         generated_script_guard_passed=generated_guard,
+        generated_script_audit_passed=script_audit_guard,
         notes=notes,
     )
 
@@ -407,6 +542,8 @@ def compare_to_expected(classification: CaseClassification, expected: ExpectedOr
         mismatches.append("unsafe command guard failed: direct scriptHintPath execution detected")
     if expected.task_class == COMPLETED_CLEAN and not classification.generated_script_guard_passed:
         mismatches.append("generated script guard failed for expected completed_clean case")
+    if expected.task_class == COMPLETED_CLEAN and not classification.generated_script_audit_passed:
+        mismatches.append("generated script audit failed for expected completed_clean case")
     return CaseComparison(
         case_id=classification.case_id,
         passed=not mismatches,
@@ -560,6 +697,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--timeout-sec", type=int, default=DEFAULT_TIMEOUT_SEC)
     parser.add_argument("--dry-run", action="store_true", help="explicitly use the default safe mode: generate requests without POSTing")
     parser.add_argument("--live", action="store_true", help="opt in to POSTing requests to the live Build Agent")
+    parser.add_argument("--include-controls", action="store_true", help="include manifest metamorphic/negative-control cases")
     args = parser.parse_args(argv)
     if args.dry_run and args.live:
         parser.error("--dry-run and --live are mutually exclusive")
@@ -573,7 +711,7 @@ def main(argv: list[str] | None = None) -> int:
     selected = set(args.cases) if args.cases else None
 
     try:
-        cases = load_manifest(args.manifest, selected)
+        cases = load_manifest(args.manifest, selected, include_controls=args.include_controls)
         if args.live:
             summary = run_live(cases, args.manifest, output_dir, run_label, args.build_url, args.timeout_sec)
         else:

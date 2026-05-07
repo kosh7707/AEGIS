@@ -98,9 +98,12 @@ def build_system_prompt(
     script_hint_section = ""
     if build_material:
         material_lines: list[str] = []
+        sdk_root_path = build_material.get("sdkRootPath", "")
         setup_script = build_material.get("setupScript", "")
+        sysroot = build_material.get("sysroot", "")
         toolchain_triplet = build_material.get("toolchainTriplet", "")
         build_environment = build_material.get("buildEnvironment", {})
+        derived_environment = build_material.get("derivedBuildEnvironment", {})
         script_hint = build_material.get("scriptHint")
         if not isinstance(script_hint, dict):
             script_hint = {}
@@ -109,16 +112,32 @@ def build_system_prompt(
         script_hint_size = script_hint.get("sizeBytes")
         script_hint_sha = script_hint.get("sha256", "")
 
+        if sdk_root_path:
+            material_lines.append(f"- **sdkRootPath**: `{sdk_root_path}`")
         if setup_script:
             material_lines.append(f"- **setupScript**: `{setup_script}`")
+        if sysroot:
+            material_lines.append(f"- **sysroot**: `{sysroot}`")
         if toolchain_triplet:
             material_lines.append(f"- **toolchainTriplet**: `{toolchain_triplet}`")
         if isinstance(build_environment, dict) and build_environment:
             env_keys = ", ".join(sorted(build_environment.keys()))
             material_lines.append(f"- **buildEnvironment keys**: {env_keys}")
+        if isinstance(derived_environment, dict) and derived_environment:
+            derived_keys = ", ".join(sorted(derived_environment.keys()))
+            material_lines.append(f"- **descriptor-derived env keys**: {derived_keys}")
 
         if material_lines:
-            build_material_section = "## 호출자 제공 build material\n" + "\n".join(material_lines) + "\n\n"
+            build_material_section = (
+                "## 호출자 제공 build material\n"
+                + "\n".join(material_lines)
+                + "\n\n"
+                "SDK descriptor rules:\n"
+                "- Treat sdkRootPath/setupScript/sysroot/toolchainTriplet as the trusted SDK descriptor.\n"
+                "- If a script hint contains user-local SDK defaults such as $HOME/ti-processor-sdk-* or /home/* paths, do not copy them as authoritative values.\n"
+                "- Prefer AEGIS_SDK_ROOT/AEGIS_SDK_SETUP_SCRIPT/AEGIS_SDK_SYSROOT/SDK_DIR/SDKTARGETSYSROOT values from buildEnvironment when writing aegis-build.sh.\n"
+                "- For SDK scripts that use SDK_DIR, export SDK_DIR from the trusted SDK descriptor before invoking or translating the hinted commands.\n\n"
+            )
 
         if script_hint_text:
             truncated = script_hint_text[:8000]

@@ -102,3 +102,35 @@ def test_build_system_prompt_sanitizes_script_hint_content() -> None:
     assert "[role-assistant]" in prompt
     assert "⟦neutralized: ignore-prior-instructions⟧" in prompt
     assert "[BOUNDARY-MARKER-NEUTRALIZED]" in prompt
+
+
+def test_build_system_prompt_instructs_sdk_descriptor_over_user_local_hint_paths() -> None:
+    prompt = build_system_prompt(
+        {
+            "sdkRootPath": "/uploads/project/sdk/sdk-1/installed",
+            "setupScript": "/uploads/project/sdk/sdk-1/installed/linux-devkit/environment-setup-arm",
+            "sysroot": "/uploads/project/sdk/sdk-1/installed/linux-devkit/sysroots/arm",
+            "toolchainTriplet": "arm-none-linux-gnueabihf",
+            "buildEnvironment": {
+                "AEGIS_SDK_ROOT": "/uploads/project/sdk/sdk-1/installed",
+                "SDK_DIR": "/uploads/project/sdk/sdk-1/installed",
+            },
+            "scriptHint": {
+                "path": "scripts/cross_build.sh",
+                "content": 'SDK_DIR="${HOME}/ti-processor-sdk-linux-am335x-evm-08.02.00.24"\nmake\n',
+                "sizeBytes": 80,
+                "sha256": "c" * 64,
+            },
+        },
+        [],
+        "/tmp/project",
+        build_subdir="build-aegis-deadbeef",
+    )
+
+    assert "sdkRootPath" in prompt
+    assert "/uploads/project/sdk/sdk-1/installed" in prompt
+    assert "AEGIS_SDK_ROOT" in prompt
+    assert "SDK_DIR" in prompt
+    assert "trusted SDK descriptor" in prompt
+    assert "user-local" in prompt
+    assert "ti-processor-sdk-linux-am335x-evm-08.02.00.24" in prompt

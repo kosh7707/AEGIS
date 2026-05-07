@@ -221,6 +221,10 @@ def test_strict_sdk_accepts_uploaded_project_script_hint_path(tmp_path) -> None:
     scripts.mkdir(parents=True)
     hint = scripts / "build.sh"
     hint.write_text("#!/bin/bash\necho build\n")
+    sdk_root = tmp_path / "sdk"
+    env_script = sdk_root / "environment-setup"
+    sdk_root.mkdir()
+    env_script.write_text("export CC=arm-gcc\n")
 
     validator = BuildRequestContractValidator()
     preflight, errors = validator.validate(
@@ -231,7 +235,13 @@ def test_strict_sdk_accepts_uploaded_project_script_hint_path(tmp_path) -> None:
                 "buildTargetName": "target",
                 "contractVersion": "build-resolve-v1",
                 "strictMode": True,
-                "build": {"mode": "sdk", "sdkId": "sdk-1", "scriptHintPath": "scripts/build.sh"},
+                "build": {
+                    "mode": "sdk",
+                    "sdkId": "sdk-1",
+                    "sdkRootPath": str(sdk_root),
+                    "setupScript": "environment-setup",
+                    "scriptHintPath": "scripts/build.sh",
+                },
                 "expectedArtifacts": [{"kind": "executable", "path": "target"}],
             }
         )
@@ -244,6 +254,219 @@ def test_strict_sdk_accepts_uploaded_project_script_hint_path(tmp_path) -> None:
     assert preflight.script_hint.content == "#!/bin/bash\necho build\n"
     assert preflight.script_hint.size_bytes == len("#!/bin/bash\necho build\n".encode())
     assert len(preflight.script_hint.sha256) == 64
+
+
+def test_strict_sdk_descriptor_resolves_paths_and_derived_env_wins(tmp_path) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    sdk_root = tmp_path / "uploaded-sdk"
+    env_script = sdk_root / "linux-devkit" / "environment-setup-arm"
+    sysroot = sdk_root / "linux-devkit" / "sysroots" / "arm"
+    env_script.parent.mkdir(parents=True)
+    sysroot.mkdir(parents=True)
+    env_script.write_text("export CC=arm-gcc\n")
+
+    validator = BuildRequestContractValidator()
+    preflight, errors = validator.validate(
+        _request(
+            {
+                "projectPath": str(project),
+                "buildTargetPath": ".",
+                "buildTargetName": "project",
+                "contractVersion": "build-resolve-v1",
+                "strictMode": True,
+                "build": {
+                    "mode": "sdk",
+                    "sdkId": "sdk-1",
+                    "sdkRootPath": str(sdk_root),
+                    "setupScript": "linux-devkit/environment-setup-arm",
+                    "sysroot": "linux-devkit/sysroots/arm",
+                    "toolchainTriplet": "arm-none-linux-gnueabihf",
+                    "environment": {
+                        "CUSTOM_FLAG": "1",
+                        "AEGIS_SDK_ROOT": "/attacker/override",
+                        "SDK_DIR": "/attacker/override",
+                    },
+                },
+                "expectedArtifacts": [{"kind": "file-set", "path": "out"}],
+            }
+        )
+    )
+
+    assert errors == []
+    assert preflight is not None
+    materialization = preflight.sdk_materialization
+    assert materialization is not None
+    assert materialization.sdk_root_path == str(sdk_root.resolve())
+    assert materialization.setup_script == str(env_script.resolve())
+    assert materialization.sysroot == str(sysroot.resolve())
+    assert materialization.toolchain_triplet == "arm-none-linux-gnueabihf"
+    assert materialization.effective_environment["CUSTOM_FLAG"] == "1"
+    assert materialization.effective_environment["AEGIS_SDK_ROOT"] == str(sdk_root.resolve())
+    assert materialization.effective_environment["SDK_DIR"] == str(sdk_root.resolve())
+    assert materialization.effective_environment["AEGIS_SDK_SETUP_SCRIPT"] == str(env_script.resolve())
+    assert materialization.effective_environment["AEGIS_SDK_SYSROOT"] == str(sysroot.resolve())
+    assert materialization.effective_environment["SDKTARGETSYSROOT"] == str(sysroot.resolve())
+    assert materialization.effective_environment["AEGIS_TOOLCHAIN_TRIPLET"] == "arm-none-linux-gnueabihf"
+
+
+def test_strict_sdk_rejects_setup_script_escape_from_sdk_root(tmp_path) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    sdk_root = tmp_path / "uploaded-sdk"
+    sdk_root.mkdir()
+    outside = tmp_path / "outside-env"
+    outside.write_text("export CC=evil\n")
+
+    validator = BuildRequestContractValidator()
+    preflight, errors = validator.validate(
+        _request(
+            {
+                "projectPath": str(project),
+                "buildTargetPath": ".",
+                "buildTargetName": "project",
+                "contractVersion": "build-resolve-v1",
+                "strictMode": True,
+                "build": {
+                    "mode": "sdk",
+                    "sdkId": "sdk-1",
+                    "sdkRootPath": str(sdk_root),
+                    "setupScript": str(outside),
+                },
+                "expectedArtifacts": [{"kind": "file-set", "path": "out"}],
+            }
+        )
+    )
+
+    assert preflight is None
+    assert any("setupScript" in error and "sdkRootPath" in error for error in errors)
+
+
+def test_strict_sdk_accepts_legacy_absolute_setup_without_sdk_root(tmp_path) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+
+    validator = BuildRequestContractValidator()
+    preflight, errors = validator.validate(
+        _request(
+            {
+                "projectPath": str(project),
+                "buildTargetPath": ".",
+                "buildTargetName": "project",
+                "contractVersion": "build-resolve-v1",
+                "strictMode": True,
+                "build": {
+                    "mode": "sdk",
+                    "sdkId": "legacy-sdk",
+                    "setupScript": "/legacy/uploaded-sdk/environment-setup",
+                },
+                "expectedArtifacts": [{"kind": "file-set", "path": "out"}],
+            }
+        )
+    )
+
+    assert errors == []
+    assert preflight is not None
+    assert preflight.sdk_materialization is not None
+    assert preflight.sdk_materialization.legacy_transitional is True
+    assert preflight.sdk_materialization.setup_script == "/legacy/uploaded-sdk/environment-setup"
+
+
+def test_strict_sdk_rejects_relative_setup_without_sdk_root(tmp_path) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+
+    validator = BuildRequestContractValidator()
+    preflight, errors = validator.validate(
+        _request(
+            {
+                "projectPath": str(project),
+                "buildTargetPath": ".",
+                "buildTargetName": "project",
+                "contractVersion": "build-resolve-v1",
+                "strictMode": True,
+                "build": {
+                    "mode": "sdk",
+                    "sdkId": "legacy-sdk",
+                    "setupScript": "relative/environment-setup",
+                },
+                "expectedArtifacts": [{"kind": "file-set", "path": "out"}],
+            }
+        )
+    )
+
+    assert preflight is None
+    assert any("sdkRootPath" in error or "relative path" in error for error in errors)
+
+
+def test_strict_sdk_rejects_environment_only_without_sdk_root(tmp_path) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+
+    validator = BuildRequestContractValidator()
+    preflight, errors = validator.validate(
+        _request(
+            {
+                "projectPath": str(project),
+                "buildTargetPath": ".",
+                "buildTargetName": "project",
+                "contractVersion": "build-resolve-v1",
+                "strictMode": True,
+                "build": {
+                    "mode": "sdk",
+                    "sdkId": "legacy-sdk",
+                    "environment": {"CC": "arm-gcc"},
+                },
+                "expectedArtifacts": [{"kind": "file-set", "path": "out"}],
+            }
+        )
+    )
+
+    assert preflight is None
+    assert any("sdkRootPath" in error for error in errors)
+
+
+@pytest.mark.parametrize("field_name", ["sdkRootPath", "sysroot"])
+def test_top_level_sdk_descriptor_path_fields_are_rejected(field_name) -> None:
+    with pytest.raises(ValueError, match=f"context.trusted.{field_name} is not supported"):
+        BuildResolveContract.model_validate(
+            {
+                "projectPath": "/tmp/project",
+                "buildTargetPath": ".",
+                "buildTargetName": "project",
+                "contractVersion": "build-resolve-v1",
+                "strictMode": True,
+                "build": {
+                    "mode": "sdk",
+                    "sdkId": "sdk-1",
+                    "setupScript": "/legacy/environment-setup",
+                },
+                field_name: "/tmp/sdk",
+                "expectedArtifacts": [{"kind": "file-set", "path": "out"}],
+            }
+        )
+
+
+def test_canonical_build_field_conflict_with_legacy_alias_is_rejected() -> None:
+    with pytest.raises(ValueError, match="conflicting canonical and legacy build fields"):
+        BuildResolveContract.model_validate(
+            {
+                "projectPath": "/tmp/project",
+                "buildTargetPath": ".",
+                "buildTargetName": "project",
+                "contractVersion": "build-resolve-v1",
+                "strictMode": True,
+                "buildMode": "sdk",
+                "sdkId": "sdk-1",
+                "setupScript": "/legacy/environment-setup",
+                "build": {
+                    "mode": "sdk",
+                    "sdkId": "sdk-1",
+                    "setupScript": "linux-devkit/environment-setup",
+                },
+                "expectedArtifacts": [{"kind": "file-set", "path": "out"}],
+            }
+        )
 
 
 @pytest.mark.parametrize(

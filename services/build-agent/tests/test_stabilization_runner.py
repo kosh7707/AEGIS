@@ -22,6 +22,8 @@ def _case(tmp_path: Path, *, case_id: str = "demo", target: str = ".", script_hi
     effective_root.mkdir(parents=True)
     (effective_root / script_hint).parent.mkdir(parents=True, exist_ok=True)
     (effective_root / script_hint).write_text("#!/bin/sh\nmake\n")
+    (effective_root / "build-aegis-abc").mkdir(parents=True, exist_ok=True)
+    (effective_root / "build-aegis-abc" / "aegis-build.sh").write_text("#!/bin/sh\nmake\n")
     raw = {
         "caseId": case_id,
         "title": f"{case_id} fixture",
@@ -70,12 +72,64 @@ def test_manifest_request_generation_uses_script_hint_path_not_inline_text(tmp_p
     assert "buildScriptHintText" not in trusted
 
 
+def test_manifest_request_generation_forwards_sdk_descriptor_fields(tmp_path: Path) -> None:
+    case = _case(tmp_path)
+    sdk_root = tmp_path / "sdk"
+    env_script = sdk_root / "linux-devkit" / "environment-setup-arm"
+    sysroot = sdk_root / "linux-devkit" / "sysroots" / "arm"
+    env_script.parent.mkdir(parents=True)
+    sysroot.mkdir(parents=True)
+    env_script.write_text("export CC=arm-gcc\n")
+    raw = case.to_json()
+    raw["build"] = {
+        "mode": "sdk",
+        "sdkId": "sdk-1",
+        "sdkRootPath": str(sdk_root),
+        "setupScript": "linux-devkit/environment-setup-arm",
+        "sysroot": "linux-devkit/sysroots/arm",
+        "toolchainTriplet": "arm-none-linux-gnueabihf",
+        "environment": {"CUSTOM": "1"},
+        "scriptHintPath": "build.sh",
+    }
+    sdk_case = runner.ManifestCase.from_dict(raw)
+    runner.validate_case(sdk_case)
+
+    request = runner.make_build_request(sdk_case, "unit")
+    build = request["context"]["trusted"]["build"]
+
+    assert build["mode"] == "sdk"
+    assert build["sdkId"] == "sdk-1"
+    assert build["sdkRootPath"] == str(sdk_root)
+    assert build["setupScript"] == "linux-devkit/environment-setup-arm"
+    assert build["sysroot"] == "linux-devkit/sysroots/arm"
+    assert build["toolchainTriplet"] == "arm-none-linux-gnueabihf"
+    assert build["environment"] == {"CUSTOM": "1"}
+
+
 def test_manifest_validation_uses_effective_target_root_for_nested_hint(tmp_path: Path) -> None:
     case = _case(tmp_path, target="firmware", script_hint=".aegis/build-script-hint.sh")
 
     runner.validate_case(case)
 
     assert case.effective_target_root == case.project_path / "firmware"
+
+
+def test_manifest_validation_rejects_sdk_setup_script_escape(tmp_path: Path) -> None:
+    case = _case(tmp_path)
+    sdk_root = tmp_path / "sdk"
+    sdk_root.mkdir()
+    raw = case.to_json()
+    raw["build"] = {
+        "mode": "sdk",
+        "sdkId": "sdk-1",
+        "sdkRootPath": str(sdk_root),
+        "setupScript": "../outside-env",
+        "scriptHintPath": "build.sh",
+    }
+    sdk_case = runner.ManifestCase.from_dict(raw)
+
+    with pytest.raises(runner.CaseValidationError, match="setupScript"):
+        runner.validate_case(sdk_case)
 
 
 def test_completed_clean_requires_top_level_and_nested_cleanpass(tmp_path: Path) -> None:
@@ -149,6 +203,48 @@ def test_direct_reference_script_execution_fails_guard(tmp_path: Path) -> None:
     assert any("scriptHintPath" in item for item in comparison.mismatches)
 
 
+def test_generated_script_content_audit_rejects_forbidden_sdk_default(tmp_path: Path) -> None:
+    case = _case(tmp_path)
+    generated = case.project_path / "build-aegis-abc" / "aegis-build.sh"
+    generated.parent.mkdir(parents=True, exist_ok=True)
+    generated.write_text(
+        '#!/bin/bash\n'
+        'SDK_DIR="${HOME}/ti-processor-sdk-linux-am335x-evm-08.02.00.24"\n'
+        'make\n'
+    )
+
+    classification = runner.classify_response(case, _completed_response(command="bash build-aegis-abc/aegis-build.sh", script="build-aegis-abc/aegis-build.sh"))
+    comparison = runner.compare_to_expected(classification, case.expected_oracle)
+
+    assert classification.generated_script_audit_passed is False
+    assert classification.task_class == runner.COMPLETED_NON_CLEAN
+    assert comparison.passed is False
+    assert any("forbidden" in note for note in classification.notes)
+
+
+def test_generated_script_content_audit_allows_descriptor_sdk_root(tmp_path: Path) -> None:
+    case = _case(tmp_path)
+    sdk_root = tmp_path / "descriptor-sdk"
+    sdk_root.mkdir()
+    raw = case.to_json()
+    raw["build"] = {
+        "mode": "sdk",
+        "sdkId": "sdk-1",
+        "sdkRootPath": str(sdk_root),
+        "setupScript": "environment-setup",
+        "scriptHintPath": "build.sh",
+    }
+    case = runner.ManifestCase.from_dict(raw)
+    generated = case.project_path / "build-aegis-abc" / "aegis-build.sh"
+    generated.parent.mkdir(parents=True, exist_ok=True)
+    generated.write_text(f"#!/bin/bash\nexport SDK_DIR='{sdk_root}'\nmake\n")
+
+    classification = runner.classify_response(case, _completed_response(command="bash build-aegis-abc/aegis-build.sh", script="build-aegis-abc/aegis-build.sh"))
+
+    assert classification.generated_script_audit_passed is True
+    assert classification.task_class == runner.COMPLETED_CLEAN
+
+
 
 def test_build_script_direct_reference_fails_guard_even_when_command_is_generated(tmp_path: Path) -> None:
     case = _case(tmp_path)
@@ -185,6 +281,19 @@ def test_manifest_loader_rejects_unsafe_script_hint_path(tmp_path: Path) -> None
         runner.load_manifest(manifest)
 
 
+def test_manifest_controls_are_opt_in_for_metamorphic_gate(tmp_path: Path) -> None:
+    case = _case(tmp_path, case_id="alpha")
+    control = _case(tmp_path, case_id="renamed-sdk-control-alpha")
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(json.dumps({"cases": [case.to_json()], "controls": [control.to_json()]}))
+
+    default_cases = runner.load_manifest(manifest)
+    controlled_cases = runner.load_manifest(manifest, include_controls=True)
+
+    assert [item.case_id for item in default_cases] == ["alpha"]
+    assert [item.case_id for item in controlled_cases] == ["alpha", "renamed-sdk-control-alpha"]
+
+
 
 def test_cli_defaults_to_safe_dry_run_mode() -> None:
     args = runner.parse_args([])
@@ -198,7 +307,7 @@ def test_main_without_live_uses_dry_run_path(monkeypatch: pytest.MonkeyPatch, tm
     case = _case(tmp_path, case_id="gamma")
     called: dict[str, bool] = {}
 
-    monkeypatch.setattr(runner, "load_manifest", lambda manifest, selected_cases=None: [case])
+    monkeypatch.setattr(runner, "load_manifest", lambda manifest, selected_cases=None, **kwargs: [case])
 
     def fake_dry_run(cases, manifest, output_dir, run_label):
         called["dry_run"] = True

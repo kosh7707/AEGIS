@@ -81,10 +81,27 @@ async def handle_build_resolve(request: TaskRequest) -> TaskSuccessResponse | Ta
     phase0_result = await phase0.execute(request_id)
     if preflight.script_hint:
         phase0_result.build_system = "shell"
+    sdk_materialization = preflight.sdk_materialization
+    effective_build_environment = (
+        sdk_materialization.effective_environment
+        if sdk_materialization is not None
+        else preflight.contract.buildEnvironment
+    )
+    setup_script = (
+        sdk_materialization.setup_script
+        if sdk_materialization is not None and sdk_materialization.setup_script
+        else preflight.contract.setupScript
+    )
     build_material = {
-        "setupScript": preflight.contract.setupScript or "",
+        "sdkRootPath": sdk_materialization.sdk_root_path if sdk_materialization else (preflight.contract.sdkRootPath or ""),
+        "setupScript": setup_script or "",
+        "setupScriptRaw": sdk_materialization.setup_script_raw if sdk_materialization else preflight.contract.setupScript,
+        "sysroot": sdk_materialization.sysroot if sdk_materialization else (preflight.contract.sysroot or ""),
+        "sysrootRaw": sdk_materialization.sysroot_raw if sdk_materialization else preflight.contract.sysroot,
         "toolchainTriplet": preflight.contract.toolchainTriplet or "",
-        "buildEnvironment": preflight.contract.buildEnvironment,
+        "buildEnvironment": effective_build_environment,
+        "callerBuildEnvironment": sdk_materialization.caller_environment if sdk_materialization else preflight.contract.buildEnvironment,
+        "derivedBuildEnvironment": sdk_materialization.derived_environment if sdk_materialization else {},
         "scriptHint": {
             "path": preflight.script_hint.path,
             "content": preflight.script_hint.content,
@@ -95,7 +112,10 @@ async def handle_build_resolve(request: TaskRequest) -> TaskSuccessResponse | Ta
     build_files = phase0_result.build_files
 
     # ─── 1b. 초기 빌드 스크립트 결정론적 생성 (cmake/make/autotools 템플릿) ───
-    initial_script = phase0.generate_initial_script(preflight.contract.setupScript)
+    initial_script = phase0.generate_initial_script(
+        setup_script,
+        sdk_environment=sdk_materialization.derived_environment if sdk_materialization else None,
+    )
     initial_script_hint = ""
     if initial_script:
         os.makedirs(os.path.join(effective_root, build_subdir), exist_ok=True)
@@ -227,7 +247,7 @@ async def handle_build_resolve(request: TaskRequest) -> TaskSuccessResponse | Ta
         settings.sast_endpoint,
         effective_root,
         request_id,
-        default_build_environment=preflight.contract.buildEnvironment,
+        default_build_environment=effective_build_environment,
         provenance=provenance,
         build_dir=build_subdir,
     )
