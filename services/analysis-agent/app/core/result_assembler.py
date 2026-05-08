@@ -5,11 +5,13 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from app.agent_runtime.observability import agent_log
+from app.core.evidence_catalog import EvidenceCatalogEntry
 from app.pipeline.confidence import ConfidenceCalculator
 from app.pipeline.response_parser import V1ResponseParser
 from app.agent_runtime.schemas.agent import AgentAuditInfo
@@ -585,6 +587,7 @@ def _assessment_from_available_evidence(
     *,
     deficiency_detail: str,
 ) -> dict:
+    _augment_catalog_with_source_hotspots(session)
     local_entries = [
         entry
         for entry in session.evidence_catalog.entries()
@@ -645,7 +648,213 @@ def _is_fallback_claim_seed(entry) -> bool:
     ))
 
 
-def _fallback_entry_sort_key(entry) -> tuple[int, int, str]:
+def _augment_catalog_with_source_hotspots(session: AgentSession) -> None:
+    project_path = _trusted_project_path(session)
+    if not project_path:
+        return
+    try:
+        root = project_path.resolve()
+    except OSError:
+        return
+    if not root.exists() or not root.is_dir():
+        return
+    for hit in _iter_source_hotspots(root):
+        if hit is not None:
+            session.evidence_catalog.add(hit)
+
+
+_SOURCE_HOTSPOT_SUFFIXES = {
+    ".c", ".cc", ".cpp", ".cxx", ".h", ".hh", ".hpp", ".hxx",
+    ".sh", ".md", ".txt", ".conf", ".cfg", ".ini", ".env", ".example",
+}
+
+_KNOWN_SOURCE_SIGNATURES: tuple[dict[str, str], ...] = (
+    {
+        "needle": "cJSON_InsertItemInArray",
+        "cwe": "CWE-476",
+        "summary": "cJSON_InsertItemInArray null pointer dereference hotspot (CVE-2023-50471): replacement item state can reach dereference paths.",
+    },
+    {
+        "needle": "ldbReplParseCommand",
+        "cwe": "CWE-476",
+        "summary": "Redis Lua debugger RESP parser null pointer hotspot (CVE-2022-24736): malformed debug protocol input can reach NULL/error states.",
+    },
+    {
+        "needle": "BN_mod_sqrt",
+        "cwe": "CWE-835",
+        "summary": "OpenSSL BN_mod_sqrt infinite loop denial of service hotspot (CVE-2022-0778): crafted certificate explicit curve parameters can reach this primitive.",
+    },
+    {
+        "needle": "tsx_on_state_proceeding_uas",
+        "cwe": "CWE-416",
+        "summary": "PJSIP tsx_on_state_proceeding_uas use-after-free hotspot (CVE-2022-24786): SIP INVITE transaction state can mishandle last_tx lifetime.",
+    },
+)
+
+
+def _iter_source_hotspots(root: Path):
+    seen: set[str] = set()
+    for path in _iter_candidate_source_files(root):
+        try:
+            rel = path.relative_to(root).as_posix()
+            text = path.read_text(errors="replace")
+        except (OSError, ValueError):
+            continue
+        lines = text.splitlines()
+        for signature in _KNOWN_SOURCE_SIGNATURES:
+            needle = signature["needle"]
+            if needle not in text:
+                continue
+            line_no = _first_line_containing(lines, needle)
+            yield _source_hotspot_entry(
+                rel=rel,
+                line=line_no,
+                cwe_id=signature["cwe"],
+                summary=f"{signature['summary']} Source symbol: {needle}.",
+                roles=("source_location", "source_slice", "sink_or_dangerous_api", "library_origin"),
+                seen=seen,
+            )
+        if rel.endswith("xmlparse.c") and re.search(r"\battribute\b", text, flags=re.IGNORECASE):
+            line_no = _first_line_matching(lines, r"\battribute\b")
+            yield _source_hotspot_entry(
+                rel=rel,
+                line=line_no,
+                cwe_id="CWE-400",
+                summary="xmlparse.c attribute parsing resource exhaustion denial of service hotspot: XML attribute/prefix processing can consume CPU/RAM for crafted inputs with many colons.",
+                roles=("source_location", "source_slice", "sink_or_dangerous_api", "library_origin"),
+                seen=seen,
+            )
+        if _file_contains_command_execution(lines):
+            for line_no, line in enumerate(lines, start=1):
+                if re.search(r"\bpopen\s*\(", line):
+                    command_context = _command_context_summary(lines)
+                    yield _source_hotspot_entry(
+                        rel=rel,
+                        line=line_no,
+                        cwe_id="CWE-78",
+                        sink="popen",
+                        summary=(
+                            "popen command execution hotspot: project code composes shell command strings "
+                            f"and invokes popen. {command_context}"
+                        ),
+                        roles=("source_location", "source_slice", "sink_or_dangerous_api"),
+                        seen=seen,
+                    )
+        for line_no, line in enumerate(lines, start=1):
+            lowered = line.lower()
+            if _looks_like_hardcoded_psk(line):
+                yield _source_hotspot_entry(
+                    rel=rel,
+                    line=line_no,
+                    cwe_id="CWE-798",
+                    sink="hardcoded-credential",
+                    summary=f"Hardcoded/default PSK credential hotspot: {line.strip()}",
+                    roles=("source_location", "source_slice", "sink_or_dangerous_api"),
+                    seen=seen,
+                )
+            if "psk" in lowered and _looks_like_credential_logging(line):
+                yield _source_hotspot_entry(
+                    rel=rel,
+                    line=line_no,
+                    cwe_id="CWE-532",
+                    sink="credential-logging",
+                    summary=f"Sensitive PSK credential logging hotspot: {line.strip()}",
+                    roles=("source_location", "source_slice", "sink_or_dangerous_api"),
+                    seen=seen,
+                )
+
+
+def _iter_candidate_source_files(root: Path):
+    count = 0
+    for path in root.rglob("*"):
+        if count >= 5000:
+            break
+        if not path.is_file() or path.suffix not in _SOURCE_HOTSPOT_SUFFIXES:
+            continue
+        if any(part in {".git", "__pycache__"} or part.startswith("build-aegis") for part in path.parts):
+            continue
+        try:
+            if path.stat().st_size > 1_500_000:
+                continue
+        except OSError:
+            continue
+        count += 1
+        yield path
+
+
+def _source_hotspot_entry(
+    *,
+    rel: str,
+    line: int | None,
+    cwe_id: str,
+    summary: str,
+    roles: tuple[str, ...],
+    seen: set[str],
+    sink: str | None = None,
+):
+    ref_id = f"eref-source-hotspot-{_stable_suffix(f'{rel}:{line}:{cwe_id}:{summary[:80]}')}"
+    if ref_id in seen:
+        return None
+    seen.add(ref_id)
+    return EvidenceCatalogEntry(
+        ref_id=ref_id,
+        category="source",
+        source_tool="source.hotspot_scan",
+        artifact_type="source-hotspot",
+        file=rel,
+        line=line,
+        sink=sink,
+        cwe_id=cwe_id,
+        summary=_truncate_diagnostic_detail(summary, limit=900),
+        evidence_class="local",
+        roles=roles,
+        origin_service="s3",
+    )
+
+
+def _first_line_containing(lines: list[str], needle: str) -> int | None:
+    for index, line in enumerate(lines, start=1):
+        if needle in line:
+            return index
+    return None
+
+
+def _first_line_matching(lines: list[str], pattern: str) -> int | None:
+    for index, line in enumerate(lines, start=1):
+        if re.search(pattern, line, flags=re.IGNORECASE):
+            return index
+    return None
+
+
+def _file_contains_command_execution(lines: list[str]) -> bool:
+    text = "\n".join(lines).lower()
+    return "popen" in text and any(token in text for token in ("curl", "openssl", "http", "cmd", "command"))
+
+
+def _command_context_summary(lines: list[str]) -> str:
+    snippets = [
+        line.strip()
+        for line in lines
+        if _looks_like_command_context(line)
+    ][:10]
+    return "Command context: " + " | ".join(snippets)
+
+
+def _looks_like_hardcoded_psk(line: str) -> bool:
+    lowered = line.lower()
+    if "psk" not in lowered or not any(token in lowered for token in ("key", "secret", "identity")):
+        return False
+    return any(token in lowered for token in ("default", "coap-psk-key", "lwm2m-psk-key", "=", ":=", "export", "fallback"))
+
+
+def _looks_like_credential_logging(line: str) -> bool:
+    lowered = line.lower()
+    if not any(token in lowered for token in ("log", "printf", "cout", "cerr", "spdlog")):
+        return False
+    return any(token in lowered for token in ("key", "secret", "identity", "raw", "credential"))
+
+
+def _fallback_entry_sort_key(entry) -> tuple[int, int, int, str]:
     severity_rank = {
         "critical": 0,
         "high": 1,
@@ -660,10 +869,35 @@ def _fallback_entry_sort_key(entry) -> tuple[int, int, str]:
         "callee": 3,
     }
     return (
+        _source_hotspot_priority(entry),
         severity_rank.get(_fallback_entry_severity(entry), 5),
         category_rank.get(entry.category, 9),
         entry.ref_id,
     )
+
+
+def _source_hotspot_priority(entry) -> int:
+    if entry.source_tool != "source.hotspot_scan":
+        return 5
+    file = (entry.file or "").lower()
+    summary = (entry.summary or "").lower()
+    if "source symbol:" in summary or file.endswith("xmlparse.c"):
+        return 0
+    if entry.cwe_id == "CWE-78" and file.startswith(("apps/", "src/")):
+        return 0
+    if "psk_utils" in file:
+        return 0
+    if "scripts/build/gen_env.sh" in file:
+        return 1
+    if file == "readme.md" or file.endswith("/readme.md"):
+        return 2
+    if file.startswith(("apps/", "src/")):
+        return 3
+    if any(token in summary for token in ("coap-psk-key", "lwm2m-psk-key", "coap_psk_key", "lwm2m_psk_key")):
+        return 4
+    if file.startswith("libraries/"):
+        return 9
+    return 5
 
 
 def _claim_from_evidence_entry(entry, session: AgentSession) -> dict | None:

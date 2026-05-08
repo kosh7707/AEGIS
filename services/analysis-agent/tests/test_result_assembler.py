@@ -503,6 +503,35 @@ def test_llm_failure_can_recover_grounded_claim_from_available_local_evidence(tm
     assert "deterministic_local_evidence_fallback" in result.result.policyFlags
 
 
+def test_llm_failure_source_hotspot_fallback_scans_project_local_sources(tmp_path):
+    assembler = ResultAssembler()
+    session = _make_session()
+    session.request.context.trusted["projectPath"] = str(tmp_path)
+    (tmp_path / "cJSON.c").write_text(
+        "\n".join([
+            "void helper(void) {}",
+            "cJSON_bool cJSON_InsertItemInArray(cJSON *array, int which, cJSON *newitem) {",
+            "    return newitem->prev != 0;",
+            "}",
+        ])
+    )
+
+    result = assembler.build_from_available_evidence(
+        session,
+        deficiency_detail="tool_intent_planning_stalled_after_45s",
+    )
+
+    assert result.status == "completed"
+    assert result.result.analysisOutcome == "accepted_claims"
+    claim_text = json.dumps(result.result.claims[0].model_dump(mode="json"), ensure_ascii=False)
+    assert "cJSON_InsertItemInArray" in claim_text
+    assert "CWE-476" in claim_text
+    assert "source.hotspot_scan" in json.dumps(
+        result.result.evidenceDiagnostics.attemptedAcquisitions[0].model_dump(mode="json"),
+        ensure_ascii=False,
+    )
+
+
 def test_timeout_exhaustion_remains_task_failure():
     assembler = ResultAssembler()
     session = _make_session()
