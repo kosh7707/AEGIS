@@ -8,6 +8,7 @@ import time
 from typing import TYPE_CHECKING
 
 from app.clients.kb_error_utils import is_kb_timeout_error
+from app.clients.s4_ownership import S4OwnershipError, S4OwnershipUnsupported, post_and_wait_s4_ownership
 from app.agent_runtime.observability import agent_log
 from app.runtime.request_summary import request_summary_tracker
 
@@ -78,17 +79,36 @@ async def run_build_and_analyze(
         headers["X-Request-Id"] = request_id
 
     start = time.monotonic()
+    status_code = 200
     try:
         request_summary_tracker.mark_transport_only(
             request_id or project_id,
             source="s4-build-and-analyze-wait",
         )
-        resp = await sast_client.post(
-            "/v1/build-and-analyze",
-            json=body,
-            headers=headers,
-        )
-        data = resp.json()
+        try:
+            ownership = await post_and_wait_s4_ownership(
+                sast_client,
+                base_url=str(sast_client.base_url).rstrip("/"),
+                endpoint_path="/v1/build-and-analyze",
+                payload=body,
+                root_request_id=request_id,
+                operation="phase1_build_and_analyze",
+            )
+            data = ownership.payload
+        except S4OwnershipUnsupported:
+            resp = await sast_client.post(
+                "/v1/build-and-analyze",
+                json=body,
+                headers=headers,
+            )
+            status_code = resp.status_code
+            data = resp.json()
+        except S4OwnershipError as exc:
+            if isinstance(exc.payload, dict):
+                status_code = exc.status_code or 500
+                data = exc.payload
+            else:
+                raise
     except Exception as exc:
         elapsed = int((time.monotonic() - start) * 1000)
         agent_log(
@@ -116,11 +136,11 @@ async def run_build_and_analyze(
         if isinstance(failure_detail, dict):
             result.build_failure_detail = failure_detail
 
-    if resp.status_code >= 400:
+    if status_code >= 400:
         agent_log(
             logger, "Phase 1: build-and-analyze HTTP 실패",
             component="phase_one", phase="build_and_analyze_http_error",
-            statusCode=resp.status_code,
+            statusCode=status_code,
             errorCode=result.build_failure_detail.get("code") or result.build_failure_detail.get("category"),
             compileCommandsPath=result.build_compile_commands_path,
             latencyMs=elapsed,

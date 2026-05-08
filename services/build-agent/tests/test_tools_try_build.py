@@ -403,8 +403,9 @@ async def test_shell_gcc_command_preserved_and_request_id_forwarded(monkeypatch)
     headers = call_args.kwargs.get("headers") or call_args[1].get("headers")
     assert payload["buildCommand"] == "./build.sh && arm-none-linux-gnueabihf-gcc -o app src/main.c"
     assert "buildEnvironment" not in payload
-    assert headers["X-Request-Id"] == "req-shell-gcc-001"
-    assert headers["X-Timeout-Ms"] == "120000"
+    assert headers["Prefer"] == "respond-async"
+    assert headers["X-Request-Id"].startswith("req-shell-gcc-001:s4:v1-build:try_build:")
+    assert "X-Timeout-Ms" not in headers
 
 
 @pytest.mark.asyncio
@@ -438,3 +439,113 @@ async def test_failure_detail_is_included_in_warning(monkeypatch):
 
     assert result.success is False
     assert "Caller must provide a valid build command." in result.content
+
+
+@pytest.mark.asyncio
+async def test_try_build_uses_durable_ownership_and_polls_until_result(monkeypatch):
+    submit = MagicMock(status_code=202)
+    submit.json.return_value = {
+        "requestId": "req-build-owned",
+        "statusUrl": "/v1/requests/req-build-owned",
+        "resultUrl": "/v1/requests/req-build-owned/result",
+    }
+    running = MagicMock(status_code=200)
+    running.json.return_value = {
+        "requestId": "req-build-owned",
+        "state": "running",
+        "localAckState": "transport-only",
+        "blockedReason": None,
+        "resultReady": False,
+    }
+    completed = MagicMock(status_code=200)
+    completed.json.return_value = {
+        "requestId": "req-build-owned",
+        "state": "completed",
+        "localAckState": None,
+        "resultReady": True,
+    }
+    final = MagicMock(status_code=200)
+    final.json.return_value = {
+        "requestId": "req-build-owned",
+        "state": "completed",
+        "result": {"success": True, "buildEvidence": {"exitCode": 0, "entries": 5}},
+    }
+
+    mock_client = AsyncMock()
+    mock_client.post.return_value = submit
+    mock_client.get.side_effect = [running, completed, final]
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=False)
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: mock_client)
+    monkeypatch.setattr("asyncio.sleep", AsyncMock())
+
+    tool = TryBuildTool(
+        sast_endpoint="http://localhost:9000",
+        project_path="/tmp/test",
+        request_id="req-root-build",
+    )
+    result = await tool.execute({"build_command": "make all"})
+
+    assert result.success is True
+    headers = mock_client.post.await_args.kwargs["headers"]
+    assert headers["Prefer"] == "respond-async"
+    assert headers["X-Request-Id"].startswith("req-root-build:s4:v1-build:try_build:")
+    assert "X-Timeout-Ms" not in headers
+    assert mock_client.get.await_count == 3
+
+
+@pytest.mark.asyncio
+async def test_try_build_changed_command_gets_new_s4_child_request_id(monkeypatch):
+    seen_ids: list[str] = []
+
+    async def fake_post(url, **kwargs):
+        seen_ids.append(kwargs["headers"]["X-Request-Id"])
+        return _make_mock_client({"success": True, "buildEvidence": {"exitCode": 0, "entries": 1}}).post.return_value
+
+    mock_client = AsyncMock()
+    mock_client.post.side_effect = fake_post
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=False)
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: mock_client)
+
+    tool = TryBuildTool("http://localhost:9000", "/tmp/test", request_id="req-root")
+    await tool.execute({"build_command": "make app"})
+    await tool.execute({"build_command": "make clean && make app"})
+
+    assert len(seen_ids) == 2
+    assert seen_ids[0] != seen_ids[1]
+
+
+@pytest.mark.asyncio
+async def test_try_build_nested_domain_failure_is_not_clean_success(monkeypatch):
+    submit = MagicMock(status_code=202)
+    submit.json.return_value = {
+        "requestId": "req-build-failed",
+        "statusUrl": "/v1/requests/req-build-failed",
+        "resultUrl": "/v1/requests/req-build-failed/result",
+    }
+    failed = MagicMock(status_code=200)
+    failed.json.return_value = {"requestId": "req-build-failed", "state": "failed", "resultReady": True}
+    final = MagicMock(status_code=200)
+    final.json.return_value = {
+        "requestId": "req-build-failed",
+        "state": "failed",
+        "result": {
+            "success": False,
+            "buildEvidence": {"exitCode": 2, "userEntries": 0},
+            "failureDetail": {"summary": "compile failed"},
+        },
+    }
+    mock_client = AsyncMock()
+    mock_client.post.return_value = submit
+    mock_client.get.side_effect = [failed, final]
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=False)
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: mock_client)
+
+    tool = TryBuildTool("http://localhost:9000", "/tmp/test", request_id="req-root")
+    result = await tool.execute({"build_command": "make app"})
+
+    assert result.success is False
+    assert result.new_evidence_refs == []
+    assert "compile failed" in result.content

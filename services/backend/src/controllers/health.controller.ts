@@ -70,7 +70,7 @@ export function createHealthRouter(
       service: "aegis-core-service",
       status,
       version: "0.2.0",
-      controlPolicyVersion: "health-control-signal-rollout-v1",
+      controlPolicyVersion: "health-control-signal-rollout-v2",
       ...(requestedRequestId ? { requestIdQueried: requestedRequestId } : {}),
       detail: {
         version: "0.2.0",

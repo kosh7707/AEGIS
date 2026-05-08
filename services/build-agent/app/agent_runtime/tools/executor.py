@@ -34,10 +34,13 @@ class ToolExecutor:
 
         start = time.monotonic()
         try:
-            result = await asyncio.wait_for(
-                impl.execute(call.arguments),
-                timeout=self._timeout_s,
-            )
+            if getattr(impl, "wait_while_alive", False):
+                result = await impl.execute(call.arguments)
+            else:
+                result = await asyncio.wait_for(
+                    impl.execute(call.arguments),
+                    timeout=self._timeout_s,
+                )
             result.tool_call_id = call.id
             result.name = call.name
             result.duration_ms = int((time.monotonic() - start) * 1000)

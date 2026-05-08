@@ -687,7 +687,7 @@ export interface ServiceHealth {
     activeRequestCount: number | null;
     requestId: string | null;
     endpoint: string | null;
-    state: "idle" | "queued" | "running" | "failed";
+    state: "idle" | "queued" | "running" | "completed" | "failed" | "cancelled" | "expired";
     localAckState: "phase-advancing" | "transport-only" | "ack-break" | null;
     degraded: boolean;
     degradeReasons: string[];
@@ -703,7 +703,7 @@ export interface HealthResponse {
   service: string;
   status: "ok" | "degraded" | "unhealthy";
   version: string;
-  controlPolicyVersion?: "health-control-signal-rollout-v1";
+  controlPolicyVersion?: "health-control-signal-rollout-v2";
   requestIdQueried?: string;
   detail?: { version: string; uptime: number };
   llmGateway?: ServiceHealth | null;

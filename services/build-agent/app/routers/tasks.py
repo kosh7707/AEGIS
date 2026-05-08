@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Query, Request
 from fastapi.responses import JSONResponse
 
 from app.config import settings
@@ -14,7 +14,8 @@ from app.routers.build_route_support import json_response as _json_response
 from app.routers.sdk_analyze_handler import handle_sdk_analyze as _handle_sdk_analyze
 from app.schemas.request import TaskRequest
 from app.schemas.response import BUILD_RESPONSE_SCHEMA_VERSION
-from app.types import TaskType
+from app.types import TaskStatus, TaskType
+from app.runtime.request_summary import request_summary_tracker
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +26,8 @@ router = APIRouter(prefix="/v1", tags=["v1"])
 async def create_task(request: TaskRequest, req: Request) -> JSONResponse:
     set_request_id(req.headers.get("x-request-id"))
     logger.info("[v1] Task received: taskId=%s, taskType=%s", request.taskId, request.taskType)
+    request_id = get_request_id() or request.taskId
+    request_summary_tracker.register(request_id, endpoint="tasks")
 
     try:
         if request.taskType == TaskType.BUILD_RESOLVE:
@@ -32,7 +35,8 @@ async def create_task(request: TaskRequest, req: Request) -> JSONResponse:
         elif request.taskType == TaskType.SDK_ANALYZE:
             result = await _handle_sdk_analyze(request)
         else:
-            request_id = get_request_id()
+            request_summary_tracker.mark_failed(request_id, "UNKNOWN_TASK_TYPE")
+            response_request_id = get_request_id()
             return JSONResponse(
                 status_code=400,
                 content={
@@ -41,15 +45,16 @@ async def create_task(request: TaskRequest, req: Request) -> JSONResponse:
                     "errorDetail": {
                         "code": "UNKNOWN_TASK_TYPE",
                         "message": f"Build Agent supports 'build-resolve' and 'sdk-analyze', got '{request.taskType}'",
-                        "requestId": request_id,
+                        "requestId": response_request_id,
                         "retryable": False,
                     },
                 },
-                headers={"X-Request-Id": request_id} if request_id else {},
+                headers={"X-Request-Id": response_request_id} if response_request_id else {},
             )
     except Exception:
         logger.error("[v1] Unexpected error", exc_info=True)
-        request_id = get_request_id()
+        request_summary_tracker.mark_failed(request_id, "INTERNAL_ERROR")
+        response_request_id = get_request_id()
         return JSONResponse(
             status_code=500,
             content={
@@ -62,14 +67,19 @@ async def create_task(request: TaskRequest, req: Request) -> JSONResponse:
                     "retryable": False,
                 },
             },
-            headers={"X-Request-Id": request_id} if request_id else {},
+            headers={"X-Request-Id": response_request_id} if response_request_id else {},
         )
+
+    if getattr(result, "status", None) == TaskStatus.COMPLETED:
+        request_summary_tracker.mark_completed(request_id)
+    else:
+        request_summary_tracker.mark_failed(request_id, str(getattr(result, "failureCode", None) or getattr(result, "status", "failed")))
 
     return _json_response(result)
 
 
 @router.get("/health")
-async def health() -> dict:
+async def health(requestId: str | None = Query(default=None)) -> dict:
     return {
         "service": "s3-build",
         "status": "ok",
@@ -80,12 +90,13 @@ async def health() -> dict:
             "sdk-analyze": BUILD_RESPONSE_SCHEMA_VERSION,
         },
         "proposedResponseSchemas": {},
+        "activeRequestCount": request_summary_tracker.active_request_count(),
+        "requestSummary": request_summary_tracker.get_summary(requestId),
         "agentConfig": {
             "maxSteps": settings.agent_max_steps,
             "maxCompletionTokens": settings.agent_max_completion_tokens,
             "taskDeadlineMs": settings.build_task_deadline_ms,
             "partialEnvelopeDeadlineMs": settings.build_partial_envelope_deadline_ms,
-            "llmAsyncPollDeadlineMs": settings.llm_async_poll_deadline_ms,
             "llmAsyncPollIntervalSeconds": settings.llm_async_poll_interval_seconds,
             "toolBudget": {
                 "cheap": settings.agent_max_cheap_calls,

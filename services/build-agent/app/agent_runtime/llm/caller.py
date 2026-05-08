@@ -46,7 +46,6 @@ class LlmCaller:
     _MAX_TIMEOUT = TimeoutDefaults.CHAT_MAX_SECONDS
     _ASYNC_SUBMIT_TIMEOUT = 30.0
     _ASYNC_POLL_INTERVAL = 1.0
-    _DEFAULT_ASYNC_POLL_DEADLINE = TimeoutDefaults.CHAT_DEFAULT_SECONDS - 60.0
     _ASYNC_UNSUPPORTED_RETRY_SECONDS = 60.0
 
     def __init__(
@@ -58,7 +57,6 @@ class LlmCaller:
         enable_thinking: bool = True,
         default_max_tokens: int = 4096,
         service_id: str = "",
-        async_poll_deadline_seconds: float | None = None,
         async_poll_interval_seconds: float | None = None,
     ) -> None:
         self._endpoint = endpoint
@@ -68,10 +66,6 @@ class LlmCaller:
         self._default_max_tokens = default_max_tokens
         self._service_id = service_id
         self._async_surface_retry_at = 0.0
-        self._async_poll_deadline_seconds = max(
-            1.0,
-            float(async_poll_deadline_seconds or self._DEFAULT_ASYNC_POLL_DEADLINE),
-        )
         self._async_poll_interval_seconds = max(
             0.1,
             float(async_poll_interval_seconds or self._ASYNC_POLL_INTERVAL),
@@ -341,7 +335,6 @@ class LlmCaller:
         submit_headers = dict(headers)
         submit_url = f"{self._endpoint}/v1/async-chat-requests"
         start = time.monotonic()
-        poll_deadline = start + self._async_poll_deadline_seconds
 
         agent_log(
             logger, "LLM async ownership 제출 시도",
@@ -400,44 +393,9 @@ class LlmCaller:
             submit_data.get("resultUrl"),
             f"/v1/async-chat-requests/{async_request_id}/result",
         )
-        cancel_url = self._resolve_endpoint_url(
-            submit_data.get("cancelUrl"),
-            f"/v1/async-chat-requests/{async_request_id}",
-        )
-
         poll_headers = {k: v for k, v in submit_headers.items() if k != "Content-Type"}
 
         while True:
-            if time.monotonic() >= poll_deadline:
-                elapsed_ms = int((time.monotonic() - start) * 1000)
-                await self._cancel_async_request(
-                    cancel_url,
-                    poll_headers,
-                    async_request_id=async_request_id,
-                    turn=turn,
-                    reason="poll_deadline_exceeded",
-                )
-                agent_log(
-                    logger, "LLM async ownership poll deadline 초과",
-                    component="llm_caller", phase="llm_async_timeout",
-                    turn=turn, requestId=async_request_id,
-                    deadlineSeconds=self._async_poll_deadline_seconds,
-                    latencyMs=elapsed_ms, level=logging.ERROR,
-                )
-                self._write_exchange_and_dump(
-                    request_id or submit_data.get("traceRequestId") or async_request_id,
-                    turn,
-                    elapsed_ms,
-                    "error",
-                    error_code="LLM_ASYNC_POLL_TIMEOUT",
-                    body=body,
-                    data={"requestId": async_request_id},
-                )
-                raise LlmTimeoutError(
-                    "LLM async ownership poll deadline exceeded "
-                    f"after {self._async_poll_deadline_seconds:.0f}s"
-                )
-
             status_data = await self._get_async_json(status_url, poll_headers)
             state = status_data.get("state")
             local_ack_state = status_data.get("localAckState")

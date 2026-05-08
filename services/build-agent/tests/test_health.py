@@ -1,4 +1,6 @@
 def test_health(client):
+    from app.runtime.request_summary import request_summary_tracker
+    request_summary_tracker.reset()
     resp = client.get("/v1/health")
     assert resp.status_code == 200
     data = resp.json()
@@ -10,8 +12,10 @@ def test_health(client):
     assert data["proposedResponseSchemas"] == {}
     assert data["agentConfig"]["taskDeadlineMs"] == 1_800_000
     assert data["agentConfig"]["partialEnvelopeDeadlineMs"] == 1_740_000
-    assert data["agentConfig"]["llmAsyncPollDeadlineMs"] == 1_740_000
     assert data["agentConfig"]["llmAsyncPollIntervalSeconds"] == 1.0
+    assert data["activeRequestCount"] == 0
+    assert data["requestSummary"]["state"] == "idle"
+    assert data["requestSummary"]["localAckState"] is None
 
 def test_build_resolve_mock(client):
     """build-resolve 요청이 200을 반환하고 유효한 응답 구조를 갖는지 확인."""
@@ -163,3 +167,27 @@ def test_unknown_task_type(client):
         "context": {"trusted": {"projectPath": "/tmp/test"}},
     })
     assert resp.status_code in (400, 422)
+
+
+def test_health_endpoint_reports_build_request_summary(client):
+    from app.runtime.request_summary import request_summary_tracker
+
+    request_summary_tracker.reset()
+    request_summary_tracker.register("req-build-health", endpoint="tasks")
+    request_summary_tracker.mark_transport_only("req-build-health", source="s4-build-ownership-wait")
+
+    resp = client.get("/v1/health")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["activeRequestCount"] == 1
+    assert data["requestSummary"]["requestId"] == "req-build-health"
+    assert data["requestSummary"]["state"] == "running"
+    assert data["requestSummary"]["localAckState"] == "transport-only"
+    assert data["requestSummary"]["blockedReason"] is None
+
+    request_summary_tracker.mark_failed("req-build-health", "blocked")
+    failed = client.get("/v1/health", params={"requestId": "req-build-health"}).json()["requestSummary"]
+    assert failed["state"] == "failed"
+    assert failed["localAckState"] == "ack-break"
+    assert failed["blockedReason"] == "blocked"
+    request_summary_tracker.reset()

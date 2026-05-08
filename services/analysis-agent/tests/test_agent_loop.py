@@ -475,7 +475,7 @@ async def test_llm_timeout_remains_task_failure_boundary():
     from app.agent_runtime.errors import LlmTimeoutError
 
     llm_caller = MagicMock()
-    llm_caller.call = AsyncMock(side_effect=LlmTimeoutError("async poll deadline exceeded"))
+    llm_caller.call = AsyncMock(side_effect=LlmTimeoutError("llm wait interrupted"))
 
     budget = BudgetState()
     bm = BudgetManager(budget)

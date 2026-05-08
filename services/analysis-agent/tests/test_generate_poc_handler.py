@@ -54,24 +54,6 @@ def _mock_llm_response(content: str, prompt_tokens: int = 10, completion_tokens:
     )
 
 
-def test_generate_poc_async_poll_deadline_uses_explicit_advisory_timeout():
-    request = _make_poc_request()
-    assert (
-        generate_poc_handler._generate_poc_async_poll_deadline_seconds(request)
-        == settings.llm_async_poll_deadline_ms / 1000
-    )
-
-    base = _make_poc_request()
-    explicit = TaskRequest(
-        taskType=base.taskType,
-        taskId=base.taskId,
-        context=base.context,
-        evidenceRefs=base.evidenceRefs,
-        constraints=Constraints(maxTokens=6000, timeoutMs=600000),
-    )
-    assert generate_poc_handler._generate_poc_async_poll_deadline_seconds(explicit) == 595.0
-
-
 @pytest.mark.asyncio
 async def test_generate_poc_returns_structured_json_with_valid_claim(monkeypatch):
     original_mode = settings.llm_mode
@@ -1059,7 +1041,7 @@ async def test_generate_poc_classifies_llm_timeout_as_completed_inconclusive(mon
     object.__setattr__(settings, "llm_mode", "real")
 
     async def fake_call(self, *args, **kwargs):
-        raise LlmTimeoutError("async poll deadline exceeded")
+        raise LlmTimeoutError("llm wait interrupted")
 
     async def fake_aclose(self):
         return None

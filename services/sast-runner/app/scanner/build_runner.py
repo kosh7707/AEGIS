@@ -79,10 +79,13 @@ class BuildRunner:
         self,
         project_path: Path,
         build_command: str,
-        timeout: int = 300,
+        timeout: int | None = 300,
         environment: dict[str, str] | None = None,
         wrap_with_bear: bool = True,
         on_runtime_state=None,
+        timeout_seconds_for_evidence: int | None = None,
+        timeout_mode: str | None = None,
+        timeout_enforced: bool | None = None,
     ) -> dict[str, Any]:
         """caller가 제공한 build command를 그대로 실행하고 compile_commands.json을 생성한다."""
         import time
@@ -130,23 +133,30 @@ class BuildRunner:
                     },
                 )
 
+        timeout_seconds = timeout_seconds_for_evidence if timeout_seconds_for_evidence is not None else (timeout or 0)
+        resolved_timeout_mode = timeout_mode or ("sync-hard-deadline" if timeout is not None else "async-ownership-no-caller-deadline")
+        resolved_timeout_enforced = timeout_enforced if timeout_enforced is not None else (timeout is not None)
+
         communicate_task: asyncio.Task[tuple[bytes, bytes]] | None = None
         try:
-            heartbeat_interval = max(min(timeout, 5), 1)
+            heartbeat_interval = max(min(timeout, 5), 1) if timeout is not None else 5
             communicate_task = asyncio.create_task(proc.communicate())
-            deadline = time.perf_counter() + timeout
+            deadline = time.perf_counter() + timeout if timeout is not None else None
             await _emit_runtime_state(
                 local_ack_state="transport-only",
                 last_ack_source="build-subprocess-alive",
             )
             while True:
-                remaining = deadline - time.perf_counter()
-                if remaining <= 0:
-                    raise asyncio.TimeoutError
+                wait_timeout = heartbeat_interval
+                if deadline is not None:
+                    remaining = deadline - time.perf_counter()
+                    if remaining <= 0:
+                        raise asyncio.TimeoutError
+                    wait_timeout = min(heartbeat_interval, remaining)
                 try:
                     stdout, stderr = await asyncio.wait_for(
                         asyncio.shield(communicate_task),
-                        timeout=min(heartbeat_interval, remaining),
+                        timeout=wait_timeout,
                     )
                     break
                 except asyncio.TimeoutError:
@@ -185,14 +195,16 @@ class BuildRunner:
                     exit_code=None,
                     build_output=None,
                     wrap_with_bear=wrap_with_bear,
-                    timeout=timeout,
+                    timeout=timeout_seconds,
                     environment=environment,
                     elapsed_ms=elapsed,
+                    timeout_mode=resolved_timeout_mode,
+                    timeout_enforced=resolved_timeout_enforced,
                 ),
                 "readiness": readiness,
                 "failureDetail": self._failure_detail(
                     category="timeout",
-                    summary=f"Build timed out after {timeout}s.",
+                    summary=f"Build timed out after {timeout_seconds}s.",
                     matched_excerpt=None,
                     hint="Provide a valid build command and increase timeout only when the caller intentionally expects a long-running build.",
                     retryable=True,
@@ -215,9 +227,11 @@ class BuildRunner:
             exit_code=proc.returncode,
             build_output=build_output[-1000:],
             wrap_with_bear=wrap_with_bear,
-            timeout=timeout,
+            timeout=timeout_seconds,
             environment=environment,
             elapsed_ms=elapsed,
+            timeout_mode=resolved_timeout_mode,
+            timeout_enforced=resolved_timeout_enforced,
         )
         entry_count: int | None = None
         user_entry_count: int | None = None
@@ -260,9 +274,11 @@ class BuildRunner:
                     exit_code=proc.returncode,
                     build_output=build_output[-1000:],
                     wrap_with_bear=wrap_with_bear,
-                    timeout=timeout,
+                    timeout=timeout_seconds,
                     environment=environment,
                     elapsed_ms=elapsed,
+                    timeout_mode=resolved_timeout_mode,
+                    timeout_enforced=resolved_timeout_enforced,
                 ),
                 "readiness": self._build_readiness(
                     compile_commands_path=str(cc_path),
@@ -306,9 +322,11 @@ class BuildRunner:
                     exit_code=proc.returncode,
                     build_output=build_output[-1000:],
                     wrap_with_bear=wrap_with_bear,
-                    timeout=timeout,
+                    timeout=timeout_seconds,
                     environment=environment,
                     elapsed_ms=elapsed,
+                    timeout_mode=resolved_timeout_mode,
+                    timeout_enforced=resolved_timeout_enforced,
                 ),
                 "readiness": readiness,
                 "failureDetail": self._diagnose_failure(
@@ -338,9 +356,11 @@ class BuildRunner:
                     exit_code=proc.returncode,
                     build_output=build_output[-1000:],
                     wrap_with_bear=wrap_with_bear,
-                    timeout=timeout,
+                    timeout=timeout_seconds,
                     environment=environment,
                     elapsed_ms=elapsed,
+                    timeout_mode=resolved_timeout_mode,
+                    timeout_enforced=resolved_timeout_enforced,
                 ),
                 "readiness": readiness,
                 "failureDetail": self._diagnose_failure(
@@ -368,9 +388,11 @@ class BuildRunner:
                 exit_code=proc.returncode,
                 build_output=build_output[-500:],
                 wrap_with_bear=wrap_with_bear,
-                timeout=timeout,
+                timeout=timeout_seconds,
                 environment=environment,
                 elapsed_ms=elapsed,
+                timeout_mode=resolved_timeout_mode,
+                timeout_enforced=resolved_timeout_enforced,
             ),
             "readiness": readiness,
             "failureDetail": None,
@@ -391,6 +413,8 @@ class BuildRunner:
         timeout: int,
         environment: dict[str, str] | None,
         elapsed_ms: int,
+        timeout_mode: str | None = None,
+        timeout_enforced: bool | None = None,
     ) -> dict[str, Any]:
         return {
             "requestedBuildCommand": requested_command,
@@ -403,6 +427,8 @@ class BuildRunner:
             "buildOutput": build_output,
             "wrapWithBear": wrap_with_bear,
             "timeoutSeconds": timeout,
+            "timeoutMode": timeout_mode,
+            "timeoutEnforced": timeout_enforced,
             "environmentKeys": sorted(environment.keys()) if environment else None,
             "elapsedMs": elapsed_ms,
         }

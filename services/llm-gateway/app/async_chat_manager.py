@@ -362,6 +362,7 @@ class AsyncChatRequestManager:
             record = self._requests.get(request_id)
             if record is None:
                 return None
+            self._refresh_active_lease_locked(record)
             self._expire_locked(record)
             return record
 
@@ -397,3 +398,16 @@ class AsyncChatRequestManager:
         record.blocked_reason = None
         record.result_ready = False
         record.response_payload = None
+
+    def _refresh_active_lease_locked(self, record: AsyncChatRequestRecord) -> None:
+        """Keep active async ownership leases fresh while work is alive.
+
+        `expires_at_ms` is the retention/ownership lease timestamp exposed to
+        callers. For queued/running requests it must not become an elapsed-age
+        abort signal; terminal records still use the fixed retention window and
+        may later become explicitly `expired`.
+        """
+        if record.state not in {"queued", "running"}:
+            return
+        now_ms = _now_ms()
+        record.expires_at_ms = max(record.expires_at_ms, now_ms + _RETENTION_MS)

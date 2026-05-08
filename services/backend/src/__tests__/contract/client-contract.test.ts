@@ -48,6 +48,7 @@ function mockFetch503ThenOk(response: object) {
 
 afterEach(() => {
   globalThis.fetch = originalFetch;
+  delete process.env.AEGIS_S4_OWNERSHIP_POLL_MS;
 });
 
 // ============================================================
@@ -383,6 +384,8 @@ describe("SastClient contract", () => {
     const [url, opts] = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
     expect(url).toBe("http://localhost:9000/v1/scan");
     expect(opts.method).toBe("POST");
+    expect(opts.headers["Prefer"]).toBe("respond-async");
+    expect(opts.headers["X-Request-Id"]).toMatch(/^req-test:s4:scan:/);
     const body = JSON.parse(opts.body);
     expect(body.scanId).toBe("scan-1");
     expect(body.projectPath).toBe("/tmp/project");
@@ -439,9 +442,265 @@ describe("SastClient contract", () => {
     const [url, opts] = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
     expect(url).toBe("http://localhost:9000/v1/build");
     expect(opts.method).toBe("POST");
+    expect(opts.headers["Prefer"]).toBe("respond-async");
+    expect(opts.headers["X-Request-Id"]).toMatch(/^req-build:s4:build:/);
     const body = JSON.parse(opts.body);
     expect(body.projectPath).toBe("/tmp/project");
     expect(body.buildCommand).toBe("make all");
+  });
+
+  it("waits through S4 durable ownership queued/running/degraded states and returns retained scan result", async () => {
+    process.env.AEGIS_S4_OWNERSHIP_POLL_MS = "1";
+    let ownedRequestId = "";
+    globalThis.fetch = vi.fn().mockImplementation((url: string, opts?: any) => {
+      if (url === "http://localhost:9000/v1/scan") {
+        ownedRequestId = opts.headers["X-Request-Id"];
+        return Promise.resolve({
+          ok: true,
+          status: 202,
+          json: () => Promise.resolve({
+            requestId: ownedRequestId,
+            endpoint: "scan",
+            state: "queued",
+            resultReady: false,
+            requestSummary: {
+              requestId: ownedRequestId,
+              endpoint: "scan",
+              state: "queued",
+              localAckState: "transport-only",
+              blockedReason: null,
+            },
+          }),
+          text: () => Promise.resolve(""),
+        });
+      }
+      expect(url).toContain(`/v1/requests/${encodeURIComponent(ownedRequestId)}/result`);
+      const callCount = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls.length;
+      if (callCount === 2) {
+        return Promise.resolve({
+          ok: true,
+          status: 202,
+          json: () => Promise.resolve({
+            requestId: ownedRequestId,
+            endpoint: "scan",
+            state: "queued",
+            resultReady: false,
+            requestSummary: {
+              requestId: ownedRequestId,
+              endpoint: "scan",
+              state: "queued",
+              localAckState: "transport-only",
+              blockedReason: null,
+            },
+          }),
+          text: () => Promise.resolve(""),
+        });
+      }
+      if (callCount === 3) {
+        return Promise.resolve({
+          ok: true,
+          status: 202,
+          json: () => Promise.resolve({
+            requestId: ownedRequestId,
+            endpoint: "scan",
+            state: "running",
+            resultReady: false,
+            requestSummary: {
+              requestId: ownedRequestId,
+              endpoint: "scan",
+              state: "running",
+              localAckState: "transport-only",
+              degraded: true,
+              blockedReason: null,
+            },
+          }),
+          text: () => Promise.resolve(""),
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({
+          requestId: ownedRequestId,
+          endpoint: "scan",
+          state: "completed",
+          resultReady: true,
+          result: scanResponse,
+          requestSummary: {
+            requestId: ownedRequestId,
+            endpoint: "scan",
+            state: "completed",
+            localAckState: null,
+            blockedReason: null,
+          },
+        }),
+        text: () => Promise.resolve(""),
+      });
+    }) as any;
+
+    const result = await client.scan({ scanId: "scan-owned", projectId: "p-1", projectPath: "/tmp/project" }, "req-owned");
+
+    expect(result.status).toBe("completed");
+    expect(result.stats.findingsTotal).toBe(1);
+    expect(globalThis.fetch).toHaveBeenCalledTimes(4);
+  });
+
+  it("recovers a S4 submit transport timeout when health proves owned work is still alive", async () => {
+    process.env.AEGIS_S4_OWNERSHIP_POLL_MS = "1";
+    let ownedRequestId = "";
+    globalThis.fetch = vi.fn().mockImplementation((url: string, opts?: any) => {
+      if (url === "http://localhost:9000/v1/scan") {
+        ownedRequestId = opts.headers["X-Request-Id"];
+        return Promise.reject(new Error("ETIMEDOUT while waiting for response"));
+      }
+      if (url.startsWith("http://localhost:9000/v1/health")) {
+        expect(url).toContain(encodeURIComponent(ownedRequestId));
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve({
+            status: "ok",
+            activeRequestCount: 1,
+            requestSummary: {
+              requestId: ownedRequestId,
+              endpoint: "scan",
+              state: "running",
+              localAckState: "transport-only",
+              blockedReason: null,
+            },
+          }),
+          text: () => Promise.resolve(""),
+        });
+      }
+      expect(url).toContain(`/v1/requests/${encodeURIComponent(ownedRequestId)}/result`);
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({
+          requestId: ownedRequestId,
+          endpoint: "scan",
+          state: "completed",
+          resultReady: true,
+          result: scanResponse,
+          requestSummary: {
+            requestId: ownedRequestId,
+            endpoint: "scan",
+            state: "completed",
+            localAckState: null,
+            blockedReason: null,
+          },
+        }),
+        text: () => Promise.resolve(""),
+      });
+    }) as any;
+
+    const result = await client.scan({ scanId: "scan-timeout-recovered", projectId: "p-1", projectPath: "/tmp/project" }, "req-owned-timeout");
+
+    expect(result.status).toBe("completed");
+    expect(result.scanId).toBe("scan-1");
+    expect(globalThis.fetch).toHaveBeenCalledTimes(3);
+  });
+
+  it("aborts S4 durable ownership wait on ack-break instead of waiting by elapsed age", async () => {
+    process.env.AEGIS_S4_OWNERSHIP_POLL_MS = "1";
+    let ownedRequestId = "";
+    globalThis.fetch = vi.fn().mockImplementation((url: string, opts?: any) => {
+      if (url === "http://localhost:9000/v1/build") {
+        ownedRequestId = opts.headers["X-Request-Id"];
+        return Promise.resolve({
+          ok: true,
+          status: 202,
+          json: () => Promise.resolve({ requestId: ownedRequestId, endpoint: "build", state: "running" }),
+          text: () => Promise.resolve(""),
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        status: 202,
+        json: () => Promise.resolve({
+          requestId: ownedRequestId,
+          endpoint: "build",
+          state: "running",
+          resultReady: false,
+          requestSummary: {
+            requestId: ownedRequestId,
+            endpoint: "build",
+            state: "running",
+            localAckState: "ack-break",
+            blockedReason: "build-process-crashed",
+          },
+        }),
+        text: () => Promise.resolve(""),
+      });
+    }) as any;
+
+    await expect(client.build({ projectPath: "/tmp/project", buildCommand: "make" }, "req-build-owned"))
+      .rejects.toThrow(/chain abort|ack-break|blocked/i);
+  });
+
+  it("surfaces S4 durable ownership expiry as ownership loss", async () => {
+    let ownedRequestId = "";
+    globalThis.fetch = vi.fn().mockImplementation((url: string, opts?: any) => {
+      if (url === "http://localhost:9000/v1/build") {
+        ownedRequestId = opts.headers["X-Request-Id"];
+        return Promise.resolve({
+          ok: true,
+          status: 202,
+          json: () => Promise.resolve({ requestId: ownedRequestId, endpoint: "build", state: "queued" }),
+          text: () => Promise.resolve(""),
+        });
+      }
+      return Promise.resolve({
+        ok: false,
+        status: 410,
+        json: () => Promise.resolve({ error: "REQUEST_EXPIRED" }),
+        text: () => Promise.resolve("REQUEST_EXPIRED"),
+      });
+    }) as any;
+
+    await expect(client.build({ projectPath: "/tmp/project", buildCommand: "make" }, "req-expired"))
+      .rejects.toThrow(/ownership loss|410|expired/i);
+  });
+
+  it("propagates explicit local cancellation while waiting for S4 durable result", async () => {
+    process.env.AEGIS_S4_OWNERSHIP_POLL_MS = "25";
+    const controller = new AbortController();
+    let ownedRequestId = "";
+    globalThis.fetch = vi.fn().mockImplementation((url: string, opts?: any) => {
+      if (url === "http://localhost:9000/v1/scan") {
+        ownedRequestId = opts.headers["X-Request-Id"];
+        return Promise.resolve({
+          ok: true,
+          status: 202,
+          json: () => Promise.resolve({ requestId: ownedRequestId, endpoint: "scan", state: "queued" }),
+          text: () => Promise.resolve(""),
+        });
+      }
+      setTimeout(() => controller.abort(new Error("user cancelled")), 0);
+      return Promise.resolve({
+        ok: true,
+        status: 202,
+        json: () => Promise.resolve({
+          requestId: ownedRequestId,
+          endpoint: "scan",
+          state: "running",
+          requestSummary: {
+            requestId: ownedRequestId,
+            endpoint: "scan",
+            state: "running",
+            localAckState: "transport-only",
+            blockedReason: null,
+          },
+        }),
+        text: () => Promise.resolve(""),
+      });
+    }) as any;
+
+    await expect(client.scan(
+      { scanId: "scan-cancel", projectId: "p-1", projectPath: "/tmp/project" },
+      "req-cancel",
+      controller.signal,
+    )).rejects.toThrow(/cancelled/i);
   });
 
   it("parses BuildResponse correctly", async () => {

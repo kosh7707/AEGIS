@@ -19,7 +19,6 @@ class Settings(BaseSettings):
     llm_concurrency: int = 4
     llm_max_input_chars: int = 800_000
     llm_max_retries: int = 2
-    llm_async_poll_deadline_ms: int = int((TimeoutDefaults.CHAT_DEFAULT_SECONDS - 60.0) * 1000)
     llm_async_poll_interval_seconds: float = 1.0
 
     # --- S4 SAST Runner ---

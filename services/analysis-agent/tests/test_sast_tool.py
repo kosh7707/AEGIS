@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 import pytest
 
+from app.agent_runtime.context import set_request_id
 from app.tools.implementations.sast_tool import SastScanTool
 
 
@@ -344,3 +345,173 @@ async def test_failed_tool_caveats():
     assert len(caveats.get("incompleteTools", [])) == 2
     assert any("gcc-fanalyzer" in t for t in caveats["incompleteTools"])
     assert any("scan-build" in t for t in caveats["incompleteTools"])
+
+
+@pytest.mark.asyncio
+async def test_sast_scan_uses_durable_ownership_and_continues_transport_only(monkeypatch):
+    submit = MagicMock(status_code=202)
+    submit.json.return_value = {
+        "requestId": "req-scan-owned",
+        "statusUrl": "/v1/requests/req-scan-owned",
+        "resultUrl": "/v1/requests/req-scan-owned/result",
+    }
+    running = MagicMock(status_code=200)
+    running.json.return_value = {
+        "requestId": "req-scan-owned",
+        "state": "running",
+        "localAckState": "transport-only",
+        "blockedReason": None,
+        "resultReady": False,
+    }
+    completed = MagicMock(status_code=200)
+    completed.json.return_value = {"requestId": "req-scan-owned", "state": "completed", "resultReady": True}
+    final = MagicMock(status_code=200)
+    final.json.return_value = {
+        "requestId": "req-scan-owned",
+        "state": "completed",
+        "result": {
+            "success": True,
+            "findings": [{
+                "toolId": "semgrep",
+                "ruleId": "CWE-78",
+                "severity": "error",
+                "message": "cmd injection",
+                "location": {"file": "main.c", "line": 1},
+            }],
+            "stats": {},
+        },
+    }
+    tool = SastScanTool()
+    tool._client = MagicMock()
+    tool._client.post = AsyncMock(return_value=submit)
+    tool._client.get = AsyncMock(side_effect=[running, completed, final])
+    monkeypatch.setattr("asyncio.sleep", AsyncMock())
+
+    result = await tool.execute({"scanId": "scan", "projectId": "p"})
+
+    assert result.success is True
+    assert "eref-sast-CWE-78" in result.new_evidence_refs
+    headers = tool._client.post.await_args.kwargs["headers"]
+    assert headers["Prefer"] == "respond-async"
+    assert headers["X-Request-Id"].startswith("s3-request:s4:v1-scan:sast_scan:")
+    assert tool._client.get.await_count == 3
+
+
+@pytest.mark.asyncio
+async def test_sast_scan_durable_ack_break_returns_tool_failure():
+    submit = MagicMock(status_code=202)
+    submit.json.return_value = {
+        "requestId": "req-scan-blocked",
+        "statusUrl": "/v1/requests/req-scan-blocked",
+        "resultUrl": "/v1/requests/req-scan-blocked/result",
+    }
+    blocked = MagicMock(status_code=200)
+    blocked.json.return_value = {
+        "requestId": "req-scan-blocked",
+        "state": "failed",
+        "localAckState": "ack-break",
+        "blockedReason": "tool_policy_failed",
+        "resultReady": False,
+    }
+    tool = SastScanTool()
+    tool._client = MagicMock()
+    tool._client.post = AsyncMock(return_value=submit)
+    tool._client.get = AsyncMock(return_value=blocked)
+
+    result = await tool.execute({"scanId": "scan", "projectId": "p"})
+
+    assert result.success is False
+    assert "tool_policy_failed" in (result.error or result.content)
+
+
+@pytest.mark.asyncio
+async def test_ndjson_inactivity_polls_health_and_continues_when_alive(monkeypatch):
+    set_request_id("req-stream")
+    async def delayed_lines():
+        yield json.dumps({"type": "heartbeat", "status": "running", "progress": {"filesCompleted": 1}})
+        await asyncio.sleep(0.01)
+        yield json.dumps({"type": "result", "data": {"success": True, "findings": [], "stats": {}}})
+
+    class _DelayedStream:
+        headers = {"content-type": "application/x-ndjson"}
+        status_code = 200
+        def __enter__(self): return self
+        def __exit__(self, *args): return False
+        async def __aenter__(self): return self
+        async def __aexit__(self, *args): return False
+        async def aiter_lines(self):
+            async for line in delayed_lines():
+                yield line
+
+    tool = SastScanTool(prefer_durable_ownership=False)
+    tool._client = MagicMock()
+    tool._client.stream = MagicMock(return_value=_DelayedStream())
+    health = MagicMock(status_code=200)
+    health.json.return_value = {
+        "requestSummary": {
+            "requestId": "req-stream",
+            "state": "running",
+            "localAckState": "transport-only",
+            "blockedReason": None,
+        }
+    }
+    tool._client.get = AsyncMock(return_value=health)
+
+    original_wait_for = asyncio.wait_for
+    calls = 0
+
+    async def fake_wait_for(awaitable, timeout):
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            awaitable.close()
+            raise asyncio.TimeoutError()
+        return await original_wait_for(awaitable, timeout=1.0)
+
+    monkeypatch.setattr(asyncio, "wait_for", fake_wait_for)
+
+    result = await tool.execute({"scanId": "scan", "projectId": "p"})
+
+    assert result.success is True
+    tool._client.get.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_ndjson_inactivity_health_ack_break_stops_wait(monkeypatch):
+    set_request_id("req-stream")
+    class _NeverStream:
+        headers = {"content-type": "application/x-ndjson"}
+        status_code = 200
+        def __enter__(self): return self
+        def __exit__(self, *args): return False
+        async def __aenter__(self): return self
+        async def __aexit__(self, *args): return False
+        async def aiter_lines(self):
+            if False:
+                yield ""
+
+    tool = SastScanTool(prefer_durable_ownership=False)
+    tool._client = MagicMock()
+    tool._client.stream = MagicMock(return_value=_NeverStream())
+    health = MagicMock(status_code=200)
+    health.json.return_value = {
+        "requestSummary": {
+            "requestId": "req-stream",
+            "state": "failed",
+            "localAckState": "ack-break",
+            "blockedReason": "tool_policy_failed",
+        }
+    }
+    tool._client.get = AsyncMock(return_value=health)
+
+    async def fake_wait_for(awaitable, timeout):
+        awaitable.close()
+        raise asyncio.TimeoutError()
+
+    monkeypatch.setattr(asyncio, "wait_for", fake_wait_for)
+
+    result = await tool.execute({"scanId": "scan", "projectId": "p"})
+
+    assert result.success is False
+    assert result.error == "no_result"
+    tool._client.get.assert_awaited_once()

@@ -955,3 +955,103 @@ def test_s4_build_profile_preserves_real_sdkid():
         "sdkId": "ti-am335x",
         "compiler": "arm-none-linux-gnueabihf-gcc",
     }
+
+
+@pytest.mark.asyncio
+async def test_build_and_analyze_uses_durable_ownership_and_fetches_result(monkeypatch):
+    from app.core.phase_one import Phase1Executor
+    from app.core.phase_one_types import Phase1Result
+
+    executor = Phase1Executor(sast_endpoint="http://localhost:9000", kb_endpoint="http://localhost:8002")
+    submit = MagicMock(status_code=202)
+    submit.json.return_value = {
+        "requestId": "req-ba-owned",
+        "statusUrl": "/v1/requests/req-ba-owned",
+        "resultUrl": "/v1/requests/req-ba-owned/result",
+    }
+    running = MagicMock(status_code=200)
+    running.json.return_value = {
+        "requestId": "req-ba-owned",
+        "state": "running",
+        "localAckState": "transport-only",
+        "blockedReason": None,
+        "resultReady": False,
+    }
+    completed = MagicMock(status_code=200)
+    completed.json.return_value = {"requestId": "req-ba-owned", "state": "completed", "resultReady": True}
+    final = MagicMock(status_code=200)
+    final.json.return_value = {
+        "requestId": "req-ba-owned",
+        "result": {
+            "success": True,
+            "build": {"success": True, "buildEvidence": {"compileCommandsPath": "/tmp/cc.json"}},
+            "scan": {
+                "success": True,
+                "findings": [{"ruleId": "CWE-78", "location": {"file": "main.c"}}],
+                "stats": {"findingsTotal": 1},
+                "execution": {"toolResults": {}},
+            },
+            "codeGraph": {"functions": [{"name": "main"}]},
+            "libraries": [{"name": "libx"}],
+        },
+    }
+    executor._sast_client.post = AsyncMock(return_value=submit)
+    executor._sast_client.get = AsyncMock(side_effect=[running, completed, final])
+    monkeypatch.setattr("asyncio.sleep", AsyncMock())
+
+    result = Phase1Result()
+    actual = await executor._run_build_and_analyze(
+        result,
+        "proj-1",
+        "/uploads/project",
+        "bash build.sh",
+        None,
+        "req-root",
+    )
+
+    assert actual is result
+    assert result.build_compile_commands_path == "/tmp/cc.json"
+    assert result.sast_findings[0]["ruleId"] == "CWE-78"
+    assert result.code_functions[0]["name"] == "main"
+    assert result.sca_libraries[0]["name"] == "libx"
+    headers = executor._sast_client.post.await_args.kwargs["headers"]
+    assert headers["Prefer"] == "respond-async"
+    assert headers["X-Request-Id"].startswith("req-root:s4:v1-build-and-analyze:phase1_build_and_analyze:")
+    await executor.aclose()
+
+
+@pytest.mark.asyncio
+async def test_build_and_analyze_durable_ack_break_returns_none(monkeypatch):
+    from app.core.phase_one import Phase1Executor
+    from app.core.phase_one_types import Phase1Result
+
+    executor = Phase1Executor(sast_endpoint="http://localhost:9000", kb_endpoint="http://localhost:8002")
+    submit = MagicMock(status_code=202)
+    submit.json.return_value = {
+        "requestId": "req-ba-blocked",
+        "statusUrl": "/v1/requests/req-ba-blocked",
+        "resultUrl": "/v1/requests/req-ba-blocked/result",
+    }
+    blocked = MagicMock(status_code=200)
+    blocked.json.return_value = {
+        "requestId": "req-ba-blocked",
+        "state": "failed",
+        "localAckState": "ack-break",
+        "blockedReason": "build_failed",
+        "resultReady": False,
+    }
+    executor._sast_client.post = AsyncMock(return_value=submit)
+    executor._sast_client.get = AsyncMock(return_value=blocked)
+
+    result = Phase1Result()
+    actual = await executor._run_build_and_analyze(
+        result,
+        "proj-1",
+        "/uploads/project",
+        "bash build.sh",
+        None,
+        "req-root",
+    )
+
+    assert actual is None
+    await executor.aclose()

@@ -27,6 +27,14 @@ export interface BuildResolveTarget {
 export interface BuildResolveBuildContext {
   mode: "native" | "sdk";
   sdkId?: string;
+  /** Absolute server-visible path to the materialized uploaded SDK root. */
+  sdkRootPath?: string;
+  /** Preferred path relative to sdkRootPath; transitional absolute values are S3-scoped inside sdkRootPath. */
+  setupScript?: string;
+  /** Preferred path relative to sdkRootPath; transitional absolute values are S3-scoped inside sdkRootPath. */
+  sysroot?: string;
+  /** Compiler-prefix/toolchain hint without a trailing dash, e.g. arm-none-linux-gnueabihf. */
+  toolchainTriplet?: string;
   scriptHintPath?: string;
   environment?: Record<string, string>;
 }

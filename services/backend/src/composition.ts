@@ -247,6 +247,7 @@ export function createAppContext(cfg: AppConfig, db: DatabaseType): AppContext {
   const pipelineOrchestrator = new PipelineOrchestrator(
     projectSourceService, sastClient, kbClient, buildAgentClient, targetLibraryDAO,
     buildTargetDAO, analysisResultDAO, resultNormalizer, pipelineWs, notificationService, analysisExecutionDAO,
+    sdkRegistryDAO, cfg.uploadsDir,
   );
   const analysisOrchestrator = new AnalysisOrchestrator(
     projectSourceService, sastClient, kbClient, agentClient,

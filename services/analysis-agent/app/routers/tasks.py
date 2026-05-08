@@ -197,7 +197,6 @@ async def health(req: Request, requestId: str | None = Query(default=None)) -> d
             "maxCompletionTokens": settings.agent_max_completion_tokens,
             "taskDeadlineMs": settings.analysis_task_deadline_ms,
             "partialEnvelopeDeadlineMs": settings.analysis_partial_envelope_deadline_ms,
-            "llmAsyncPollDeadlineMs": settings.llm_async_poll_deadline_ms,
             "llmAsyncPollIntervalSeconds": settings.llm_async_poll_interval_seconds,
             "toolBudget": {
                 "cheap": settings.agent_max_cheap_calls,

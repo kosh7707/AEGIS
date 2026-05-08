@@ -197,6 +197,22 @@ def _chat_timeout_from_header(raw_value: str | None) -> float:
         return TimeoutDefaults.CHAT_DEFAULT_SECONDS
 
 
+def _async_chat_backend_timeout() -> httpx.Timeout:
+    """Timeout policy for async wait-while-alive ownership.
+
+    `/v1/chat` remains finite through `X-Timeout-Seconds`, but async ownership
+    must not fail a live non-streaming backend attempt solely because elapsed
+    read time crossed the former sync ceiling. Keep connect/write/pool bounds
+    for transport establishment/resource waits and leave read unbounded.
+    """
+    return httpx.Timeout(
+        connect=settings.llm_connect_timeout,
+        read=None,
+        write=10.0,
+        pool=10.0,
+    )
+
+
 def _strict_json_violation(
     request_id: str,
     model: str,
@@ -620,12 +636,7 @@ async def _run_async_chat_request(
         strict_json=strict_json,
     )
     fwd_headers = _build_forward_headers(record.trace_request_id)
-    req_timeout = httpx.Timeout(
-        connect=settings.llm_connect_timeout,
-        read=TimeoutDefaults.CHAT_MAX_SECONDS,
-        write=10.0,
-        pool=10.0,
-    )
+    req_timeout = _async_chat_backend_timeout()
 
     circuit_breaker = getattr(app.state, "circuit_breaker", None)
     token_tracker = getattr(app.state, "token_tracker", None)
@@ -715,7 +726,10 @@ async def _run_async_chat_request(
             blocked_reason="backend_timeout",
             ack_source="backend-timeout",
             error="LLM Engine timeout",
-            error_detail="LLM backend did not respond before the async ownership timeout",
+            error_detail=(
+                "LLM backend transport timed out while establishing or writing the "
+                "async request; async ownership does not impose an elapsed read ceiling"
+            ),
             retryable=True,
         )
         return

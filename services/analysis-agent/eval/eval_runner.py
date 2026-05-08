@@ -33,7 +33,6 @@ from eval.scorer import score_response
 _GOLDEN_DIR = Path(__file__).parent / "golden" / "cases"
 _RESULTS_DIR = Path(__file__).parent / "results"
 _ASYNC_UNSUPPORTED_RETRY_SECONDS = 60.0
-_ASYNC_POLL_DEADLINE_SECONDS = TimeoutDefaults.CHAT_DEFAULT_SECONDS - 60.0
 
 
 def _load_golden_cases(golden_dir: Path, case_filter: str = "") -> list[dict]:
@@ -178,13 +177,7 @@ async def _call_llm_via_async_ownership(
         f"/v1/async-chat-requests/{request_id}/result",
     )
 
-    poll_started = time.monotonic()
     while True:
-        if time.monotonic() - poll_started >= _ASYNC_POLL_DEADLINE_SECONDS:
-            raise TimeoutError(
-                "eval async ownership poll deadline exceeded "
-                f"after {_ASYNC_POLL_DEADLINE_SECONDS:.0f}s"
-            )
         status_resp = await client.get(
             status_url,
             timeout=httpx.Timeout(connect=10.0, read=30.0, write=10.0, pool=30.0),

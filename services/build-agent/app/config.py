@@ -13,7 +13,6 @@ class Settings(BaseSettings):
     llm_model: str = "Qwen/Qwen3.6-27B"
     llm_api_key: str = ""
     llm_concurrency: int = 4
-    llm_async_poll_deadline_ms: int = int((TimeoutDefaults.CHAT_DEFAULT_SECONDS - 60.0) * 1000)
     llm_async_poll_interval_seconds: float = 1.0
 
     sast_endpoint: str = "http://localhost:9000"

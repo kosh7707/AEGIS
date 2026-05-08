@@ -507,14 +507,12 @@ async def handle_generate_poc(request: TaskRequest, model_registry) -> TaskSucce
 
     if settings.llm_mode == "real":
         profile = model_registry.get_default()
-        async_poll_deadline_seconds = _generate_poc_async_poll_deadline_seconds(request)
         llm = LlmCaller(
             endpoint=profile.endpoint if profile else settings.llm_endpoint,
             model=profile.modelName if profile else settings.llm_model,
             api_key=profile.apiKey if profile else settings.llm_api_key,
             default_max_tokens=request.constraints.maxTokens or 8192,
             service_id="s3-agent",
-            async_poll_deadline_seconds=async_poll_deadline_seconds,
             async_poll_interval_seconds=settings.llm_async_poll_interval_seconds,
         )
     else:
@@ -1206,24 +1204,6 @@ def _build_poc_llm_exception_response(
         detail=detail,
     )
 
-
-def _generate_poc_async_poll_deadline_seconds(request: TaskRequest) -> float:
-    """Size generate-poc's LLM wait budget from explicit caller guidance.
-
-    `constraints.timeoutMs` is an advisory budget, not a public hard-abort
-    contract. When the caller explicitly supplies it, use it to leave enough
-    time for S3 to return an honest completed/inconclusive envelope instead of
-    letting a client-side curl timeout observe HTTP 000. If omitted, keep the
-    service-level default.
-    """
-    configured = settings.llm_async_poll_deadline_ms / 1000
-    constraints_fields = getattr(request.constraints, "model_fields_set", set())
-    request_fields = getattr(request, "model_fields_set", set())
-    if "constraints" not in request_fields or "timeoutMs" not in constraints_fields:
-        return configured
-
-    advisory_seconds = max(1.0, (request.constraints.timeoutMs / 1000) - 5.0)
-    return max(1.0, min(configured, advisory_seconds))
 
 
 def _poc_evaluation_verdict_for(

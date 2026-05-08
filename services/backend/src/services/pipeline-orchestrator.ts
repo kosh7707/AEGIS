@@ -5,10 +5,13 @@
  * BuildTarget별로 상태머신 관리 + WS 진행률 브로드캐스트
  */
 import crypto from "crypto";
+import fs from "fs";
 import path from "path";
 import type {
   BuildTarget,
   BuildTargetStatus,
+  RegisteredSdk,
+  SdkRegistryStatus,
   WsPipelineMessage,
   AnalysisResult,
   Vulnerability,
@@ -16,11 +19,11 @@ import type {
 } from "@aegis/shared";
 import type { PipelinePhase } from "@aegis/shared";
 import { createLogger } from "../lib/logger";
-import { NotFoundError, BuildAgentUnavailableError, BuildAgentTimeoutError, PipelineStepError } from "../lib/errors";
+import { NotFoundError, BuildAgentUnavailableError, BuildAgentTimeoutError, PipelineStepError, InvalidInputError } from "../lib/errors";
 import type { ProjectSourceService } from "./project-source.service";
 import type { SastClient, SastScanResponse } from "./sast-client";
 import type { KbClient } from "./kb-client";
-import type { BuildAgentClient, BuildResolveRequest } from "./build-agent-client";
+import type { BuildAgentClient, BuildResolveBuildContext, BuildResolveRequest } from "./build-agent-client";
 import type { TargetLibraryDAO } from "../dao/target-library.dao";
 import type { IBuildTargetDAO, IAnalysisExecutionDAO, IAnalysisResultDAO } from "../dao/interfaces";
 import type { ResultNormalizer } from "./result-normalizer";
@@ -30,6 +33,17 @@ import type { NotificationService } from "./notification.service";
 const logger = createLogger("pipeline-orchestrator");
 
 const SETUP_STATUSES: readonly string[] = ["discovered", "resolving", "configured", "resolve_failed"];
+const SDK_MATERIALIZATION_UNUSABLE_STATUSES = new Set<SdkRegistryStatus>([
+  "uploading",
+  "uploaded",
+  "extracting",
+  "installing",
+  "upload_failed",
+]);
+
+interface SdkRegistryLookup {
+  findById(id: string): RegisteredSdk | undefined;
+}
 
 function statusToPhase(status: BuildTargetStatus): PipelinePhase {
   if (SETUP_STATUSES.includes(status)) return "setup";
@@ -58,6 +72,8 @@ export class PipelineOrchestrator {
     private ws?: WsBroadcaster<WsPipelineMessage>,
     private notificationService?: NotificationService,
     private analysisExecutionDAO?: IAnalysisExecutionDAO,
+    private sdkRegistryLookup?: SdkRegistryLookup,
+    private uploadsDir?: string,
   ) {}
 
   async runPipeline(
@@ -322,7 +338,7 @@ export class PipelineOrchestrator {
     const isIsolated = !!target.sourcePath;
     const buildAgentProjectPath = isIsolated ? scanPath : projectPath;
     const buildResolveRequest = (taskId: string): BuildResolveRequest => {
-      const mode = resolveBuildMode(target);
+      const build = this.buildResolveBuildContext(projectId, target);
       return {
         taskType: "build-resolve",
         taskId,
@@ -333,11 +349,7 @@ export class PipelineOrchestrator {
             projectPath: buildAgentProjectPath,
             buildTargetPath: isIsolated ? "." : target.relativePath,
             buildTargetName: target.name,
-            build: {
-              mode,
-              ...(mode === "sdk" ? { sdkId: target.buildProfile.sdkId } : {}),
-              ...(target.scriptHintPath ? { scriptHintPath: target.scriptHintPath } : {}),
-            },
+            build,
             targetPath: isIsolated ? "." : target.relativePath,
             targetName: target.name,
             targets: [
@@ -435,6 +447,14 @@ export class PipelineOrchestrator {
             this.buildTargetDAO.updatePipelineState(target.id, { status: "resolve_failed" });
             throw err;
           }
+        } else if (err instanceof InvalidInputError || err instanceof NotFoundError) {
+          const detail = err instanceof Error ? err.message : String(err);
+          this.buildTargetDAO.updatePipelineState(target.id, {
+            status: "resolve_failed",
+            buildLog: detail,
+          });
+          this.updateStatus(projectId, pipelineId, target, "resolve_failed", `빌드 준비 요청 생성 실패: ${detail}`);
+          throw new PipelineStepError(`Build resolve request invalid for ${target.name}: ${detail}`);
         } else {
           throw err;
         }
@@ -478,6 +498,84 @@ export class PipelineOrchestrator {
     this.updateStatus(projectId, pipelineId, target, "built", `빌드 완료 (${buildResult.userEntries ?? buildResult.entries ?? 0} entries)`);
 
     return { scanPath };
+  }
+
+  private buildResolveBuildContext(projectId: string, target: BuildTarget): BuildResolveBuildContext {
+    const mode = resolveBuildMode(target);
+    const build: BuildResolveBuildContext = {
+      mode,
+      ...(mode === "sdk" ? { sdkId: target.buildProfile.sdkId } : {}),
+      ...(target.scriptHintPath ? { scriptHintPath: target.scriptHintPath } : {}),
+    };
+
+    if (mode !== "sdk" || !target.buildProfile.sdkId?.startsWith("sdk-")) {
+      return build;
+    }
+
+    return {
+      ...build,
+      ...this.buildUploadedSdkDescriptor(projectId, target.buildProfile.sdkId),
+    };
+  }
+
+  private buildUploadedSdkDescriptor(
+    projectId: string,
+    sdkId: string,
+  ): Partial<BuildResolveBuildContext> {
+    if (!this.sdkRegistryLookup) {
+      throw new InvalidInputError("Registered SDK lookup is required for SDK materialization descriptor production");
+    }
+    if (!this.uploadsDir) {
+      throw new InvalidInputError("uploadsDir is required for SDK materialization descriptor production");
+    }
+
+    const sdk = this.sdkRegistryLookup.findById(sdkId);
+    if (!sdk) throw new NotFoundError(`SDK not found: ${sdkId}`);
+    if (sdk.projectId !== projectId) {
+      throw new NotFoundError(`SDK not found for project: ${sdkId}`);
+    }
+    if (SDK_MATERIALIZATION_UNUSABLE_STATUSES.has(sdk.status)) {
+      throw new InvalidInputError(`SDK is not materialized yet: ${sdkId} (${sdk.status})`);
+    }
+
+    const sdkRootPath = this.resolveProjectOwnedSdkRoot(projectId, sdk);
+    const setupScript = normalizeSdkProfilePath(sdkRootPath, sdk.profile?.environmentSetup, "environmentSetup");
+    const sysroot = normalizeSdkProfilePath(sdkRootPath, sdk.profile?.sysroot, "sysroot");
+    const toolchainTriplet = normalizeToolchainTriplet(sdk.profile?.compilerPrefix);
+
+    return {
+      sdkRootPath,
+      ...(setupScript ? { setupScript } : {}),
+      ...(sysroot ? { sysroot } : {}),
+      ...(toolchainTriplet ? { toolchainTriplet } : {}),
+      environment: buildSdkDescriptorEnvironment(sdkRootPath, { setupScript, sysroot, toolchainTriplet }),
+    };
+  }
+
+  private resolveProjectOwnedSdkRoot(projectId: string, sdk: RegisteredSdk): string {
+    const uploadsSdkRoot = path.resolve(this.uploadsDir!, projectId, "sdk");
+    const sdkRootPath = path.resolve(sdk.path);
+    if (!isPathInside(uploadsSdkRoot, sdkRootPath)) {
+      throw new InvalidInputError("SDK materialized root must stay inside the project SDK uploads root");
+    }
+    if (!fs.existsSync(sdkRootPath)) {
+      throw new InvalidInputError(`SDK materialized root does not exist: ${sdk.id}`);
+    }
+    if (!fs.statSync(sdkRootPath).isDirectory()) {
+      throw new InvalidInputError(`SDK materialized root is not a directory: ${sdk.id}`);
+    }
+
+    const realUploadsSdkRoot = fs.realpathSync(uploadsSdkRoot);
+    const realSdkRootPath = fs.realpathSync(sdkRootPath);
+    if (!isPathInside(realUploadsSdkRoot, realSdkRootPath)) {
+      throw new InvalidInputError("SDK materialized root symlink escapes the project SDK uploads root");
+    }
+    const visibleEntries = fs.readdirSync(realSdkRootPath).filter((entry) => !entry.startsWith("."));
+    if (visibleEntries.length === 0) {
+      throw new InvalidInputError(`SDK materialized root is empty: ${sdk.id}`);
+    }
+
+    return realSdkRootPath;
   }
 
   private buildQuickResult(
@@ -603,4 +701,68 @@ export class PipelineOrchestrator {
       // notification failure must not affect pipeline completion
     }
   }
+}
+
+function normalizeSdkProfilePath(
+  sdkRootPath: string,
+  rawPath: string | undefined,
+  fieldName: string,
+): string | undefined {
+  const raw = rawPath?.trim();
+  if (!raw) return undefined;
+  if (raw.includes("\0")) {
+    throw new InvalidInputError(`SDK ${fieldName} must not contain NUL bytes`);
+  }
+  const candidate = raw.replace(/\\/g, "/");
+  const resolved = path.isAbsolute(candidate)
+    ? path.resolve(candidate)
+    : path.resolve(sdkRootPath, candidate);
+  if (!isPathInside(sdkRootPath, resolved)) {
+    throw new InvalidInputError(`SDK ${fieldName} must resolve inside sdkRootPath`);
+  }
+  if (!fs.existsSync(resolved)) {
+    throw new InvalidInputError(`SDK ${fieldName} not found inside sdkRootPath: ${raw}`);
+  }
+
+  const relative = path.relative(sdkRootPath, fs.realpathSync(resolved)).split(path.sep).join("/");
+  if (relative.startsWith("../") || relative === ".." || path.isAbsolute(relative)) {
+    throw new InvalidInputError(`SDK ${fieldName} symlink escapes sdkRootPath`);
+  }
+  return relative || ".";
+}
+
+function normalizeToolchainTriplet(compilerPrefix: string | undefined): string | undefined {
+  const normalized = compilerPrefix?.trim().replace(/-+$/, "");
+  return normalized || undefined;
+}
+
+function buildSdkDescriptorEnvironment(
+  sdkRootPath: string,
+  descriptor: {
+    setupScript?: string;
+    sysroot?: string;
+    toolchainTriplet?: string;
+  },
+): Record<string, string> {
+  const environment: Record<string, string> = {
+    AEGIS_SDK_ROOT: sdkRootPath,
+    SDK_DIR: sdkRootPath,
+  };
+  if (descriptor.setupScript) {
+    environment.AEGIS_SDK_SETUP_SCRIPT = path.join(sdkRootPath, descriptor.setupScript);
+  }
+  if (descriptor.sysroot) {
+    const sysrootPath = path.join(sdkRootPath, descriptor.sysroot);
+    environment.AEGIS_SDK_SYSROOT = sysrootPath;
+    environment.SDKTARGETSYSROOT = sysrootPath;
+  }
+  if (descriptor.toolchainTriplet) {
+    environment.AEGIS_TOOLCHAIN_TRIPLET = descriptor.toolchainTriplet;
+  }
+  return environment;
+}
+
+function isPathInside(root: string, candidate: string): boolean {
+  const relative = path.relative(path.resolve(root), path.resolve(candidate));
+  return relative === "" || (!!relative && !relative.startsWith("..") && !path.isAbsolute(relative));
 }

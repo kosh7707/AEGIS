@@ -478,7 +478,6 @@ async def handle_build_resolve(request: TaskRequest) -> TaskSuccessResponse | Ta
             api_key=settings.llm_api_key,
             default_max_tokens=settings.agent_llm_max_tokens,
             service_id="s3-build",
-            async_poll_deadline_seconds=settings.llm_async_poll_deadline_ms / 1000,
             async_poll_interval_seconds=settings.llm_async_poll_interval_seconds,
         )
     else:

@@ -58,4 +58,41 @@ describe("downstream-health", () => {
       },
     });
   });
+
+  it("does not treat completed request-summary as clean success", () => {
+    const summary = normalizeControlSummary({
+      activeRequestCount: 0,
+      requestSummary: {
+        requestId: "req-done",
+        endpoint: "build",
+        state: "completed",
+        localAckState: null,
+        blockedReason: null,
+      },
+    });
+
+    expect(summary).toMatchObject({
+      state: "completed",
+      pollDecision: "no_active_request",
+      decisionReasons: ["state-completed"],
+    });
+  });
+
+  it("chains abort for v2 terminal cancelled and expired ownership states", () => {
+    expect(normalizeControlSummary({
+      requestSummary: { state: "cancelled", blockedReason: null },
+    })).toMatchObject({
+      state: "cancelled",
+      pollDecision: "chain_abort",
+      decisionReasons: ["state-cancelled"],
+    });
+
+    expect(normalizeControlSummary({
+      requestSummary: { state: "expired", blockedReason: null },
+    })).toMatchObject({
+      state: "expired",
+      pollDecision: "chain_abort",
+      decisionReasons: ["state-expired"],
+    });
+  });
 });

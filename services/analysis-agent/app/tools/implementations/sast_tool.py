@@ -9,6 +9,13 @@ import logging
 import httpx
 
 from app.agent_runtime.context import get_request_id
+from app.clients.s4_ownership import (
+    S4OwnershipError,
+    S4OwnershipUnsupported,
+    is_s4_abort_status,
+    is_s4_alive_status,
+    post_and_wait_s4_ownership,
+)
 from app.agent_runtime.observability import agent_log
 from app.agent_runtime.schemas.agent import ToolResult
 from app.agent_runtime.schemas.upstream import SastFinding
@@ -21,11 +28,14 @@ _STALL_CONSECUTIVE = 3  # filesCompleted가 연속 N회 동일 → stall
 
 
 class SastScanTool:
+    wait_while_alive = True
+
     """sast.scan tool — S4 SAST Runner /v1/scan NDJSON 스트리밍 호출."""
 
-    def __init__(self, base_url: str = "http://localhost:9000", timeout_s: float = 450.0) -> None:
+    def __init__(self, base_url: str = "http://localhost:9000", timeout_s: float = 450.0, *, prefer_durable_ownership: bool = True) -> None:
         self._base_url = base_url
         self._timeout_s = timeout_s
+        self._prefer_durable_ownership = prefer_durable_ownership
         self._client = httpx.AsyncClient(
             timeout=httpx.Timeout(connect=10.0, read=_INACTIVITY_TIMEOUT_S + 10.0, write=10.0, pool=10.0),
         )
@@ -42,6 +52,26 @@ class SastScanTool:
         try:
             if request_id:
                 request_summary_tracker.mark_transport_only(request_id, source="s4-scan-wait")
+            if self._prefer_durable_ownership:
+                try:
+                    ownership = await post_and_wait_s4_ownership(
+                        self._client,
+                        base_url=self._base_url,
+                        endpoint_path="/v1/scan",
+                        payload=arguments,
+                        root_request_id=request_id,
+                        operation="sast_scan",
+                    )
+                    return self._build_result(ownership.payload)
+                except (S4OwnershipUnsupported, TypeError):
+                    # Compatibility fallback for older S4 or legacy unit tests that only mock NDJSON.
+                    pass
+                except S4OwnershipError as exc:
+                    return ToolResult(
+                        tool_call_id="", name="", success=False,
+                        content=json.dumps({"error": str(exc), "detail": exc.payload}, ensure_ascii=False),
+                        error=str(exc),
+                    )
             return await self._stream_scan(arguments, headers)
         except Exception as e:
             logger.warning("SAST Runner 호출 실패: %s", e)
@@ -98,7 +128,7 @@ class SastScanTool:
             stall_count = 0
             is_running = False  # queued → running 전환 추적
 
-            async for line in self._iter_lines_with_timeout(response):
+            async for line in self._iter_lines_with_timeout(response, headers=headers):
                 line = line.strip()
                 if not line:
                     continue
@@ -216,10 +246,16 @@ class SastScanTool:
                 error="no_result",
             )
 
-    @staticmethod
-    async def _iter_lines_with_timeout(response: httpx.Response):
-        """줄 단위로 읽되, _INACTIVITY_TIMEOUT_S 초과 시 중단."""
+    async def _iter_lines_with_timeout(self, response: httpx.Response, *, headers: dict):
+        """Yield NDJSON lines; on inactivity, verify S4 health before aborting.
+
+        NDJSON is now a compatibility fallback. Inactivity is only a suspicion:
+        if `/v1/health?requestId=...` still reports the same request alive and
+        non-blocked, keep waiting. Only explicit ack-break/blocked/terminal health
+        converts the suspicion into abort.
+        """
         aiter = response.aiter_lines()
+        request_id = headers.get("X-Request-Id")
         while True:
             try:
                 line = await asyncio.wait_for(
@@ -228,10 +264,35 @@ class SastScanTool:
                 )
                 yield line
             except asyncio.TimeoutError:
-                logger.warning("SAST 스트리밍 inactivity timeout (%.0fs)", _INACTIVITY_TIMEOUT_S)
+                logger.warning("SAST 스트리밍 inactivity suspicion (%.0fs)", _INACTIVITY_TIMEOUT_S)
+                if await self._health_allows_stream_wait(request_id):
+                    continue
                 break
             except StopAsyncIteration:
                 break
+
+    async def _health_allows_stream_wait(self, request_id: str | None) -> bool:
+        if not request_id:
+            return False
+        try:
+            resp = await self._client.get(
+                f"{self._base_url}/v1/health",
+                params={"requestId": request_id},
+                timeout=httpx.Timeout(connect=10.0, read=10.0, write=10.0, pool=10.0),
+            )
+            if resp.status_code >= 400:
+                return False
+            data = resp.json()
+            summary = data.get("requestSummary") if isinstance(data, dict) else None
+            if not isinstance(summary, dict):
+                return False
+            if is_s4_abort_status(summary):
+                logger.warning("SAST stream health poll returned abort state: %s", summary)
+                return False
+            return is_s4_alive_status(summary, expected_request_id=request_id)
+        except Exception as exc:
+            logger.warning("SAST stream health verification failed: %s", exc)
+            return False
 
     @staticmethod
     def _build_result(data: dict, *, stall_detected: bool = False) -> ToolResult:

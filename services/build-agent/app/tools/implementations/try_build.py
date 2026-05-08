@@ -12,8 +12,9 @@ import shlex
 from pathlib import Path
 
 import httpx
-from app.agent_runtime.llm.generation_policy import TimeoutDefaults
 from app.agent_runtime.path_util import resolve_scoped_path
+from app.clients.s4_ownership import S4OwnershipError, S4OwnershipUnsupported, post_and_wait_s4_ownership
+from app.runtime.request_summary import request_summary_tracker
 from app.agent_runtime.schemas.agent import ToolResult
 
 logger = logging.getLogger(__name__)
@@ -64,6 +65,8 @@ def _validate_build_result(data: dict) -> tuple[bool, str | None]:
 
 
 class TryBuildTool:
+    wait_while_alive = True
+
     def __init__(
         self,
         sast_endpoint: str,
@@ -156,8 +159,6 @@ class TryBuildTool:
             )
 
         try:
-            timeout_ms = str(int(TimeoutDefaults.TOOL_EXECUTION_SECONDS * 1000))
-            headers = {"X-Request-Id": self._request_id, "X-Timeout-Ms": timeout_ms} if self._request_id else {"X-Timeout-Ms": timeout_ms}
             merged_environment = dict(self._default_build_environment)
             if build_environment:
                 merged_environment.update(build_environment)
@@ -171,14 +172,21 @@ class TryBuildTool:
             if self._provenance:
                 payload["provenance"] = self._provenance
 
-            async with httpx.AsyncClient(timeout=180.0) as client:
-                resp = await client.post(
-                    f"{self._sast_endpoint}/v1/build",
-                    json=payload,
-                    headers=headers,
-                )
-                resp.raise_for_status()
-                data = resp.json()
+            if self._request_id:
+                request_summary_tracker.mark_transport_only(self._request_id, source="s4-build-ownership-wait")
+            async with httpx.AsyncClient(timeout=None) as client:
+                try:
+                    ownership = await post_and_wait_s4_ownership(
+                        client,
+                        base_url=self._sast_endpoint,
+                        endpoint_path="/v1/build",
+                        payload=payload,
+                        root_request_id=self._request_id,
+                        operation="try_build",
+                    )
+                    data = ownership.payload
+                except S4OwnershipUnsupported:
+                    data = await self._execute_sync_compat(client, payload)
 
                 actual_success, warning = _validate_build_result(data)
                 if warning:
@@ -210,6 +218,20 @@ class TryBuildTool:
                     content=json.dumps(data, ensure_ascii=False),
                     new_evidence_refs=new_refs,
                 )
+        except S4OwnershipError as e:
+            return ToolResult(tool_call_id="", name="", success=False,
+                              content=json.dumps({"error": str(e), "detail": e.payload}, ensure_ascii=False), error=str(e))
         except Exception as e:
             return ToolResult(tool_call_id="", name="", success=False,
                               content=f'{{"error": "build API call failed: {e}"}}', error=str(e))
+
+    async def _execute_sync_compat(self, client: httpx.AsyncClient, payload: dict) -> dict:
+        headers = {"X-Request-Id": self._request_id} if self._request_id else {}
+        resp = await client.post(
+            f"{self._sast_endpoint}/v1/build",
+            json=payload,
+            headers=headers,
+            timeout=httpx.Timeout(connect=10.0, read=180.0, write=10.0, pool=10.0),
+        )
+        resp.raise_for_status()
+        return resp.json()

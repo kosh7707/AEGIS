@@ -81,3 +81,42 @@ class TestAsyncChatRequestManager:
         assert status is not None
         assert status["state"] == "expired"
         assert status["resultReady"] is False
+
+    @pytest.mark.asyncio
+    async def test_active_record_does_not_expire_by_elapsed_age(self):
+        manager = AsyncChatRequestManager()
+        started = asyncio.Event()
+
+        async def runner(record):
+            await manager.mark_phase(
+                record.request_id,
+                phase="llm-inference",
+                state="running",
+                ack_source="queue-exit",
+            )
+            await manager.mark_transport_only(record.request_id, phase="llm-inference")
+            started.set()
+            await asyncio.sleep(60)
+
+        record = await manager.submit(
+            trace_request_id="gw-trace-active-age",
+            runner=runner,
+        )
+
+        await started.wait()
+        current = await manager.get_record(record.request_id)
+        assert current is not None
+        current.accepted_at_ms = 0
+        current.started_at_ms = 0
+        current.expires_at_ms = 0
+
+        status = await manager.status(record.request_id)
+
+        assert status is not None
+        assert status["state"] == "running"
+        assert status["localAckState"] == "transport-only"
+        assert status["blockedReason"] is None
+        assert status["resultReady"] is False
+        assert current.expires_at_ms > 0
+
+        await manager.cancel(record.request_id)

@@ -13,11 +13,12 @@ import uuid
 from pathlib import Path
 from fastapi import APIRouter, Request, Response
 from fastapi import Query
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 
 from app.config import settings
 from app.context import set_request_id
 from app.errors import NoFilesError, PolicyViolationError, SastRunnerError, SdkNotFoundError
+from app.runtime.request_ownership import request_ownership_store
 from app.runtime.request_summary import request_summary_tracker
 from app.scanner.ast_dumper import AstDumper
 from app.scanner.build_metadata import BuildMetadataExtractor
@@ -66,6 +67,19 @@ def _wants_ndjson(request: Request) -> bool:
     """Accept 헤더에 application/x-ndjson이 있으면 스트리밍 모드."""
     accept = request.headers.get("accept", "")
     return _NDJSON_MEDIA in accept
+
+
+def _wants_async_ownership(request: Request) -> bool:
+    """Prefer: respond-async이면 durable ownership mode."""
+    prefer = request.headers.get("prefer", "")
+    return "respond-async" in prefer.lower()
+
+
+def _ownership_response(payload: dict, status_code: int) -> JSONResponse:
+    headers = {"X-Request-Id": payload.get("requestId", "")}
+    if status_code == 202:
+        headers["Preference-Applied"] = "respond-async"
+    return JSONResponse(payload, status_code=status_code, headers=headers)
 
 
 def _get_request_id(request: Request) -> str:
@@ -717,6 +731,45 @@ async def scan(request: Request, body: ScanRequest, response: Response) -> ScanR
     set_request_id(request_id)
     response.headers["X-Request-Id"] = request_id
 
+    # Durable ownership mode wins over NDJSON compatibility streaming.
+    if _wants_async_ownership(request):
+        if not body.files and not body.project_path:
+            raise NoFilesError("No files or projectPath provided for scanning")
+        for f in body.files:
+            _validate_path(f.path)
+        _validate_sdk_profile(body.build_profile)
+        rulesets = resolve_rulesets(
+            body.rulesets, body.build_profile, settings.default_rulesets,
+        )
+        timeout = _get_timeout(request, body.options.timeout_seconds)
+
+        async def _owned_scan() -> ScanResponse:
+            async def _track_progress(tool: str, status: str, count: int, elapsed: int):
+                request_summary_tracker.mark_progress(request_id, tool, status, count)
+
+            async def _track_file_progress(tool: str, file: str, done: int, total: int):
+                request_summary_tracker.mark_file_progress(request_id, file, done, total)
+
+            async def _track_runtime_state(tool: str, tool_state: dict):
+                request_summary_tracker.mark_runtime_state(request_id, tool_state)
+
+            return await _run_scan_core(
+                request_id,
+                body,
+                rulesets,
+                timeout,
+                on_progress=_track_progress,
+                on_file_progress=_track_file_progress,
+                on_runtime_state=_track_runtime_state,
+            )
+
+        payload, status_code = await request_ownership_store.submit(
+            request_id,
+            endpoint="scan",
+            runner=_owned_scan,
+        )
+        return _ownership_response(payload, status_code)
+
     # NDJSON 스트리밍 모드 — 입력 검증 후 분기 (실패 시 일반 HTTP 에러)
     if _wants_ndjson(request):
         if not body.files and not body.project_path:
@@ -1012,6 +1065,117 @@ async def build_and_analyze(
     scan_profile = body.scan_profile
     _validate_sdk_profile(scan_profile)
 
+    if _wants_async_ownership(request):
+        async def _owned_build_and_analyze() -> BuildAndAnalyzeResponse:
+            t0_owned = time.perf_counter()
+            request_summary_tracker.mark_started(
+                request_id,
+                last_ack_source="build-started",
+                local_ack_state="phase-advancing",
+            )
+
+            async def _track_build_runtime(state: dict):
+                request_summary_tracker.mark_runtime_state(
+                    request_id,
+                    state,
+                    local_ack_state=state.get("localAckState"),
+                    last_ack_source=state.get("lastAckSource"),
+                )
+
+            build_timeout = _get_timeout(request)
+            logger.info("Build-and-analyze async ownership started", extra={"requestId": request_id, "projectPath": project_path})
+            build_result = await build_runner.build(
+                project_dir,
+                build_command,
+                environment=body.build_environment,
+                on_runtime_state=_track_build_runtime,
+                timeout=None,
+                timeout_seconds_for_evidence=build_timeout,
+                timeout_mode="async-ownership-no-caller-deadline",
+                timeout_enforced=False,
+            )
+            _log_build_execution_summary(
+                request_id=request_id,
+                endpoint="build-and-analyze",
+                result=build_result,
+                project_path=project_path,
+            )
+            build_response = _to_build_response(build_result, body.provenance)
+            if not build_result.get("success"):
+                return BuildAndAnalyzeResponse(
+                    success=False,
+                    provenance=body.provenance,
+                    build=build_response,
+                    error="Build failed",
+                )
+
+            cc_path = build_result["buildEvidence"]["compileCommandsPath"]
+            scan_req = ScanRequest(
+                scanId=f"build-analyze-{request_id}",
+                projectId=body.project_id,
+                projectPath=project_path,
+                compileCommands=cc_path,
+                buildProfile=scan_profile,
+                provenance=body.provenance,
+                rulesets=body.rulesets,
+                thirdPartyPaths=body.third_party_paths,
+                options=body.options,
+            )
+            rulesets = resolve_rulesets(body.rulesets, scan_profile, settings.default_rulesets)
+            timeout = _get_timeout(request, body.options.timeout_seconds)
+
+            async def _track_progress(tool: str, status: str, count: int, elapsed: int):
+                request_summary_tracker.mark_progress(request_id, tool, status, count)
+
+            async def _track_file_progress(tool: str, file: str, done: int, total: int):
+                request_summary_tracker.mark_file_progress(request_id, file, done, total)
+
+            async def _track_runtime_state(tool: str, tool_state: dict):
+                request_summary_tracker.mark_runtime_state(request_id, tool_state)
+
+            try:
+                scan_result = await _run_scan_core(
+                    request_id,
+                    scan_req,
+                    rulesets,
+                    timeout,
+                    on_progress=_track_progress,
+                    on_file_progress=_track_file_progress,
+                    on_runtime_state=_track_runtime_state,
+                )
+            except PolicyViolationError as exc:
+                scan_result = exc.scan_response
+                return BuildAndAnalyzeResponse(
+                    success=False,
+                    provenance=body.provenance,
+                    build=build_response,
+                    scan=scan_result,
+                    codeGraph=scan_result.code_graph,
+                    libraries=(scan_result.sca or {}).get("libraries"),
+                    error=exc.message,
+                    errorDetail=scan_result.error_detail,
+                )
+
+            meta = await metadata_extractor.extract(scan_profile)
+            elapsed_ms = int((time.perf_counter() - t0_owned) * 1000)
+            return BuildAndAnalyzeResponse(
+                success=True,
+                provenance=body.provenance,
+                build=build_response,
+                scan=scan_result,
+                codeGraph=scan_result.code_graph,
+                libraries=(scan_result.sca or {}).get("libraries"),
+                metadata=meta,
+                elapsedMs=elapsed_ms,
+            )
+
+        payload, status_code = await request_ownership_store.submit(
+            request_id,
+            endpoint="build-and-analyze",
+            runner=_owned_build_and_analyze,
+        )
+        return _ownership_response(payload, status_code)
+
     t0 = time.perf_counter()
     build_response: BuildResponse | None = None
 
@@ -1179,6 +1343,48 @@ async def build(
     wrap_with_bear = body.wrap_with_bear
     build_timeout = _get_timeout(request)
 
+    if _wants_async_ownership(request):
+        async def _owned_build() -> BuildResponse:
+            request_summary_tracker.mark_started(
+                request_id,
+                last_ack_source="build-started",
+                local_ack_state="phase-advancing",
+            )
+
+            async def _track_build_runtime(state: dict):
+                request_summary_tracker.mark_runtime_state(
+                    request_id,
+                    state,
+                    local_ack_state=state.get("localAckState"),
+                    last_ack_source=state.get("lastAckSource"),
+                )
+
+            result = await build_runner.build(
+                project_dir,
+                build_command,
+                environment=body.build_environment,
+                wrap_with_bear=wrap_with_bear,
+                timeout=None,
+                timeout_seconds_for_evidence=build_timeout,
+                timeout_mode="async-ownership-no-caller-deadline",
+                timeout_enforced=False,
+                on_runtime_state=_track_build_runtime,
+            )
+            _log_build_execution_summary(
+                request_id=request_id,
+                endpoint="build",
+                result=result,
+                project_path=project_path,
+            )
+            return _to_build_response(result, body.provenance)
+
+        payload, status_code = await request_ownership_store.submit(
+            request_id,
+            endpoint="build",
+            runner=_owned_build,
+        )
+        return _ownership_response(payload, status_code)
+
     try:
         request_summary_tracker.register(request_id, endpoint="build")
         request_summary_tracker.mark_started(
@@ -1278,6 +1484,20 @@ async def discover_targets(
     )
 
     return {"targets": targets, "elapsedMs": elapsed_ms}
+
+
+@router.get("/requests/{request_id}")
+async def request_status(request_id: str) -> JSONResponse:
+    """Durable ownership status for async production requests."""
+    payload, status_code = await request_ownership_store.get_status(request_id)
+    return JSONResponse(payload, status_code=status_code)
+
+
+@router.get("/requests/{request_id}/result")
+async def request_result(request_id: str) -> JSONResponse:
+    """Durable terminal result/failure retrieval for async production requests."""
+    payload, status_code = await request_ownership_store.get_result(request_id)
+    return JSONResponse(payload, status_code=status_code)
 
 @router.get("/health", response_model=HealthResponse)
 async def health(request_id: str | None = Query(default=None, alias="requestId")) -> HealthResponse:

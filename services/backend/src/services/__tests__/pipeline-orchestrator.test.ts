@@ -1,6 +1,9 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
+import fs from "fs";
+import os from "os";
+import path from "path";
 import { PipelineOrchestrator } from "../pipeline-orchestrator";
-import type { BuildTarget, BuildProfile } from "@aegis/shared";
+import type { BuildTarget, BuildProfile, RegisteredSdk } from "@aegis/shared";
 
 // ── Mock factories ──
 
@@ -65,7 +68,39 @@ const resolveFail = {
   retryable: false,
 };
 
-function createMocks() {
+const tempDirs: string[] = [];
+
+afterEach(() => {
+  for (const dir of tempDirs.splice(0)) {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+function createTempUploadsRoot(): string {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "aegis-sdk-descriptor-"));
+  tempDirs.push(root);
+  return root;
+}
+
+function makeSdk(overrides: Partial<RegisteredSdk> = {}): RegisteredSdk {
+  return {
+    id: "sdk-uploaded",
+    projectId: "p1",
+    name: "Uploaded SDK",
+    path: "/uploads/p1/sdk/sdk-uploaded/content",
+    profile: {},
+    status: "ready",
+    verified: true,
+    createdAt: "2026-05-08T00:00:00Z",
+    updatedAt: "2026-05-08T00:00:00Z",
+    ...overrides,
+  };
+}
+
+function createMocks(options?: {
+  sdkRegistryLookup?: { findById: ReturnType<typeof vi.fn> };
+  uploadsDir?: string;
+}) {
   const sourceService = { getProjectPath: vi.fn().mockReturnValue("/uploads/p1") };
   const sastClient = {
     build: vi.fn().mockResolvedValue({ success: true, compileCommandsPath: "/uploads/p1/build/cc.json", entries: 10 }),
@@ -102,6 +137,8 @@ function createMocks() {
     update: vi.fn(),
     findActiveByBuildTargetId: vi.fn().mockReturnValue(undefined),
   };
+  const sdkRegistryLookup = options?.sdkRegistryLookup ?? { findById: vi.fn() };
+  const uploadsDir = options?.uploadsDir ?? "/uploads";
 
   const orchestrator = new PipelineOrchestrator(
     sourceService as any,
@@ -115,9 +152,11 @@ function createMocks() {
     ws as any,
     notificationService as any,
     analysisExecutionDAO as any,
+    sdkRegistryLookup as any,
+    uploadsDir,
   );
 
-  return { orchestrator, sourceService, sastClient, kbClient, buildAgentClient, targetLibraryDAO, buildTargetDAO, analysisResultDAO, resultNormalizer, ws, notificationService, analysisExecutionDAO };
+  return { orchestrator, sourceService, sastClient, kbClient, buildAgentClient, targetLibraryDAO, buildTargetDAO, analysisResultDAO, resultNormalizer, ws, notificationService, analysisExecutionDAO, sdkRegistryLookup };
 }
 
 describe("PipelineOrchestrator", () => {
@@ -302,6 +341,97 @@ describe("PipelineOrchestrator", () => {
       undefined,
       undefined,
     );
+  });
+
+  it("forwards uploaded SDK materialization descriptor without requiring verified=true", async () => {
+    const uploadsDir = createTempUploadsRoot();
+    const sdkRoot = path.join(uploadsDir, "p1", "sdk", "sdk-uploaded", "content", "ti-sdk");
+    const setupScript = path.join(sdkRoot, "linux-devkit", "environment-setup-arm");
+    const sysroot = path.join(sdkRoot, "linux-devkit", "sysroots", "arm-sysroot");
+    fs.mkdirSync(path.dirname(setupScript), { recursive: true });
+    fs.mkdirSync(sysroot, { recursive: true });
+    fs.writeFileSync(setupScript, "export CC=arm-none-linux-gnueabihf-gcc\n");
+    const sdkRegistryLookup = {
+      findById: vi.fn().mockReturnValue(makeSdk({
+        id: "sdk-uploaded",
+        path: sdkRoot,
+        status: "verifying",
+        verified: false,
+        profile: {
+          environmentSetup: setupScript,
+          sysroot: "linux-devkit/sysroots/arm-sysroot",
+          compilerPrefix: "arm-none-linux-gnueabihf-",
+        },
+      })),
+    };
+    const { orchestrator, buildAgentClient, buildTargetDAO } = createMocks({ sdkRegistryLookup, uploadsDir });
+    buildTargetDAO.findByProjectId.mockReturnValue([
+      makeTarget({
+        buildProfile: { sdkId: "sdk-uploaded", compiler: "gcc", headerLanguage: "c" } as BuildProfile,
+        sdkChoiceState: "sdk-selected",
+        scriptHintPath: "scripts/cross_build.sh",
+      }),
+    ]);
+
+    await orchestrator.runPipeline("p1");
+
+    expect(sdkRegistryLookup.findById).toHaveBeenCalledWith("sdk-uploaded");
+    expect(buildAgentClient.submitTask).toHaveBeenCalledWith(
+      expect.objectContaining({
+        context: {
+          trusted: expect.objectContaining({
+            build: {
+              mode: "sdk",
+              sdkId: "sdk-uploaded",
+              sdkRootPath: fs.realpathSync(sdkRoot),
+              setupScript: "linux-devkit/environment-setup-arm",
+              sysroot: "linux-devkit/sysroots/arm-sysroot",
+              toolchainTriplet: "arm-none-linux-gnueabihf",
+              scriptHintPath: "scripts/cross_build.sh",
+              environment: {
+                AEGIS_SDK_ROOT: fs.realpathSync(sdkRoot),
+                SDK_DIR: fs.realpathSync(sdkRoot),
+                AEGIS_SDK_SETUP_SCRIPT: path.join(fs.realpathSync(sdkRoot), "linux-devkit/environment-setup-arm"),
+                AEGIS_SDK_SYSROOT: path.join(fs.realpathSync(sdkRoot), "linux-devkit/sysroots/arm-sysroot"),
+                SDKTARGETSYSROOT: path.join(fs.realpathSync(sdkRoot), "linux-devkit/sysroots/arm-sysroot"),
+                AEGIS_TOOLCHAIN_TRIPLET: "arm-none-linux-gnueabihf",
+              },
+            },
+          }),
+        },
+      }),
+      undefined,
+      undefined,
+    );
+  });
+
+  it("rejects registered SDK descriptor production when the SDK root escapes the project SDK upload area", async () => {
+    const uploadsDir = createTempUploadsRoot();
+    const escapedRoot = createTempUploadsRoot();
+    fs.writeFileSync(path.join(escapedRoot, "README"), "not project-owned\n");
+    const sdkRegistryLookup = {
+      findById: vi.fn().mockReturnValue(makeSdk({
+        id: "sdk-escaped",
+        path: escapedRoot,
+        status: "ready",
+        verified: true,
+      })),
+    };
+    const { orchestrator, buildAgentClient, buildTargetDAO } = createMocks({ sdkRegistryLookup, uploadsDir });
+    buildTargetDAO.findByProjectId.mockReturnValue([
+      makeTarget({
+        buildProfile: { sdkId: "sdk-escaped", compiler: "gcc", headerLanguage: "c" } as BuildProfile,
+        sdkChoiceState: "sdk-selected",
+      }),
+    ]);
+
+    await orchestrator.runPipeline("p1");
+
+    expect(buildAgentClient.submitTask).not.toHaveBeenCalled();
+    expect(buildTargetDAO.updatePipelineState).toHaveBeenCalledWith("t1", expect.objectContaining({
+      status: "resolve_failed",
+      buildLog: expect.stringContaining("project SDK uploads root"),
+    }));
   });
 
   it("skips resolve if target already has buildCommand", async () => {

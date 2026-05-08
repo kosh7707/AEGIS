@@ -418,9 +418,9 @@ async def test_async_ownership_unsupported_surface_is_temporarily_cached():
 
 
 @pytest.mark.asyncio
-async def test_async_ownership_poll_deadline_raises_timeout_without_sync_fallback():
+async def test_async_ownership_continues_running_until_completed_without_age_abort():
     caller = LlmCaller("http://fake:8000", "qwen")
-    caller._async_poll_deadline_seconds = 0.0
+    status_calls = 0
 
     async def fake_post(url, **kwargs):
         if url.endswith("/v1/async-chat-requests"):
@@ -430,29 +430,47 @@ async def test_async_ownership_poll_deadline_raises_timeout_without_sync_fallbac
                 "status": "accepted",
                 "statusUrl": "/v1/async-chat-requests/acr_slow",
                 "resultUrl": "/v1/async-chat-requests/acr_slow/result",
-                "cancelUrl": "/v1/async-chat-requests/acr_slow",
             }, status_code=202)
         raise AssertionError(f"sync fallback must not be attempted: {url}")
 
+    async def fake_get(url, **kwargs):
+        nonlocal status_calls
+        if url.endswith("/v1/async-chat-requests/acr_slow"):
+            status_calls += 1
+            if status_calls < 4:
+                return _make_httpx_response({
+                    "requestId": "acr_slow",
+                    "state": "running",
+                    "localAckState": "transport-only",
+                    "blockedReason": None,
+                    "resultReady": False,
+                })
+            return _make_httpx_response({
+                "requestId": "acr_slow",
+                "state": "completed",
+                "localAckState": None,
+                "resultReady": True,
+            })
+        if url.endswith("/v1/async-chat-requests/acr_slow/result"):
+            return _make_httpx_response({
+                "requestId": "acr_slow",
+                "state": "completed",
+                "response": _content_response('{"summary":"eventual"}'),
+            })
+        raise AssertionError(f"unexpected GET url: {url}")
+
     caller._client = MagicMock()
     caller._client.post = AsyncMock(side_effect=fake_post)
-    caller._client.get = AsyncMock()
-    caller._client.delete = AsyncMock(return_value=_make_httpx_response({
-        "requestId": "acr_slow",
-        "state": "cancelled",
-    }))
+    caller._client.get = AsyncMock(side_effect=fake_get)
 
-    with pytest.raises(LlmTimeoutError) as exc_info:
-        await caller.call(
+    with patch("asyncio.sleep", new=AsyncMock()):
+        result = await caller.call(
             [{"role": "user", "content": "hi"}],
             prefer_async_ownership=True,
         )
 
-    assert "poll deadline exceeded" in str(exc_info.value)
-    caller._client.get.assert_not_awaited()
-    caller._client.delete.assert_awaited_once()
-    cancel_url = caller._client.delete.await_args.args[0]
-    assert cancel_url.endswith("/v1/async-chat-requests/acr_slow")
+    assert result.content == '{"summary":"eventual"}'
+    assert status_calls == 4
 
 
 @pytest.mark.asyncio

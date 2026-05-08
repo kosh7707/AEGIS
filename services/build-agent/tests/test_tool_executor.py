@@ -103,3 +103,21 @@ async def test_tool_call_id_set() -> None:
     result = await executor.execute(_NormalImpl(), call, turn=1)
     assert result.tool_call_id == "unique-id-42"
     assert result.name == "my_tool"
+
+
+class _SlowWaitWhileAliveImpl:
+    wait_while_alive = True
+
+    async def execute(self, arguments: dict) -> ToolResult:
+        await asyncio.sleep(0.05)
+        return ToolResult(tool_call_id="", name="", success=True, content='{"result":"alive"}')
+
+
+@pytest.mark.asyncio
+async def test_wait_while_alive_tool_is_not_cut_off_by_executor_timeout() -> None:
+    executor = ToolExecutor(timeout_ms=1)
+    call = _make_call("try_build")
+    result = await executor.execute(_SlowWaitWhileAliveImpl(), call, turn=1)
+    assert result.success is True
+    assert result.name == "try_build"
+    assert result.tool_call_id == "call-exec-001"

@@ -225,3 +225,56 @@ async def test_build_llm_caller_accepts_explicit_generation_controls():
     assert body["top_p"] == 0.95
     assert body["top_k"] == 20
     assert body["chat_template_kwargs"] == {"enable_thinking": True}
+
+
+@pytest.mark.asyncio
+async def test_build_llm_caller_async_ownership_continues_until_completed(monkeypatch):
+    caller = LlmCaller("http://fake:8000", "qwen")
+    status_calls = 0
+
+    async def fake_post(url, **kwargs):
+        if url.endswith("/v1/async-chat-requests"):
+            return _make_response({
+                "requestId": "acr_build",
+                "statusUrl": "/v1/async-chat-requests/acr_build",
+                "resultUrl": "/v1/async-chat-requests/acr_build/result",
+            }, status_code=202)
+        raise AssertionError(f"sync fallback must not be attempted: {url}")
+
+    async def fake_get(url, **kwargs):
+        nonlocal status_calls
+        if url.endswith("/v1/async-chat-requests/acr_build"):
+            status_calls += 1
+            if status_calls < 3:
+                return _make_response({
+                    "requestId": "acr_build",
+                    "state": "running",
+                    "localAckState": "transport-only",
+                    "blockedReason": None,
+                    "resultReady": False,
+                })
+            return _make_response({
+                "requestId": "acr_build",
+                "state": "completed",
+                "localAckState": None,
+                "resultReady": True,
+            })
+        if url.endswith("/v1/async-chat-requests/acr_build/result"):
+            return _make_response({
+                "requestId": "acr_build",
+                "response": _content_response('{"summary":"build async"}'),
+            })
+        raise AssertionError(f"unexpected GET url: {url}")
+
+    caller._client = MagicMock()
+    caller._client.post = AsyncMock(side_effect=fake_post)
+    caller._client.get = AsyncMock(side_effect=fake_get)
+    monkeypatch.setattr("asyncio.sleep", AsyncMock())
+
+    result = await caller.call(
+        [{"role": "user", "content": "final"}],
+        prefer_async_ownership=True,
+    )
+
+    assert result.content == '{"summary":"build async"}'
+    assert status_calls == 3

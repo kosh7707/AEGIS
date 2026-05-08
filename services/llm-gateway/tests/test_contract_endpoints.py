@@ -1067,6 +1067,32 @@ class TestAsyncChatOwnershipSurface:
             assert forwarded[key] == body[key]
         assert forwarded["chat_template_kwargs"]["enable_thinking"] is False
 
+    def test_async_backend_read_timeout_is_unbounded_for_wait_while_alive(self, client_live):
+        mock_llm_response = {
+            "choices": [{"message": {"content": "async answer"}, "finish_reason": "stop"}],
+            "usage": {"prompt_tokens": 8, "completion_tokens": 4},
+        }
+        mock_resp = httpx.Response(200, json=mock_llm_response)
+
+        with patch.object(app.state, "proxy_client") as mock_client:
+            mock_client.post = AsyncMock(return_value=mock_resp)
+            submit = client_live.post("/v1/async-chat-requests", json=make_chat_body())
+            request_id = submit.json()["requestId"]
+            deadline = time.time() + 1.0
+            while time.time() < deadline:
+                status_resp = client_live.get(f"/v1/async-chat-requests/{request_id}")
+                if status_resp.json()["state"] == "completed":
+                    break
+                time.sleep(0.01)
+
+        call_kwargs = mock_client.post.call_args
+        req_timeout = call_kwargs.kwargs.get("timeout") or call_kwargs[1].get("timeout")
+        assert req_timeout is not None
+        assert req_timeout.connect == 10.0
+        assert req_timeout.read is None
+        assert req_timeout.write == 10.0
+        assert req_timeout.pool == 10.0
+
     def test_async_result_not_ready_is_explicit(self, client_live):
         async def delayed_response(*args, **kwargs):
             await asyncio.sleep(0.05)
@@ -1092,6 +1118,88 @@ class TestAsyncChatOwnershipSurface:
         assert result_data["error"] == "Async result not ready"
         assert result_data["errorDetail"]["code"] == "CONFLICT"
         assert result_data["state"] in {"queued", "running"}
+
+    def test_async_wait_while_alive_status_health_and_late_result(self, client_live):
+        started = Event()
+        release = Event()
+
+        async def delayed_response(*args, **kwargs):
+            started.set()
+            while not release.is_set():
+                await asyncio.sleep(0.01)
+            return httpx.Response(
+                200,
+                json={
+                    "choices": [{"message": {"content": '{"ok": true}'}, "finish_reason": "stop"}],
+                    "usage": {"prompt_tokens": 8, "completion_tokens": 4},
+                },
+            )
+
+        with patch.object(app.state, "proxy_client") as mock_client:
+            mock_client.post = AsyncMock(side_effect=delayed_response)
+
+            submit = client_live.post(
+                "/v1/async-chat-requests",
+                json=make_chat_body(),
+                headers={"X-Request-Id": "trace-async-wait-v2"},
+            )
+            request_id = submit.json()["requestId"]
+
+            deadline = time.time() + 1.0
+            while not started.is_set() and time.time() < deadline:
+                time.sleep(0.01)
+            assert started.is_set()
+
+            record = app.state.async_chat_manager._requests[request_id]
+            record.accepted_at_ms = 0
+            record.started_at_ms = 0
+            record.expires_at_ms = 0
+            tracked = app.state.request_tracker._requests[request_id]
+            tracked.started_at = 0
+
+            for _ in range(3):
+                status_resp = client_live.get(f"/v1/async-chat-requests/{request_id}")
+                status_data = status_resp.json()
+                assert status_data["state"] == "running"
+                assert status_data["localAckState"] == "transport-only"
+                assert status_data["blockedReason"] is None
+                assert status_data["resultReady"] is False
+
+                result_resp = client_live.get(f"/v1/async-chat-requests/{request_id}/result")
+                assert result_resp.status_code == 409
+                result_data = result_resp.json()
+                assert result_data["state"] == "running"
+                assert result_data["retryable"] is True
+                assert result_data["blockedReason"] is None
+
+            health = client_live.get(f"/v1/health?requestId={request_id}").json()
+            summary = health["requestSummary"]
+            assert summary["requestId"] == request_id
+            assert summary["endpoint"] == "async-chat"
+            assert summary["state"] == "running"
+            assert summary["localAckState"] == "transport-only"
+            assert summary["blockedReason"] is None
+            assert summary["elapsedMs"] > 1_800_000
+
+            release.set()
+            deadline = time.time() + 1.0
+            completed = None
+            while time.time() < deadline:
+                completed = client_live.get(f"/v1/async-chat-requests/{request_id}").json()
+                if completed["state"] == "completed":
+                    break
+                time.sleep(0.01)
+
+            assert completed is not None
+            assert completed["state"] == "completed"
+            assert completed["resultReady"] is True
+
+            result_resp = client_live.get(f"/v1/async-chat-requests/{request_id}/result")
+
+        assert result_resp.status_code == 200
+        result_data = result_resp.json()
+        assert result_data["state"] == "completed"
+        assert result_data["response"]["choices"][0]["message"]["content"] == '{"ok": true}'
 
     def test_async_cancel_returns_cancelled_state(self, client_live):
         started = Event()
@@ -1155,6 +1263,37 @@ class TestAsyncChatOwnershipSurface:
         assert result_data["requestId"] == request_id
         assert result_data["state"] == "expired"
         assert result_data["error"] == "Async result expired"
+
+    def test_async_backend_transport_timeout_is_terminal_failure(self, client_live):
+        with patch.object(app.state, "proxy_client") as mock_client:
+            mock_client.post = AsyncMock(side_effect=httpx.PoolTimeout("pool timeout"))
+
+            submit = client_live.post("/v1/async-chat-requests", json=make_chat_body())
+            request_id = submit.json()["requestId"]
+
+            deadline = time.time() + 1.0
+            status_data = None
+            while time.time() < deadline:
+                status_resp = client_live.get(f"/v1/async-chat-requests/{request_id}")
+                status_data = status_resp.json()
+                if status_data["state"] == "failed":
+                    break
+                time.sleep(0.01)
+
+            result_resp = client_live.get(f"/v1/async-chat-requests/{request_id}/result")
+
+        assert status_data is not None
+        assert status_data["state"] == "failed"
+        assert status_data["localAckState"] == "ack-break"
+        assert status_data["blockedReason"] == "backend_timeout"
+        assert "elapsed read ceiling" in status_data["errorDetail"]
+        assert status_data["retryable"] is True
+
+        assert result_resp.status_code == 409
+        result_data = result_resp.json()
+        assert result_data["state"] == "failed"
+        assert result_data["blockedReason"] == "backend_timeout"
+        assert "elapsed read ceiling" in result_data["errorDetail"]["detail"]
 
     def test_async_strict_json_failure_is_explicit_retryable(self, client_live):
         """S3 structured finalizer용 async strict JSON 실패는 retryable terminal failure로 노출한다."""

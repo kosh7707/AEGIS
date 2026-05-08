@@ -1,4 +1,4 @@
-export type HealthRequestState = "idle" | "queued" | "running" | "failed";
+export type HealthRequestState = "idle" | "queued" | "running" | "completed" | "failed" | "cancelled" | "expired";
 export type HealthLocalAckState = "phase-advancing" | "transport-only" | "ack-break";
 export type HealthPollDecision = "continue_waiting" | "chain_abort" | "no_active_request" | "inconclusive";
 export type DownstreamServiceStatus = "ok" | "degraded" | "unreachable";
@@ -24,7 +24,7 @@ export interface DownstreamServiceHealth {
   control?: DownstreamControlSummary;
 }
 
-const REQUEST_STATES = ["idle", "queued", "running", "failed"] as const;
+const REQUEST_STATES = ["idle", "queued", "running", "completed", "failed", "cancelled", "expired"] as const;
 const LOCAL_ACK_STATES = ["phase-advancing", "transport-only", "ack-break"] as const;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -108,9 +108,18 @@ export function normalizeControlSummary(
   } else if (state === "failed") {
     pollDecision = "chain_abort";
     decisionReasons.push("state-failed");
+  } else if (state === "cancelled") {
+    pollDecision = "chain_abort";
+    decisionReasons.push("state-cancelled");
+  } else if (state === "expired") {
+    pollDecision = "chain_abort";
+    decisionReasons.push("state-expired");
   } else if (state === "idle") {
     pollDecision = "no_active_request";
     decisionReasons.push("state-idle");
+  } else if (state === "completed") {
+    pollDecision = "no_active_request";
+    decisionReasons.push("state-completed");
   } else if (state === "queued") {
     pollDecision = "continue_waiting";
     decisionReasons.push("state-queued");

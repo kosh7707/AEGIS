@@ -57,7 +57,7 @@ describe("health.controller", () => {
     expect(res.status).toBe(200);
     expect(agentHealth.checkHealth).toHaveBeenCalledWith("req-deep-001");
     expect(llmHealth.checkHealth).toHaveBeenCalledWith("req-deep-001");
-    expect(res.body.controlPolicyVersion).toBe("health-control-signal-rollout-v1");
+    expect(res.body.controlPolicyVersion).toBe("health-control-signal-rollout-v2");
     expect(res.body.requestIdQueried).toBe("req-deep-001");
     expect(res.body.analysisAgent.control).toMatchObject({
       requestId: "req-deep-001",

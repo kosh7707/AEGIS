@@ -128,7 +128,7 @@ async def test_run_maps_empty_live_completion_to_output_deficient_not_model_unav
 @pytest.mark.asyncio
 async def test_run_maps_llm_timeout_to_timeout_boundary():
     llm_caller = MagicMock()
-    llm_caller.call = AsyncMock(side_effect=LlmTimeoutError("async poll deadline exceeded"))
+    llm_caller.call = AsyncMock(side_effect=LlmTimeoutError("llm wait interrupted"))
     loop = _make_loop(llm_caller)
     loop._termination_policy.should_stop.return_value = False
     loop._tool_registry.get_all_schemas.return_value = None

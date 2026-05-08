@@ -154,6 +154,8 @@ class BuildEvidence(BaseModel):
     build_output: str | None = Field(default=None, alias="buildOutput")
     wrap_with_bear: bool = Field(alias="wrapWithBear")
     timeout_seconds: int = Field(alias="timeoutSeconds")
+    timeout_mode: str | None = Field(default=None, alias="timeoutMode")
+    timeout_enforced: bool | None = Field(default=None, alias="timeoutEnforced")
     environment_keys: list[str] | None = Field(default=None, alias="environmentKeys")
     elapsed_ms: int = Field(alias="elapsedMs")
 
