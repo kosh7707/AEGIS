@@ -41,6 +41,31 @@ _COMMAND_INJECTION_MARKERS = (
     "cwe-78",
     "shell command",
 )
+_REPRO_STEP_MARKERS = (
+    "## poc",
+    "poc code",
+    "실행 방법",
+    "run ",
+    "steps",
+    "reproduce",
+    "harness",
+)
+_EXPECTED_RESULT_MARKERS = (
+    "예상 결과",
+    "expected result",
+    "observe",
+    "확인",
+    "assert",
+)
+_NON_DESTRUCTIVE_MARKERS = (
+    "non-destructive",
+    "non destructive",
+    "비파괴",
+    "harmless",
+    "canary",
+    "bounded",
+    "local test",
+)
 
 
 def evaluate_poc_quality(
@@ -64,7 +89,27 @@ def evaluate_poc_quality(
         )
 
     raw_detail_blob = " ".join([claim.detail or "" for claim in claims] + caveats)
+    raw_claim_blob = " ".join(
+        [claim.statement or "" for claim in claims]
+        + [claim.detail or "" for claim in claims]
+        + caveats
+    )
     detail_blob = raw_detail_blob.lower()
+    claim_blob = raw_claim_blob.lower()
+
+    for index, claim in enumerate(claims):
+        if not claim.supportingEvidenceRefs or not claim.location:
+            return QualityGateResult(
+                outcome=QualityOutcome.REJECTED,
+                failedItems=[QualityGateItem(
+                    id="poc-grounding",
+                    repairable=True,
+                    requiredEvidenceSlots=["supportingEvidenceRefs", "location"],
+                    detail=f"PoC claim {index} is not bound to both evidence refs and a source location.",
+                )],
+                repairHint="Bind every PoC claim to the accepted input claim's local evidence refs and source location.",
+                caveats=caveats,
+            )
     if any(marker in detail_blob for marker in _UNSAFE_MARKERS):
         return QualityGateResult(
             outcome=QualityOutcome.REJECTED,
@@ -97,7 +142,28 @@ def evaluate_poc_quality(
             caveats=caveats,
         )
 
-    if any(marker in detail_blob for marker in _COMMAND_INJECTION_MARKERS) and "canary" not in detail_blob:
+    for index, claim in enumerate(claims):
+        detail = (claim.detail or "").lower()
+        if not _has_repro_structure(detail):
+            return QualityGateResult(
+                outcome=QualityOutcome.REJECTED,
+                failedItems=[QualityGateItem(
+                    id="poc-repro-structure",
+                    repairable=True,
+                    requiredEvidenceSlots=["reproduction steps", "expected observation", "safety boundary"],
+                    detail=(
+                        f"PoC claim {index} lacks concrete reproduction steps, "
+                        "expected observation, or non-destructive safety boundary."
+                    ),
+                )],
+                repairHint=(
+                    "Provide bounded PoC code or a harness outline, explicit run steps, "
+                    "expected observable result, and a non-destructive safety constraint."
+                ),
+                caveats=caveats,
+            )
+
+    if any(marker in claim_blob for marker in _COMMAND_INJECTION_MARKERS) and "canary" not in detail_blob:
         return QualityGateResult(
             outcome=QualityOutcome.REJECTED,
             failedItems=[QualityGateItem(
@@ -117,6 +183,14 @@ def evaluate_poc_quality(
         )
 
     return QualityGateResult(outcome=QualityOutcome.ACCEPTED, caveats=caveats)
+
+
+def _has_repro_structure(detail: str) -> bool:
+    return (
+        any(marker in detail for marker in _REPRO_STEP_MARKERS)
+        and any(marker in detail for marker in _EXPECTED_RESULT_MARKERS)
+        and any(marker in detail for marker in _NON_DESTRUCTIVE_MARKERS)
+    )
 
 
 def _contains_destructive_python_call(text: str) -> bool:

@@ -28,6 +28,8 @@ def test_oracle_covers_manifest_hot11_cases_exactly():
     assert len(manifest_cases) == 11
     assert oracle_cases == manifest_cases
     assert oracle["policy"]["passRequiresAllExpectedFindings"] is True
+    assert oracle["policy"]["passRequiresCleanPocForMatchedFindings"] is True
+    assert oracle["policy"]["diagnosticOnly"] is False
 
 
 def test_oracle_contains_no_local_network_credentials():
@@ -87,7 +89,14 @@ def test_oracle_evaluation_passes_gateway_webserver_claim_with_poc():
         {
             "status": "completed",
             "oracleFindingIds": ["gateway-webserver-curl-popen-command-injection"],
-            "responseSummary": {"result": {"description": "diagnostic curl/popen command injection PoC"}},
+            "responseSummary": {
+                "result": {
+                    "description": "diagnostic curl/popen command injection PoC",
+                    "pocOutcome": "poc_accepted",
+                    "qualityOutcome": "accepted",
+                    "cleanPass": True,
+                }
+            },
         }
     ]
 
@@ -112,6 +121,47 @@ def test_oracle_evaluation_fails_when_required_finding_missing():
     assert verdict["enabled"] is True
     assert verdict["passed"] is False
     assert verdict["missingFindings"][0]["id"] == "gateway-webserver-curl-popen-command-injection"
+
+
+def test_oracle_evaluation_fails_inconclusive_poc_when_clean_required():
+    runner = load_runner()
+    oracle = runner.load_oracle(ORACLE_PATH)
+    oracle_case = runner._oracle_case(oracle, "gateway-webserver")
+    analysis_response = {
+        "status": "completed",
+        "result": {
+            "claims": [
+                {
+                    "title": "CWE-78 command injection through curl popen",
+                    "location": "src/clients/http_client.cpp:62",
+                    "summary": "run_curl builds a curl shell command and executes it via popen, enabling RCE/command injection.",
+                    "cwe": "CWE-78",
+                    "severity": "critical",
+                }
+            ]
+        },
+    }
+    poc_summaries = [
+        {
+            "status": "completed",
+            "oracleFindingIds": ["gateway-webserver-curl-popen-command-injection"],
+            "responseSummary": {
+                "result": {
+                    "description": "diagnostic curl/popen command injection PoC",
+                    "pocOutcome": "poc_inconclusive",
+                    "qualityOutcome": "rejected",
+                    "cleanPass": False,
+                }
+            },
+        }
+    ]
+
+    verdict = runner.evaluate_oracle(oracle_case, analysis_response, poc_summaries)
+
+    assert verdict["enabled"] is True
+    assert verdict["passed"] is False
+    assert verdict["missingPocs"][0]["reason"] == "no clean accepted PoC for matched finding"
+    assert verdict["pocQualityFailures"][0]["pocOutcome"] == "poc_inconclusive"
 
 
 def test_default_analysis_timeout_respects_s3_http_contract():

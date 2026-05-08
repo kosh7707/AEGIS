@@ -333,9 +333,27 @@ def _oracle_match_ids_for_claim(claim: dict[str, Any], oracle_case: dict[str, An
     return matches
 
 
-def _poc_matches_expected(poc_summary: dict[str, Any], expected: dict[str, Any]) -> bool:
+def _poc_quality_fields(poc_summary: dict[str, Any]) -> dict[str, Any]:
+    result = (poc_summary.get("responseSummary") or {}).get("result")
+    return result if isinstance(result, dict) else {}
+
+
+def _poc_matches_expected(
+    poc_summary: dict[str, Any],
+    expected: dict[str, Any],
+    *,
+    require_clean: bool,
+) -> bool:
     if poc_summary.get("status") != "completed":
         return False
+    result = _poc_quality_fields(poc_summary)
+    if require_clean:
+        if result.get("pocOutcome") != "poc_accepted":
+            return False
+        if result.get("qualityOutcome") != "accepted":
+            return False
+        if result.get("cleanPass") is not True:
+            return False
     poc_policy = expected.get("poc") if isinstance(expected.get("poc"), dict) else {}
     required = [str(item) for item in poc_policy.get("requiredAnyKeywords") or []]
     if not required:
@@ -350,7 +368,14 @@ def evaluate_oracle(
     poc_summaries: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     if oracle_case is None:
-        return {"enabled": False, "passed": None, "matchedFindings": [], "missingFindings": [], "missingPocs": []}
+        return {
+            "enabled": False,
+            "passed": None,
+            "matchedFindings": [],
+            "missingFindings": [],
+            "missingPocs": [],
+            "pocQualityFailures": [],
+        }
 
     claims = _analysis_claims(analysis_response)
     expected_findings = [
@@ -361,6 +386,8 @@ def evaluate_oracle(
     matched_findings: list[dict[str, Any]] = []
     missing_findings: list[dict[str, Any]] = []
     missing_pocs: list[dict[str, Any]] = []
+    poc_quality_failures: list[dict[str, Any]] = []
+    policy = oracle_case.get("policy") if isinstance(oracle_case.get("policy"), dict) else {}
 
     for expected in expected_findings:
         finding_id = str(expected["id"])
@@ -387,12 +414,36 @@ def evaluate_oracle(
 
         poc_policy = expected.get("poc") if isinstance(expected.get("poc"), dict) else {}
         if poc_policy.get("required") is True and len(matches) >= min_matches:
+            clean_required = bool(
+                poc_policy.get("cleanRequired")
+                or poc_policy.get("diagnosticOnly") is False
+                or policy.get("passRequiresCleanPocForMatchedFindings")
+            )
             passed_poc = any(
-                finding_id in (summary.get("oracleFindingIds") or []) and _poc_matches_expected(summary, expected)
+                finding_id in (summary.get("oracleFindingIds") or [])
+                and _poc_matches_expected(summary, expected, require_clean=clean_required)
                 for summary in poc_summaries
             )
             if not passed_poc:
-                missing_pocs.append({"id": finding_id, "reason": "no completed diagnostic PoC for matched finding"})
+                missing_pocs.append({
+                    "id": finding_id,
+                    "reason": (
+                        "no clean accepted PoC for matched finding"
+                        if clean_required
+                        else "no completed diagnostic PoC for matched finding"
+                    ),
+                })
+                for summary in poc_summaries:
+                    if finding_id not in (summary.get("oracleFindingIds") or []):
+                        continue
+                    result = _poc_quality_fields(summary)
+                    poc_quality_failures.append({
+                        "id": finding_id,
+                        "status": summary.get("status"),
+                        "pocOutcome": result.get("pocOutcome"),
+                        "qualityOutcome": result.get("qualityOutcome"),
+                        "cleanPass": result.get("cleanPass"),
+                    })
 
     return {
         "enabled": True,
@@ -402,6 +453,7 @@ def evaluate_oracle(
         "matchedFindings": matched_findings,
         "missingFindings": missing_findings,
         "missingPocs": missing_pocs,
+        "pocQualityFailures": poc_quality_failures,
         "negativeControls": oracle_case.get("negativeControls") or [],
     }
 
@@ -674,17 +726,25 @@ def _write_markdown_summary(path: Path, aggregate: dict[str, Any]) -> None:
     lines.extend([
         "## Cases",
         "",
-        "| Case | Status | Build | Analysis | Oracle | Claims | PoCs |",
-        "|---|---|---|---|---|---:|---:|",
+        "| Case | Status | Build | Analysis | Oracle | Claims | PoCs | Clean PoCs |",
+        "|---|---|---|---|---|---:|---:|---:|",
     ])
     for case in aggregate["cases"]:
         pocs = case.get("pocs") or []
         completed_pocs = sum(1 for item in pocs if item.get("status") == "completed")
+        clean_pocs = sum(
+            1
+            for item in pocs
+            if (_poc_quality_fields(item).get("pocOutcome") == "poc_accepted"
+                and _poc_quality_fields(item).get("qualityOutcome") == "accepted"
+                and _poc_quality_fields(item).get("cleanPass") is True)
+        )
         verdict = case.get("oracleVerdict") if isinstance(case.get("oracleVerdict"), dict) else {}
         oracle_status = "off" if not verdict.get("enabled") else ("pass" if verdict.get("passed") else "fail")
         lines.append(
             f"| `{case['caseId']}` | `{case.get('status')}` | `{case.get('buildStatus', '-')}` | "
-            f"`{case.get('analysisStatus', '-')}` | `{oracle_status}` | {case.get('claimCount', '-')} | {completed_pocs}/{len(pocs)} |"
+            f"`{case.get('analysisStatus', '-')}` | `{oracle_status}` | {case.get('claimCount', '-')} | "
+            f"{completed_pocs}/{len(pocs)} | {clean_pocs}/{len(pocs)} |"
         )
     path.write_text("\n".join(lines) + "\n")
 

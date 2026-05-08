@@ -1,0 +1,95 @@
+{
+  "schemaVersion": "qg-anomaly-oracle-v1",
+  "curatedAt": "2026-05-09",
+  "scope": "Analysis/Generate-PoC Quality Gate anomaly classification",
+  "policy": {
+    "completedIsNotCleanByItself": true,
+    "cleanPocRequires": {
+      "status": "completed",
+      "pocOutcome": "poc_accepted",
+      "qualityOutcome": "accepted",
+      "cleanPass": true
+    },
+    "cleanAnalysisRequires": {
+      "status": "completed",
+      "analysisOutcome": "accepted_claims",
+      "qualityOutcome": "accepted",
+      "cleanPass": true
+    },
+    "antiOverfitDirective": "This oracle validates lifecycle/outcome semantics; do not special-case hot11 or gateway fixtures."
+  },
+  "cases": [
+    {
+      "id": "poc-completed-inconclusive-is-anomaly",
+      "taskType": "generate-poc",
+      "description": "A completed PoC envelope with poc_inconclusive is task survival, not clean quality pass.",
+      "sample": {
+        "status": "completed",
+        "result": {
+          "pocOutcome": "poc_inconclusive",
+          "qualityOutcome": "rejected",
+          "cleanPass": false,
+          "evaluationVerdict": {"taskCompleted": true, "cleanPass": false}
+        }
+      },
+      "expected": {"taskCompleted": true, "clean": false, "anomaly": true, "bucket": "poc_not_clean"}
+    },
+    {
+      "id": "poc-accepted-clean-is-clean",
+      "taskType": "generate-poc",
+      "description": "A PoC is clean only when pocOutcome, qualityOutcome, and cleanPass all agree.",
+      "sample": {
+        "status": "completed",
+        "result": {
+          "pocOutcome": "poc_accepted",
+          "qualityOutcome": "accepted",
+          "cleanPass": true,
+          "evaluationVerdict": {"taskCompleted": true, "cleanPass": true}
+        }
+      },
+      "expected": {"taskCompleted": true, "clean": true, "anomaly": false, "bucket": "clean"}
+    },
+    {
+      "id": "analysis-no-accepted-claims-is-anomaly",
+      "taskType": "deep-analyze",
+      "description": "A completed analysis with no accepted claims must not count as a clean paper-quality pass.",
+      "sample": {
+        "status": "completed",
+        "result": {
+          "analysisOutcome": "no_accepted_claims",
+          "qualityOutcome": "rejected",
+          "cleanPass": false,
+          "claims": [],
+          "claimDiagnostics": {"nonAcceptedClaims": [{"status": "under_evidenced"}]}
+        }
+      },
+      "expected": {"taskCompleted": true, "clean": false, "anomaly": true, "bucket": "analysis_not_clean"}
+    },
+    {
+      "id": "dependency-failure-is-infra-not-clean",
+      "taskType": "generate-poc",
+      "description": "A model/dependency failure is an operational bucket and never a clean result.",
+      "sample": {
+        "status": "model_error",
+        "failureCode": "MODEL_UNAVAILABLE",
+        "failureDetail": "LLM Gateway dependency not ready: backend_unreachable"
+      },
+      "expected": {"taskCompleted": false, "clean": false, "anomaly": true, "bucket": "dependency_or_task_failure"}
+    },
+    {
+      "id": "accepted-with-caveats-is-not-strict-clean",
+      "taskType": "deep-analyze",
+      "description": "Accepted-with-caveats is useful but not a strict clean quality pass.",
+      "sample": {
+        "status": "completed",
+        "result": {
+          "analysisOutcome": "accepted_claims",
+          "qualityOutcome": "accepted_with_caveats",
+          "cleanPass": false,
+          "claims": [{"statement": "plausible issue", "supportingEvidenceRefs": ["eref-1"], "location": "src/a.c:1"}]
+        }
+      },
+      "expected": {"taskCompleted": true, "clean": false, "anomaly": true, "bucket": "quality_not_clean"}
+    }
+  ]
+}

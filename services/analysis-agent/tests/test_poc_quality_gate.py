@@ -5,7 +5,14 @@ from app.schemas.response import Claim
 def test_poc_quality_clean_claim_is_accepted():
     gate = evaluate_poc_quality(claims=[Claim(
         statement="PoC is claim-bound",
-        detail="Run with a randomized canary against the built binary.",
+        detail=(
+            "## PoC code\n"
+            "Generate a randomized canary and run the local harness.\n\n"
+            "## Execution steps\n"
+            "Run the bounded local test target with the canary.\n\n"
+            "## Expected result\n"
+            "Observe that the local test log contains the canary. This is non-destructive."
+        ),
         supportingEvidenceRefs=["eref-001"],
         location="poc.py:1",
     )])
@@ -15,7 +22,19 @@ def test_poc_quality_clean_claim_is_accepted():
 
 def test_poc_quality_caveated_claim_is_not_strict_clean():
     gate = evaluate_poc_quality(
-        claims=[Claim(statement="PoC", detail="Requires target binary path confirmation.", supportingEvidenceRefs=["eref-001"], location="poc.py:1")],
+        claims=[Claim(
+            statement="PoC",
+            detail=(
+                "## PoC code\n"
+                "Run a local harness with a randomized canary.\n\n"
+                "## Execution steps\n"
+                "Use the caller-provided target path.\n\n"
+                "## Expected result\n"
+                "Observe the canary in the bounded local output. This is non-destructive."
+            ),
+            supportingEvidenceRefs=["eref-001"],
+            location="poc.py:1",
+        )],
         caveats=["binary path not verified"],
     )
 
@@ -86,9 +105,13 @@ def test_well_formed_non_destructive_poc_with_canary_accepted():
     gate = evaluate_poc_quality(claims=[Claim(
         statement="CWE-78 command injection PoC",
         detail=(
-            "Run the target with a randomized AEGIS-CANARY-12345 value and "
-            "observe that the same canary is echoed through the popen path; "
-            "do not execute shell wrappers or destructive commands."
+            "## PoC code\n"
+            "Generate a randomized AEGIS-CANARY-12345 value and pass it to the local test target.\n\n"
+            "## Execution steps\n"
+            "Run the target in an isolated local harness.\n\n"
+            "## Expected result\n"
+            "Observe that the same canary is echoed through the popen path; "
+            "this is non-destructive and does not execute shell wrappers or destructive commands."
         ),
         supportingEvidenceRefs=["eref-001"],
         location="poc.py:1",
@@ -112,7 +135,14 @@ def test_poc_quality_rejects_python_shell_true_destructive_call():
 def test_poc_quality_rejects_command_injection_without_randomized_canary():
     gate = evaluate_poc_quality(claims=[Claim(
         statement="CWE-78 command injection PoC",
-        detail="Run `id` through the popen path.",
+        detail=(
+            "## PoC code\n"
+            "Run a local harness through the popen path.\n\n"
+            "## Execution steps\n"
+            "Exercise the command construction path in an isolated local target.\n\n"
+            "## Expected result\n"
+            "Observe local output from the command path. This is non-destructive."
+        ),
         supportingEvidenceRefs=["eref-001"],
         location="poc.py:1",
     )])
@@ -120,3 +150,32 @@ def test_poc_quality_rejects_command_injection_without_randomized_canary():
     assert gate.outcome == "rejected"
     assert gate.failedItems[0].id == "poc-randomized-canary"
     assert gate.failedItems[0].repairable is True
+
+
+def test_poc_quality_rejects_unbound_claim_without_refs_or_location():
+    gate = evaluate_poc_quality(claims=[Claim(
+        statement="PoC is not grounded",
+        detail=(
+            "## PoC code\n"
+            "Run a local harness with a randomized canary.\n\n"
+            "## Execution steps\n"
+            "Exercise the local target.\n\n"
+            "## Expected result\n"
+            "Observe the canary in non-destructive local output."
+        ),
+    )])
+
+    assert gate.outcome == "rejected"
+    assert gate.failedItems[0].id == "poc-grounding"
+
+
+def test_poc_quality_rejects_thin_claim_without_repro_structure():
+    gate = evaluate_poc_quality(claims=[Claim(
+        statement="Thin PoC",
+        detail="Run the thing and see what happens.",
+        supportingEvidenceRefs=["eref-001"],
+        location="poc.py:1",
+    )])
+
+    assert gate.outcome == "rejected"
+    assert gate.failedItems[0].id == "poc-repro-structure"

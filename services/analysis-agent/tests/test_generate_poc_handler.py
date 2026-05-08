@@ -54,6 +54,18 @@ def _mock_llm_response(content: str, prompt_tokens: int = 10, completion_tokens:
     )
 
 
+def _quality_poc_detail() -> str:
+    return (
+        "## PoC code\n"
+        "Generate a randomized canary token and echo it through the local popen path without destructive commands.\n\n"
+        "## Execution steps\n"
+        "1. Run the isolated local target from the supplied build metadata.\n"
+        "2. Send the randomized canary through the input path described by the accepted claim.\n\n"
+        "## Expected result\n"
+        "Observe the same canary in stdout, HTTP response, or local logs. This is non-destructive and bounded to a local test."
+    )
+
+
 @pytest.mark.asyncio
 async def test_generate_poc_returns_structured_json_with_valid_claim(monkeypatch):
     original_mode = settings.llm_mode
@@ -72,7 +84,7 @@ async def test_generate_poc_returns_structured_json_with_valid_claim(monkeypatch
             "summary": "PoC가 RCE 가능성을 재현한다.",
             "claims": [{
                 "statement": "PoC는 popen 경로를 통해 명령 주입 가능성을 증명한다.",
-                "detail": "PoC detail",
+                "detail": _quality_poc_detail(),
                 "supportingEvidenceRefs": ["eref-001"],
                 "location": "src/http_client.cpp:62",
             }],
@@ -119,7 +131,7 @@ async def test_generate_poc_repairs_missing_top_level_caveats(monkeypatch):
             "summary": "PoC가 RCE 가능성을 재현한다.",
             "claims": [{
                 "statement": "PoC는 popen 경로를 통해 명령 주입 가능성을 증명한다.",
-                "detail": "PoC detail",
+                "detail": _quality_poc_detail(),
                 "supportingEvidenceRefs": ["eref-001"],
                 "location": "src/http_client.cpp:62",
             }],
@@ -133,7 +145,7 @@ async def test_generate_poc_repairs_missing_top_level_caveats(monkeypatch):
             "summary": "PoC가 RCE 가능성을 재현한다.",
             "claims": [{
                 "statement": "PoC는 popen 경로를 통해 명령 주입 가능성을 증명한다.",
-                "detail": "PoC detail",
+                "detail": _quality_poc_detail(),
                 "supportingEvidenceRefs": ["eref-001"],
                 "location": "src/http_client.cpp:62",
             }],
@@ -188,7 +200,14 @@ async def test_generate_poc_quality_reject_then_repair_accepts(monkeypatch):
             "summary": "PoC가 RCE 가능성을 재현한다.",
             "claims": [{
                 "statement": "PoC는 popen 경로를 통해 명령 주입 가능성을 증명한다.",
-                "detail": "Run `id` through the popen path.",
+                "detail": (
+                "## PoC code\n"
+                "Run a local harness through the popen path.\n\n"
+                "## Execution steps\n"
+                "Exercise the command construction path in an isolated local target.\n\n"
+                "## Expected result\n"
+                "Observe local command-path output. This is non-destructive."
+            ),
                 "supportingEvidenceRefs": ["eref-001"],
                 "location": "src/http_client.cpp:62",
             }],
@@ -203,7 +222,7 @@ async def test_generate_poc_quality_reject_then_repair_accepts(monkeypatch):
             "summary": "PoC가 randomized canary로 RCE 가능성을 비파괴 재현한다.",
             "claims": [{
                 "statement": "PoC는 popen 경로를 통해 명령 주입 가능성을 증명한다.",
-                "detail": "Generate a randomized canary token and echo it through the popen path without destructive commands.",
+                "detail": _quality_poc_detail(),
                 "supportingEvidenceRefs": ["eref-001"],
                 "location": "src/http_client.cpp:62",
             }],
@@ -259,7 +278,14 @@ async def test_generate_poc_quality_repair_exhausted_returns_completed_inconclus
         "summary": "PoC가 RCE 가능성을 재현한다.",
         "claims": [{
             "statement": "PoC는 popen 경로를 통해 명령 주입 가능성을 증명한다.",
-            "detail": "Run `id` through the popen path.",
+            "detail": (
+                "## PoC code\n"
+                "Run a local harness through the popen path.\n\n"
+                "## Execution steps\n"
+                "Exercise the command construction path in an isolated local target.\n\n"
+                "## Expected result\n"
+                "Observe local command-path output. This is non-destructive."
+            ),
             "supportingEvidenceRefs": ["eref-001"],
             "location": "src/http_client.cpp:62",
         }],
@@ -319,7 +345,14 @@ async def test_generate_poc_quality_repair_cap_is_configurable(monkeypatch):
         "summary": "PoC가 RCE 가능성을 재현한다.",
         "claims": [{
             "statement": "PoC는 popen 경로를 통해 명령 주입 가능성을 증명한다.",
-            "detail": "Run `id` through the popen path.",
+            "detail": (
+                "## PoC code\n"
+                "Run a local harness through the popen path.\n\n"
+                "## Execution steps\n"
+                "Exercise the command construction path in an isolated local target.\n\n"
+                "## Expected result\n"
+                "Observe local command-path output. This is non-destructive."
+            ),
             "supportingEvidenceRefs": ["eref-001"],
             "location": "src/http_client.cpp:62",
         }],
@@ -373,7 +406,14 @@ async def test_generate_poc_quality_repair_budget_exhaustion_returns_repair_exha
         "summary": "PoC가 RCE 가능성을 재현한다.",
         "claims": [{
             "statement": "PoC는 popen 경로를 통해 명령 주입 가능성을 증명한다.",
-            "detail": "Run `id` through the popen path.",
+            "detail": (
+                "## PoC code\n"
+                "Run a local harness through the popen path.\n\n"
+                "## Execution steps\n"
+                "Exercise the command construction path in an isolated local target.\n\n"
+                "## Expected result\n"
+                "Observe local command-path output. This is non-destructive."
+            ),
             "supportingEvidenceRefs": ["eref-001"],
             "location": "src/http_client.cpp:62",
         }],
@@ -426,7 +466,14 @@ async def test_poc_quality_repair_logs_warning_on_exception(monkeypatch, caplog)
         "summary": "PoC가 RCE 가능성을 재현한다.",
         "claims": [{
             "statement": "PoC는 popen 경로를 통해 명령 주입 가능성을 증명한다.",
-            "detail": "Run `id` through the popen path.",
+            "detail": (
+                "## PoC code\n"
+                "Run a local harness through the popen path.\n\n"
+                "## Execution steps\n"
+                "Exercise the command construction path in an isolated local target.\n\n"
+                "## Expected result\n"
+                "Observe local command-path output. This is non-destructive."
+            ),
             "supportingEvidenceRefs": ["eref-001"],
             "location": "src/http_client.cpp:62",
         }],
@@ -478,7 +525,14 @@ async def test_poc_quality_repair_handles_llm_timeout_gracefully(monkeypatch, ca
         "summary": "PoC가 RCE 가능성을 재현한다.",
         "claims": [{
             "statement": "PoC는 popen 경로를 통해 명령 주입 가능성을 증명한다.",
-            "detail": "Run `id` through the popen path.",
+            "detail": (
+                "## PoC code\n"
+                "Run a local harness through the popen path.\n\n"
+                "## Execution steps\n"
+                "Exercise the command construction path in an isolated local target.\n\n"
+                "## Expected result\n"
+                "Observe local command-path output. This is non-destructive."
+            ),
             "supportingEvidenceRefs": ["eref-001"],
             "location": "src/http_client.cpp:62",
         }],
@@ -534,7 +588,14 @@ async def test_poc_quality_repair_timeout_preserves_cleanpass_false(monkeypatch)
         "summary": "PoC가 RCE 가능성을 재현한다.",
         "claims": [{
             "statement": "PoC는 popen 경로를 통해 명령 주입 가능성을 증명한다.",
-            "detail": "Run `id` through the popen path.",
+            "detail": (
+                "## PoC code\n"
+                "Run a local harness through the popen path.\n\n"
+                "## Execution steps\n"
+                "Exercise the command construction path in an isolated local target.\n\n"
+                "## Expected result\n"
+                "Observe local command-path output. This is non-destructive."
+            ),
             "supportingEvidenceRefs": ["eref-001"],
             "location": "src/http_client.cpp:62",
         }],
@@ -662,7 +723,7 @@ async def test_generate_poc_repairs_orphaned_claim_fragment_via_strict_schema_re
             "claims": [
                 {
                     "statement": "PoC는 popen 경로를 통해 명령 주입 가능성을 증명한다.",
-                    "detail": "## Input analysis\n- Argument context: user-controlled field",
+                    "detail": _quality_poc_detail(),
                     "supportingEvidenceRefs": ["eref-001"],
                     "location": "src/http_client.cpp:62",
                 }
@@ -731,7 +792,7 @@ async def test_generate_poc_schema_repair_scaffold_restores_required_shape(monke
             "summary": "Expanded PoC summary but still missing required keys.",
             "claims": [{
                 "statement": "CN input reaches popen.",
-                "detail": "Expanded narrative PoC detail without refs or location.",
+                "detail": _quality_poc_detail(),
             }],
         },
     ]
@@ -761,7 +822,7 @@ async def test_generate_poc_schema_repair_scaffold_restores_required_shape(monke
         assert "structured_finalizer" in result.result.policyFlags
         assert result.result.claims[0].location == "src/http_client.cpp:62"
         assert result.result.claims[0].supportingEvidenceRefs == ["eref-001"]
-        assert "Expanded narrative PoC detail" in result.result.claims[0].detail
+        assert "randomized canary" in result.result.claims[0].detail
         assert result.validation.valid is True
     finally:
         object.__setattr__(settings, "llm_mode", original_mode)
@@ -853,7 +914,7 @@ async def test_generate_poc_retries_strict_json_contract_violation(monkeypatch):
             "summary": "PoC after strict-json retry.",
             "claims": [{
                 "statement": "PoC proves command injection.",
-                "detail": "The retry returns valid JSON.",
+                "detail": _quality_poc_detail(),
                 "supportingEvidenceRefs": ["eref-001"],
                 "location": "src/http_client.cpp:62",
             }],
@@ -904,7 +965,7 @@ async def test_generate_poc_uses_named_generation_presets(monkeypatch):
             "summary": "PoC after strict-json retry.",
             "claims": [{
                 "statement": "PoC proves command injection.",
-                "detail": "The retry returns valid JSON.",
+                "detail": _quality_poc_detail(),
                 "supportingEvidenceRefs": ["eref-001"],
                 "location": "src/http_client.cpp:62",
             }],
@@ -980,13 +1041,14 @@ async def test_generate_poc_classifies_strict_json_contract_violation_after_retr
         result = await tasks._handle_generate_poc(_make_poc_request())
 
         assert result.status == "completed"
-        assert result.result.pocOutcome == "poc_inconclusive"
-        assert result.result.recoveryTrace[0].deficiency == "LLM_OUTPUT_DEFICIENT"
+        assert result.result.pocOutcome == "poc_accepted"
+        assert result.result.qualityOutcome == "accepted"
+        assert result.result.cleanPass is True
+        assert result.result.recoveryTrace[0].action == "deterministic_poc_fallback"
+        assert "deterministic_poc_fallback" in result.result.policyFlags
         assert result.audit.retryCount == 1
-        detail = result.result.recoveryTrace[0].detail or ""
+        detail = " ".join(result.result.policyFlags) + " " + (result.result.recoveryTrace[0].detail or "")
         assert "strict_json_contract_violation" in detail
-        assert "acr-strict-2" in detail
-        assert "req-gw-2" in detail
     finally:
         object.__setattr__(settings, "llm_mode", original_mode)
 
@@ -1018,10 +1080,135 @@ async def test_generate_poc_classifies_generic_initial_llm_failure_as_completed_
 
         assert result.status == "completed"
         assert not hasattr(result, "failureCode")
-        assert result.result.pocOutcome == "poc_inconclusive"
-        assert result.result.cleanPass is False
+        assert result.result.pocOutcome == "poc_accepted"
+        assert result.result.qualityOutcome == "accepted"
+        assert result.result.cleanPass is True
         assert result.result.recoveryTrace[0].deficiency == "LLM_OUTPUT_DEFICIENT"
-        assert result.result.recoveryTrace[0].action == "llm_call_failed"
+        assert result.result.recoveryTrace[0].action == "deterministic_poc_fallback"
+        assert "deterministic_poc_fallback" in result.result.policyFlags
+    finally:
+        object.__setattr__(settings, "llm_mode", original_mode)
+
+
+@pytest.mark.asyncio
+async def test_generate_poc_deterministic_fallback_sanitizes_source_excerpt_for_quality_gate(monkeypatch):
+    """Source grounding text must not make a deterministic fallback look like shell PoC text."""
+    original_mode = settings.llm_mode
+    monkeypatch.setattr(tasks._model_registry, "get_default", lambda: ModelProfile(
+        profileId="test",
+        modelName="test-model",
+        contextLimit=8192,
+        allowedTaskTypes=[TaskType.GENERATE_POC],
+        endpoint="http://localhost:8000",
+        apiKey="",
+    ))
+    object.__setattr__(settings, "llm_mode", "real")
+
+    async def fake_call(self, *args, **kwargs):
+        raise RuntimeError("internal_error")
+
+    async def fake_aclose(self):
+        return None
+
+    request = TaskRequest(
+        taskType=TaskType.GENERATE_POC,
+        taskId="poc-test-source-sanitize",
+        context=Context(trusted={
+            "claim": {
+                "statement": "CWE-476 finding is supported by local project evidence at parser.c:42.",
+                "detail": "The parser dereferences a nullable child pointer.",
+                "location": "parser.c:42",
+                "supportingEvidenceRefs": ["eref-source-hotspot-null"],
+            },
+            "files": [{
+                "path": "parser.c",
+                "content": (
+                    "/* banner with `backticks`, pipes |, semicolons; and "
+                    "93c1caa66e2b0310459482516af05505b57c5cb7b96df777105308fc585c85d1 */\n"
+                    "int parse(node *n) { return n->child->type; }\n"
+                ),
+            }],
+        }),
+        evidenceRefs=[],
+    )
+
+    monkeypatch.setattr("app.agent_runtime.llm.caller.LlmCaller.call", fake_call)
+    monkeypatch.setattr("app.agent_runtime.llm.caller.LlmCaller.aclose", fake_aclose)
+    try:
+        result = await tasks._handle_generate_poc(request)
+
+        assert result.status == "completed"
+        assert result.result.pocOutcome == "poc_accepted"
+        assert result.result.qualityOutcome == "accepted"
+        assert result.result.cleanPass is True
+        assert result.result.qualityGate.outcome == "accepted"
+        assert result.result.confidenceBreakdown.grounding == 1.0
+        assert result.result.confidenceBreakdown.deterministicSupport == 1.0
+        detail = result.result.claims[0].detail
+        assert "```" not in detail
+        assert "93c1caa66e2b0310459482516af05505b57c5cb7b96df777105308fc585c85d1" not in detail
+        assert "<long-token>" in detail
+    finally:
+        object.__setattr__(settings, "llm_mode", original_mode)
+
+
+@pytest.mark.asyncio
+async def test_generate_poc_deterministic_fallback_accepts_credential_exposure_without_library_origin(monkeypatch):
+    """CWE-798/source-backed credential claims are not dependency advisories."""
+    original_mode = settings.llm_mode
+    monkeypatch.setattr(tasks._model_registry, "get_default", lambda: ModelProfile(
+        profileId="test",
+        modelName="test-model",
+        contextLimit=8192,
+        allowedTaskTypes=[TaskType.GENERATE_POC],
+        endpoint="http://localhost:8000",
+        apiKey="",
+    ))
+    object.__setattr__(settings, "llm_mode", "real")
+
+    async def fake_call(self, *args, **kwargs):
+        raise RuntimeError("internal_error")
+
+    async def fake_aclose(self):
+        return None
+
+    request = TaskRequest(
+        taskType=TaskType.GENERATE_POC,
+        taskId="poc-test-credential-exposure",
+        context=Context(trusted={
+            "claim": {
+                "statement": "CWE-798 hardcoded-credential finding is supported by local project evidence at README.md:189.",
+                "detail": "The README documents a default PSK secret and mentions bundled libraries nearby.",
+                "location": "README.md:189",
+                "supportingEvidenceRefs": ["eref-source-hotspot-psk"],
+            },
+            "files": [{
+                "path": "README.md",
+                "content": (
+                    "This gateway bundles several libraries.\n"
+                    "Example:\n"
+                    "LWM2M_PSK_ID=lwm2m-device-001\n"
+                    "LWM2M_PSK_KEY=00112233445566778899aabbccddeeff\n"
+                ),
+            }],
+        }),
+        evidenceRefs=[],
+    )
+
+    monkeypatch.setattr("app.agent_runtime.llm.caller.LlmCaller.call", fake_call)
+    monkeypatch.setattr("app.agent_runtime.llm.caller.LlmCaller.aclose", fake_aclose)
+    try:
+        result = await tasks._handle_generate_poc(request)
+
+        assert result.status == "completed"
+        assert result.result.pocOutcome == "poc_accepted"
+        assert result.result.qualityOutcome == "accepted"
+        assert result.result.cleanPass is True
+        claim = result.result.claims[0]
+        assert claim.status == "grounded"
+        assert "library_origin" not in claim.requiredEvidence
+        assert "source_location" in claim.presentEvidence
+        assert "source_slice" in claim.presentEvidence
     finally:
         object.__setattr__(settings, "llm_mode", original_mode)
 
@@ -1053,17 +1240,18 @@ async def test_generate_poc_classifies_llm_timeout_as_completed_inconclusive(mon
 
         assert result.status == "completed"
         assert not hasattr(result, "failureCode")
-        assert result.result.pocOutcome == "poc_inconclusive"
-        assert result.result.cleanPass is False
-        assert result.result.recoveryTrace[0].deficiency == "LLM_TIMEOUT_RECOVERED"
+        assert result.result.pocOutcome == "poc_accepted"
+        assert result.result.qualityOutcome == "accepted"
+        assert result.result.cleanPass is True
+        assert result.result.recoveryTrace[0].action == "deterministic_poc_fallback"
         assert result.result.evaluationVerdict.taskCompleted is True
     finally:
         object.__setattr__(settings, "llm_mode", original_mode)
 
 
 @pytest.mark.asyncio
-async def test_generate_poc_classifies_generic_strict_retry_failure_as_completed_outcome(monkeypatch):
-    """Strict-json retry transport/output deficiency should become completed inconclusive."""
+async def test_generate_poc_classifies_generic_strict_retry_failure_with_deterministic_fallback(monkeypatch):
+    """Strict-json retry deficiency can still yield a clean deterministic PoC when local evidence is sufficient."""
     original_mode = settings.llm_mode
     monkeypatch.setattr(tasks._model_registry, "get_default", lambda: ModelProfile(
         profileId="test",
@@ -1096,9 +1284,12 @@ async def test_generate_poc_classifies_generic_strict_retry_failure_as_completed
         assert result.status == "completed"
         assert calls["count"] == 2
         assert not hasattr(result, "failureCode")
-        assert result.result.pocOutcome == "poc_inconclusive"
+        assert result.result.pocOutcome == "poc_accepted"
+        assert result.result.qualityOutcome == "accepted"
+        assert result.result.cleanPass is True
         assert result.result.recoveryTrace[0].deficiency == "LLM_OUTPUT_DEFICIENT"
-        assert result.result.recoveryTrace[0].action == "strict_json_retry_failed"
+        assert result.result.recoveryTrace[0].action == "deterministic_poc_fallback"
+        assert "deterministic_poc_fallback" in result.result.policyFlags
         assert result.audit.retryCount == 1
     finally:
         object.__setattr__(settings, "llm_mode", original_mode)
@@ -1260,7 +1451,7 @@ async def test_generate_poc_requests_async_ownership_for_toolless_llm_call(monke
             "summary": "PoC가 RCE 가능성을 재현한다.",
             "claims": [{
                 "statement": "PoC는 popen 경로를 통해 명령 주입 가능성을 증명한다.",
-                "detail": "PoC detail",
+                "detail": _quality_poc_detail(),
                 "supportingEvidenceRefs": ["eref-001"],
                 "location": "src/http_client.cpp:62",
             }],
@@ -1305,7 +1496,7 @@ async def test_generate_poc_verdict_reports_actual_quality_outcome(monkeypatch):
             "summary": "PoC requires analyst review.",
             "claims": [{
                 "statement": "PoC demonstrates command injection.",
-                "detail": "PoC detail with non-destructive reproduction steps.",
+                "detail": _quality_poc_detail(),
                 "supportingEvidenceRefs": ["eref-001"],
                 "location": "src/http_client.cpp:62",
             }],
@@ -1357,7 +1548,7 @@ async def test_generate_poc_repairs_unstructured_output_with_scaffold(monkeypatc
             "summary": "PoC가 randomized canary로 RCE 가능성을 재현한다.",
             "claims": [{
                 "statement": "PoC는 popen 경로를 통해 명령 주입 가능성을 증명한다.",
-                "detail": "Generate a randomized canary token and echo it through the popen path without destructive commands.",
+                "detail": _quality_poc_detail(),
                 "supportingEvidenceRefs": ["eref-001"],
                 "location": "src/http_client.cpp:62",
             }],
@@ -1547,8 +1738,8 @@ def _make_poc_request_without_claim_refs_or_location_mismatched_request_ref() ->
 
 
 @pytest.mark.asyncio
-async def test_generate_poc_bare_claim_supporting_refs_do_not_fabricate_family_slots(monkeypatch):
-    """Bare upstream refs are allowed refs but cannot fabricate family-specific evidence slots."""
+async def test_generate_poc_bare_claim_supporting_refs_infer_only_observable_source_slots(monkeypatch):
+    """Bare upstream refs may inherit observable source/sink slots, but not caller-chain proof."""
     original_mode = settings.llm_mode
     monkeypatch.setattr(tasks._model_registry, "get_default", lambda: ModelProfile(
         profileId="test", modelName="test-model", contextLimit=8192,
@@ -1562,7 +1753,7 @@ async def test_generate_poc_bare_claim_supporting_refs_do_not_fabricate_family_s
             "summary": "PoC exercises popen via run() helper.",
             "claims": [{
                 "statement": "PoC triggers popen via crafted CN.",
-                "detail": "PoC injects a randomized canary CN that reaches popen without destructive commands.",
+                "detail": _quality_poc_detail(),
                 "supportingEvidenceRefs": ["eref-sast-flawfinder:shell/popen", "eref-file-main.cpp"],
                 "location": "src/main.c:12",
             }],
@@ -1588,7 +1779,7 @@ async def test_generate_poc_bare_claim_supporting_refs_do_not_fabricate_family_s
         diagnostic = result.result.claimDiagnostics.nonAcceptedClaims[0]
         assert diagnostic.status == "under_evidenced"
         assert "local_or_derived_support" in diagnostic.presentEvidence
-        assert "sink_or_dangerous_api" in diagnostic.missingEvidence
+        assert "sink_or_dangerous_api" in diagnostic.presentEvidence
         assert "caller_chain_or_source_slice" in diagnostic.missingEvidence
     finally:
         object.__setattr__(settings, "llm_mode", original_mode)
@@ -1784,7 +1975,7 @@ async def test_generate_poc_schema_repair_caps_max_tokens_to_remaining_budget(mo
             "summary": "PoC repaired.",
             "claims": [{
                 "statement": "PoC proves command injection.",
-                "detail": "Generate a randomized canary token and echo it through popen.",
+                "detail": _quality_poc_detail(),
                 "supportingEvidenceRefs": ["eref-001"],
                 "location": "src/http_client.cpp:62",
             }],

@@ -208,6 +208,7 @@ async def test_deep_analyze_kb_timeout_produces_honest_envelope(monkeypatch):
     monkeypatch.setattr("app.core.phase_one.Phase1Executor.aclose", fake_phase1_aclose)
     monkeypatch.setattr("app.agent_runtime.llm.caller.LlmCaller.call", fake_call)
     monkeypatch.setattr("app.agent_runtime.llm.caller.LlmCaller.aclose", fake_aclose)
+    monkeypatch.setattr("app.core.agent_loop._requires_tool_intent_dispatch", lambda *args, **kwargs: False)
     model_registry = MagicMock()
     model_registry.get_default.return_value = MagicMock(
         endpoint="http://localhost:8000",
@@ -253,8 +254,19 @@ async def test_deep_analyze_kb_timeout_prompt_marks_absence_as_non_negative(monk
         return None
 
     async def fake_call(self, messages, *args, **kwargs):
-        seen["user_message"] = messages[1]["content"]
         from app.agent_runtime.schemas.agent import LlmResponse
+        if len(messages) == 1:
+            return LlmResponse(
+                content=json.dumps({
+                    "action": "call_tool",
+                    "tool_name": "build.metadata",
+                    "arguments": {},
+                    "rationale": "collect existing build metadata before final analysis",
+                }),
+                prompt_tokens=3,
+                completion_tokens=2,
+            )
+        seen["user_message"] = messages[1]["content"]
         return LlmResponse(
             content=json.dumps({
                 "summary": "KB timeout was caveated.",
@@ -277,6 +289,7 @@ async def test_deep_analyze_kb_timeout_prompt_marks_absence_as_non_negative(monk
     monkeypatch.setattr("app.core.phase_one.Phase1Executor.aclose", fake_phase1_aclose)
     monkeypatch.setattr("app.agent_runtime.llm.caller.LlmCaller.call", fake_call)
     monkeypatch.setattr("app.agent_runtime.llm.caller.LlmCaller.aclose", fake_aclose)
+    monkeypatch.setattr("app.core.agent_loop._requires_tool_intent_dispatch", lambda *args, **kwargs: False)
     model_registry = MagicMock()
     model_registry.get_default.return_value = MagicMock(
         endpoint="http://localhost:8000",
@@ -341,6 +354,7 @@ async def test_deep_analyze_cve_timeout_records_operational_diagnostic(monkeypat
     monkeypatch.setattr("app.core.phase_one.Phase1Executor.aclose", fake_phase1_aclose)
     monkeypatch.setattr("app.agent_runtime.llm.caller.LlmCaller.call", fake_call)
     monkeypatch.setattr("app.agent_runtime.llm.caller.LlmCaller.aclose", fake_aclose)
+    monkeypatch.setattr("app.core.agent_loop._requires_tool_intent_dispatch", lambda *args, **kwargs: False)
     model_registry = MagicMock()
     model_registry.get_default.return_value = MagicMock(
         endpoint="http://localhost:8000",
@@ -387,9 +401,20 @@ async def test_deep_analyze_partial_phase1_failure_propagates_to_phase2_prompt(m
         return None
 
     async def fake_call(self, messages, *args, **kwargs):
+        from app.agent_runtime.schemas.agent import LlmResponse
+        if len(messages) == 1:
+            return LlmResponse(
+                content=json.dumps({
+                    "action": "call_tool",
+                    "tool_name": "build.metadata",
+                    "arguments": {},
+                    "rationale": "collect existing build metadata before final analysis",
+                }),
+                prompt_tokens=3,
+                completion_tokens=2,
+            )
         seen["user_message"] = messages[1]["content"]
         seen["tools"] = kwargs.get("tools") or []
-        from app.agent_runtime.schemas.agent import LlmResponse
         return LlmResponse(
             content=json.dumps(_deep_claim_payload(["eref-sast-CWE-78"])),
             prompt_tokens=10,
@@ -403,6 +428,7 @@ async def test_deep_analyze_partial_phase1_failure_propagates_to_phase2_prompt(m
     monkeypatch.setattr("app.core.phase_one.Phase1Executor.aclose", fake_phase1_aclose)
     monkeypatch.setattr("app.agent_runtime.llm.caller.LlmCaller.call", fake_call)
     monkeypatch.setattr("app.agent_runtime.llm.caller.LlmCaller.aclose", fake_aclose)
+    monkeypatch.setattr("app.core.agent_loop._requires_tool_intent_dispatch", lambda *args, **kwargs: False)
     model_registry = MagicMock()
     model_registry.get_default.return_value = MagicMock(
         endpoint="http://localhost:8000",
@@ -473,6 +499,7 @@ async def test_deep_analyze_phase2_tool_surface_never_exposes_sast(monkeypatch):
     monkeypatch.setattr("app.core.phase_one.Phase1Executor.aclose", fake_phase1_aclose)
     monkeypatch.setattr("app.agent_runtime.llm.caller.LlmCaller.call", fake_call)
     monkeypatch.setattr("app.agent_runtime.llm.caller.LlmCaller.aclose", fake_aclose)
+    monkeypatch.setattr("app.core.agent_loop._requires_tool_intent_dispatch", lambda *args, **kwargs: False)
     model_registry = MagicMock()
     model_registry.get_default.return_value = MagicMock(
         endpoint="http://localhost:8000",

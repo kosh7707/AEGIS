@@ -44,6 +44,10 @@ _FAMILY_REQUIRED_SLOTS: dict[str, tuple[str, ...]] = {
         "source_location",
         "source_slice",
     ),
+    "credential_exposure": (
+        "source_location",
+        "source_slice",
+    ),
     "dependency_vulnerability": (
         "library_origin",
     ),
@@ -63,6 +67,10 @@ _CWE_FAMILY_PREFIXES: tuple[tuple[str, str], ...] = (
     ("CWE-476", "null_deref"),
     ("CWE-190", "integer_overflow"),
     ("CWE-191", "integer_overflow"),
+    ("CWE-798", "credential_exposure"),
+    ("CWE-259", "credential_exposure"),
+    ("CWE-321", "credential_exposure"),
+    ("CWE-532", "credential_exposure"),
 )
 
 
@@ -237,6 +245,12 @@ def _infer_family(claim: Claim, catalog: EvidenceCatalog | None = None) -> str:
         return "null_deref"
     if re.search(r"\b(integer overflow|cwe-190|truncation)\b", text):
         return "integer_overflow"
+    if re.search(
+        r"\b(cwe-798|cwe-259|cwe-321|cwe-532|hardcoded[- ]credential|default secret|"
+        r"default credential|credential exposure|credential logging|psk|secret)\b",
+        text,
+    ):
+        return "credential_exposure"
     if re.search(r"\b(cve-\d{4}-\d+|dependency|library|package|version)\b", text):
         return "dependency_vulnerability"
     return "generic"
