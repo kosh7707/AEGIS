@@ -39,11 +39,12 @@ vi.mock("@/common/api/core", () => ({ logError: vi.fn() }));
 vi.mock("./ToastContext", () => ({ useToast: () => mockToast }));
 
 function Consumer() {
-  const { unreadCount, notifications } = useNotifications();
+  const { unreadCount, notifications, realtimeOffline } = useNotifications();
   return (
     <div>
       <span data-testid="unread-count">{unreadCount}</span>
       <span data-testid="notification-title">{notifications[0]?.title ?? ""}</span>
+      <span data-testid="realtime-offline">{realtimeOffline ? "offline" : "online"}</span>
     </div>
   );
 }
@@ -156,6 +157,55 @@ describe("NotificationContext", () => {
     });
 
     expect(screen.getByTestId("unread-count").textContent).toBe("1");
+    expect(mockToast.success).not.toHaveBeenCalled();
+  });
+
+  it("flips realtimeOffline when onGiveUp fires (retry exhausted)", async () => {
+    render(
+      <NotificationProvider projectId="p-1">
+        <Consumer />
+      </NotificationProvider>,
+    );
+
+    await waitFor(() => expect(mockFetchNotifications).toHaveBeenCalledWith("p-1"));
+    expect(screen.getByTestId("realtime-offline").textContent).toBe("online");
+
+    act(() => {
+      (capturedOptions.onGiveUp as () => void)();
+    });
+
+    await waitFor(() => expect(screen.getByTestId("realtime-offline").textContent).toBe("offline"));
+  });
+
+  it("drops frames whose envelope channel does not match 'notification'", async () => {
+    render(
+      <NotificationProvider projectId="p-1">
+        <Consumer />
+      </NotificationProvider>,
+    );
+
+    await waitFor(() => expect(mockFetchNotifications).toHaveBeenCalledWith("p-1"));
+
+    act(() => {
+      mockWs.onmessage?.({
+        data: JSON.stringify({
+          type: "notification",
+          payload: {
+            id: "notif-99",
+            projectId: "p-1",
+            type: "sdk_ready",
+            title: "WRONG CHANNEL",
+            body: "should be dropped",
+            read: false,
+            createdAt: "2026-04-10T09:00:00Z",
+          },
+          meta: { channel: "pipeline", timestamp: 1, seq: 1 },
+        }),
+      });
+    });
+
+    expect(screen.getByTestId("unread-count").textContent).toBe("0");
+    expect(screen.getByTestId("notification-title").textContent).toBe("");
     expect(mockToast.success).not.toHaveBeenCalled();
   });
 });

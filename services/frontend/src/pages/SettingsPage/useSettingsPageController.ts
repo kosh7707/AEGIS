@@ -59,7 +59,10 @@ export function useSettingsPageController() {
   const handleTest = useCallback(async () => {
     setTestStatus("testing");
     setTestDetail("");
-    const { ok, data } = await healthFetch(url.trim());
+    // Generate a correlation id for this connection test so backend logs can be
+    // traced back to the UI action even without an active pipeline request.
+    const requestId = crypto.randomUUID();
+    const { ok, data } = await healthFetch(url.trim(), requestId);
     if (ok && data) {
       setTestStatus("ok");
       setTestDetail(`${data.service ?? "backend"} ${data.version ?? ""}`.trim());

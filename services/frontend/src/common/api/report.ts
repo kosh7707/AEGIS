@@ -1,8 +1,6 @@
 import type {
   ProjectReport,
   ProjectReportResponse,
-  ModuleReport,
-  ModuleReportResponse,
 } from "@aegis/shared";
 import { apiFetch } from "./core";
 
@@ -28,11 +26,6 @@ function buildReportQuery(filters?: ReportFilters): string {
 
 export async function fetchProjectReport(projectId: string, filters?: ReportFilters): Promise<ProjectReport> {
   const res = await apiFetch<ProjectReportResponse>(`/api/projects/${projectId}/report${buildReportQuery(filters)}`);
-  return res.data!;
-}
-
-export async function fetchModuleReport(projectId: string, module: "static" | "dynamic" | "test", filters?: ReportFilters): Promise<ModuleReport> {
-  const res = await apiFetch<ModuleReportResponse>(`/api/projects/${projectId}/report/${module}${buildReportQuery(filters)}`);
   return res.data!;
 }
 

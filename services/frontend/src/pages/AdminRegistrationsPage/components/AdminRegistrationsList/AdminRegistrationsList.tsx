@@ -8,9 +8,10 @@ interface AdminRegistrationsListProps {
   busy: Record<string, "approve" | "reject" | undefined>;
   onApprove: (id: string, role: UserRole) => void;
   onReject: (id: string, reason: string) => Promise<boolean>;
+  onOpenDetail: (id: string) => void;
 }
 
-export const AdminRegistrationsList: React.FC<AdminRegistrationsListProps> = ({ requests, busy, onApprove, onReject }) => (
+export const AdminRegistrationsList: React.FC<AdminRegistrationsListProps> = ({ requests, busy, onApprove, onReject, onOpenDetail }) => (
   <div className="admin-reg-list">
     {requests.map((request) => (
       <AdminRegistrationsRow
@@ -19,6 +20,7 @@ export const AdminRegistrationsList: React.FC<AdminRegistrationsListProps> = ({ 
         busy={busy[request.id]}
         onApprove={onApprove}
         onReject={onReject}
+        onOpenDetail={onOpenDetail}
       />
     ))}
   </div>

@@ -1,0 +1,122 @@
+/* Admin Registration detail dialog — page-local extension on top of canonical .modal-content. */
+
+.admin-reg-detail {
+  width: min(100%, 560px);
+  padding: 0;
+}
+
+.admin-reg-detail__head {
+  padding: var(--space-5) var(--space-5) var(--space-3);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.admin-reg-detail__eyebrow {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-semibold);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-caps);
+  color: var(--foreground-subtle);
+  margin-bottom: 6px;
+}
+
+.admin-reg-detail__title {
+  margin: 0;
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+  color: var(--foreground);
+  letter-spacing: var(--tracking-tight);
+}
+
+.admin-reg-detail__desc {
+  margin: 4px 0 0;
+  font-size: var(--text-sm);
+  color: var(--foreground-muted);
+}
+
+.admin-reg-detail__body {
+  padding: var(--space-5);
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+.admin-reg-detail__loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-7);
+}
+
+/* Error notice — review-tone critical-review (--danger surface), NOT severity ramp.
+   Workflow error surface, consistent with .admin-reg-notice. */
+.admin-reg-detail__error {
+  padding: 10px var(--space-4);
+  border: 1px solid color-mix(in srgb, var(--danger) 28%, transparent);
+  border-radius: var(--radius-md);
+  background: var(--danger-surface);
+  color: var(--danger);
+  font-size: var(--text-sm);
+}
+
+.admin-reg-detail__grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--space-3);
+  margin: 0;
+}
+
+.admin-reg-detail__row {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: var(--space-3);
+  align-items: baseline;
+}
+
+.admin-reg-detail__row--full {
+  grid-template-columns: 1fr;
+}
+
+.admin-reg-detail__row dt {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-semibold);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-caps);
+  color: var(--foreground-subtle);
+}
+
+.admin-reg-detail__row dd {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--foreground);
+  word-break: break-word;
+}
+
+.admin-reg-detail__row dd.mono {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--foreground-muted);
+}
+
+.admin-reg-detail__sub {
+  color: var(--foreground-subtle);
+}
+
+/* Rejection reason — review-tone critical-review surface (--danger),
+   consistent with .admin-reg-row__reason callout. */
+.admin-reg-detail__reason {
+  padding: var(--space-3);
+  border-left: 2px solid color-mix(in srgb, var(--danger) 28%, transparent);
+  background: color-mix(in srgb, var(--danger-surface) 70%, transparent);
+  font-size: var(--text-sm);
+  color: var(--foreground-muted);
+  line-height: var(--leading-relaxed);
+}
+
+.admin-reg-detail__foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-5);
+  border-top: 1px solid var(--border-subtle);
+}

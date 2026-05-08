@@ -39,6 +39,7 @@ export const ApprovalsPage: React.FC = () => {
     sevenDayStats,
     imminentCount,
     oldestPendingAge,
+    detailById,
   } = useApprovalsPageController(projectId, toast);
 
   useEffect(() => {
@@ -81,10 +82,12 @@ export const ApprovalsPage: React.FC = () => {
     [navigate, projectId],
   );
 
-  const selectedApproval = useMemo(
-    () => filteredApprovals.find((a) => a.id === selectedId) ?? filteredApprovals[0] ?? null,
-    [filteredApprovals, selectedId],
-  );
+  const selectedApproval = useMemo(() => {
+    const fromList = filteredApprovals.find((a) => a.id === selectedId) ?? filteredApprovals[0] ?? null;
+    if (!fromList) return null;
+    // Prefer canonical detail when available (C9 — fresh single-record fetch).
+    return detailById[fromList.id] ?? fromList;
+  }, [filteredApprovals, selectedId, detailById]);
 
   const oldestSubmittedIso = useMemo(() => {
     if (oldestPendingAge === null) return null;

@@ -252,6 +252,7 @@ export function createTestApp(): TestAppContext {
     getMetrics(projectId: string) {
       const registered = sdkStore.get(projectId) ?? [];
       return {
+        totalRegistered: registered.length,
         sdkCount: registered.length,
         readyCount: registered.filter((sdk) => sdk.status === "ready").length,
         failedCount: registered.filter((sdk) => sdk.status.endsWith("_failed")).length,

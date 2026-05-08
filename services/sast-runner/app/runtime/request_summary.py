@@ -33,6 +33,7 @@ def _idle_summary() -> dict[str, Any]:
             "build-phase-complete",
             "terminal-result",
             "ack-break",
+            "request-cancelled",
         ],
         "degraded": False,
         "degradeReasons": [],
@@ -60,7 +61,7 @@ class RequestSummaryTracker:
         expired = [
             request_id
             for request_id, entry in self._entries.items()
-            if entry.get("state") in {"completed", "failed"} and (entry.get("lastAckAt") or 0) < cutoff
+            if entry.get("state") in {"completed", "failed", "cancelled"} and (entry.get("lastAckAt") or 0) < cutoff
         ]
         for request_id in expired:
             self._entries.pop(request_id, None)
@@ -182,6 +183,17 @@ class RequestSummaryTracker:
             blockedReason=reason,
             activeTools=[],
             lastAckSource="ack-break",
+        )
+
+    def mark_cancelled(self, request_id: str, reason: str = "request cancelled") -> None:
+        self._update(
+            request_id,
+            state="cancelled",
+            ackStatus="broken",
+            localAckState="ack-break",
+            blockedReason=reason,
+            activeTools=[],
+            lastAckSource="request-cancelled",
         )
 
     def _update(self, request_id: str, **updates: Any) -> None:

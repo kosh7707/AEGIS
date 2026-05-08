@@ -89,16 +89,24 @@ export async function cloneSource(projectId: string, gitUrl: string, branch?: st
   return res.data;
 }
 
-export async function fetchSourceFiles(projectId: string): Promise<SourceFileEntry[]> {
+export async function fetchSourceFiles(
+  projectId: string,
+  filter?: "source",
+): Promise<SourceFileEntry[]> {
+  const query = filter ? `?filter=${encodeURIComponent(filter)}` : "";
   const res = await apiFetch<SourceFilesResponse>(
-    `/api/projects/${projectId}/source/files`,
+    `/api/projects/${projectId}/source/files${query}`,
   );
   return res.data;
 }
 
-export async function fetchSourceFilesWithComposition(projectId: string): Promise<SourceFilesResponse> {
+export async function fetchSourceFilesWithComposition(
+  projectId: string,
+  filter?: "source",
+): Promise<SourceFilesResponse> {
+  const query = filter ? `?filter=${encodeURIComponent(filter)}` : "";
   return apiFetch<SourceFilesResponse>(
-    `/api/projects/${projectId}/source/files`,
+    `/api/projects/${projectId}/source/files${query}`,
   );
 }
 
@@ -141,7 +149,10 @@ export async function deleteProjectFile(projectId: string, fileId: string): Prom
 
 export interface UploadStatusSnapshot {
   phase: string;
+  message?: string;
   fileCount?: number;
+  projectPath?: string;
+  error?: string;
 }
 
 export async function fetchUploadStatus(
@@ -152,4 +163,8 @@ export async function fetchUploadStatus(
     `/api/projects/${projectId}/source/upload-status/${uploadId}`,
   );
   return res.data;
+}
+
+export async function deleteSource(projectId: string): Promise<void> {
+  await apiFetch(`/api/projects/${projectId}/source`, { method: "DELETE" });
 }

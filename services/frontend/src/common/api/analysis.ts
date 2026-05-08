@@ -15,10 +15,12 @@ import type {
   EvidenceRef,
   AuditLogEntry,
   PocResponseData,
+  FindingsSummary,
+  FindingSummaryResponse,
 } from "@aegis/shared";
 import { apiFetch } from "./core";
 
-export type { PocResponseData } from "@aegis/shared";
+export type { PocResponseData, FindingsSummary } from "@aegis/shared";
 
 // ── Analysis Status (active analysis polling) ──
 
@@ -67,6 +69,32 @@ export async function runAnalysis(
   return res.data;
 }
 
+export async function runDeepAnalysis(
+  projectId: string,
+  buildTargetId: string,
+): Promise<{ analysisId: string; buildTargetId: string; executionId: string; status: string }> {
+  const body = { projectId, buildTargetId };
+  const res = await apiFetch<{
+    success: boolean;
+    data: { analysisId: string; buildTargetId: string; executionId: string; status: string };
+  }>(
+    "/api/analysis/deep",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    },
+  );
+  return res.data;
+}
+
+export async function abortAnalysis(analysisId: string): Promise<void> {
+  await apiFetch(
+    `/api/analysis/abort/${encodeURIComponent(analysisId)}`,
+    { method: "POST" },
+  );
+}
+
 export async function generatePoc(
   projectId: string,
   findingId: string,
@@ -78,6 +106,29 @@ export async function generatePoc(
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ projectId, findingId }),
     },
+  );
+  return res.data;
+}
+
+export async function fetchAnalysisResultsList(projectId: string): Promise<AnalysisResult[]> {
+  const res = await apiFetch<{ success: boolean; data: AnalysisResult[] }>(
+    `/api/analysis/results?projectId=${encodeURIComponent(projectId)}`,
+  );
+  return res.data;
+}
+
+export async function deleteAnalysisResult(analysisId: string): Promise<void> {
+  await apiFetch(
+    `/api/analysis/results/${encodeURIComponent(analysisId)}`,
+    { method: "DELETE" },
+  );
+}
+
+// ── Findings Summary ──
+
+export async function fetchFindingsSummary(projectId: string): Promise<FindingsSummary> {
+  const res = await apiFetch<FindingSummaryResponse>(
+    `/api/projects/${encodeURIComponent(projectId)}/findings/summary`,
   );
   return res.data;
 }

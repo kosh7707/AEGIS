@@ -111,9 +111,21 @@ export async function decideApproval(
   return res.data;
 }
 
-export async function fetchApprovalCount(projectId: string): Promise<{ pending: number; total: number }> {
-  const res = await apiFetch<{ success: boolean; data: { pending: number; total: number } }>(
+/**
+ * S2 contract for GET /api/projects/:pid/approvals/count describes "미읽음 알림 수" (pending count).
+ * `pending` maps directly to the contract semantic.
+ * `total` is provisional — do not rely on it for business logic.
+ */
+export async function fetchApprovalCount(projectId: string): Promise<{ pending: number; total?: number }> {
+  const res = await apiFetch<{ success: boolean; data: { pending: number; total?: number } }>(
     `/api/projects/${projectId}/approvals/count`,
+  );
+  return res.data;
+}
+
+export async function fetchApprovalDetail(approvalId: string): Promise<ApprovalRequest> {
+  const res = await apiFetch<{ success: boolean; data: ApprovalRequest }>(
+    `/api/approvals/${encodeURIComponent(approvalId)}`,
   );
   return res.data;
 }

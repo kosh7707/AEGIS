@@ -398,6 +398,79 @@ async def test_sast_scan_uses_durable_ownership_and_continues_transport_only(mon
 
 
 @pytest.mark.asyncio
+async def test_sast_scan_durable_failed_result_returns_tool_failure(monkeypatch):
+    submit = MagicMock(status_code=202)
+    submit.json.return_value = {
+        "requestId": "req-scan-failed",
+        "statusUrl": "/v1/requests/req-scan-failed",
+        "resultUrl": "/v1/requests/req-scan-failed/result",
+    }
+    completed = MagicMock(status_code=200)
+    completed.json.return_value = {
+        "requestId": "req-scan-failed",
+        "state": "completed",
+        "resultReady": True,
+    }
+    final = MagicMock(status_code=200)
+    final.json.return_value = {
+        "requestId": "req-scan-failed",
+        "state": "completed",
+        "result": {
+            "success": False,
+            "failureDetail": {
+                "code": "SDK_NOT_FOUND",
+                "message": "SDK profile not registered",
+            },
+            "findings": [],
+            "stats": {},
+        },
+    }
+    tool = SastScanTool()
+    tool._client = MagicMock()
+    tool._client.post = AsyncMock(return_value=submit)
+    tool._client.get = AsyncMock(side_effect=[completed, final])
+    monkeypatch.setattr("asyncio.sleep", AsyncMock())
+
+    result = await tool.execute({"scanId": "scan", "projectId": "p"})
+
+    assert result.success is False
+    assert "SDK_NOT_FOUND" in result.content
+    assert "SDK profile not registered" in (result.error or "")
+    assert result.new_evidence_refs == []
+
+
+@pytest.mark.asyncio
+async def test_sast_scan_durable_ownership_error_preserves_status_code(monkeypatch):
+    from app.clients.s4_ownership import S4OwnershipError
+
+    async def fake_post_and_wait(*args, **kwargs):
+        raise S4OwnershipError(
+            "S4 submit failed with HTTP 400",
+            status_code=400,
+            payload={
+                "success": False,
+                "failureDetail": {
+                    "code": "SDK_PROFILE_INVALID",
+                    "message": "invalid sdk profile",
+                },
+            },
+        )
+
+    monkeypatch.setattr(
+        "app.tools.implementations.sast_tool.post_and_wait_s4_ownership",
+        fake_post_and_wait,
+    )
+    tool = SastScanTool()
+
+    result = await tool.execute({"scanId": "scan", "projectId": "p"})
+
+    assert result.success is False
+    data = json.loads(result.content)
+    assert data["statusCode"] == 400
+    assert data["detail"]["failureDetail"]["code"] == "SDK_PROFILE_INVALID"
+
+
+@pytest.mark.asyncio
 async def test_sast_scan_durable_ack_break_returns_tool_failure():
     submit = MagicMock(status_code=202)
     submit.json.return_value = {

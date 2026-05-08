@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import type { BuildTargetStatus, PipelinePhase, WsPipelineMessage } from "@aegis/shared";
 import { runPipeline, runPipelineTarget, getWsBaseUrl, logError } from "@/common/api/client";
-import { fetchPipelineStatus } from "@/common/api/pipeline";
+import { fetchPipelineStatus, preparePipeline, preparePipelineTarget } from "@/common/api/pipeline";
 import { createSeqTracker, parseWsMessage, createReconnectingWs } from "@/common/utils/wsEnvelope";
 import type { ConnectionState, ReconnectableHookResult } from "@/common/utils/wsEnvelope";
 
@@ -16,19 +16,23 @@ export interface PipelineTargetState {
 export interface PipelineState {
   targets: Map<string, PipelineTargetState>;
   isRunning: boolean;
+  isPreparing: boolean;
   readyCount: number;
   failedCount: number;
   totalCount: number;
   pipelineId: string | null;
+  preparationId: string | null;
 }
 
 const INITIAL: PipelineState = {
   targets: new Map(),
   isRunning: false,
+  isPreparing: false,
   readyCount: 0,
   failedCount: 0,
   totalCount: 0,
   pipelineId: null,
+  preparationId: null,
 };
 
 function toFailedStatus(
@@ -43,6 +47,8 @@ function toFailedStatus(
 export function usePipelineProgress(): PipelineState & ReconnectableHookResult & {
   startPipeline: (projectId: string, targetIds?: string[]) => Promise<void>;
   retryTarget: (projectId: string, targetId: string) => Promise<void>;
+  startPreparation: (projectId: string, targetIds?: string[]) => Promise<void>;
+  prepareTarget: (projectId: string, targetId: string) => Promise<void>;
   reset: () => void;
 } {
   const [state, setState] = useState<PipelineState>(INITIAL);
@@ -83,6 +89,7 @@ export function usePipelineProgress(): PipelineState & ReconnectableHookResult &
             setState((prev) => ({
               ...prev,
               isRunning: false,
+              isPreparing: false,
               readyCount: msg.payload.readyCount,
               failedCount: msg.payload.failedCount,
               totalCount: msg.payload.totalCount,
@@ -156,6 +163,7 @@ export function usePipelineProgress(): PipelineState & ReconnectableHookResult &
         setState((prev) => ({
           ...prev,
           isRunning: false,
+          isPreparing: false,
         }));
       },
     });
@@ -187,6 +195,30 @@ export function usePipelineProgress(): PipelineState & ReconnectableHookResult &
     }
   }, [connectWs]);
 
+  const startPreparation = useCallback(async (projectId: string, targetIds?: string[]) => {
+    setState({ ...INITIAL, isPreparing: true });
+    try {
+      const { preparationId } = await preparePipeline(projectId, targetIds);
+      setState((prev) => ({ ...prev, preparationId }));
+      connectWs(projectId);
+    } catch (e) {
+      logError("Start pipeline preparation", e);
+      setState((prev) => ({ ...prev, isPreparing: false }));
+      throw e;
+    }
+  }, [connectWs]);
+
+  const prepareTarget = useCallback(async (projectId: string, targetId: string) => {
+    try {
+      const { preparationId } = await preparePipelineTarget(projectId, targetId);
+      if (!rwsRef.current) connectWs(projectId);
+      setState((prev) => ({ ...prev, isPreparing: true, preparationId }));
+    } catch (e) {
+      logError("Prepare pipeline target", e);
+      throw e;
+    }
+  }, [connectWs]);
+
   const reset = useCallback(() => {
     cleanup();
     setState(INITIAL);
@@ -194,5 +226,5 @@ export function usePipelineProgress(): PipelineState & ReconnectableHookResult &
     projectIdRef.current = null;
   }, [cleanup]);
 
-  return { ...state, connectionState, startPipeline, retryTarget, reset };
+  return { ...state, connectionState, startPipeline, retryTarget, startPreparation, prepareTarget, reset };
 }

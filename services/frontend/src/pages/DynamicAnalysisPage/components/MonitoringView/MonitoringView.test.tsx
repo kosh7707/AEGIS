@@ -5,6 +5,7 @@ import { MonitoringView } from "./MonitoringView";
 
 const mockFetchScenarios = vi.fn();
 const mockFetchInjections = vi.fn();
+const mockFetchDynamicSessionDetail = vi.fn();
 const mockStopDynamicSession = vi.fn();
 const mockInjectCanMessage = vi.fn();
 const mockInjectScenario = vi.fn();
@@ -17,6 +18,7 @@ const fakeWs: { onmessage: ((event: { data: string }) => void) | null; close: Re
 vi.mock("@/common/api/client", () => ({
   fetchScenarios: (...args: unknown[]) => mockFetchScenarios(...args),
   fetchInjections: (...args: unknown[]) => mockFetchInjections(...args),
+  fetchDynamicSessionDetail: (...args: unknown[]) => mockFetchDynamicSessionDetail(...args),
   stopDynamicSession: (...args: unknown[]) => mockStopDynamicSession(...args),
   injectCanMessage: (...args: unknown[]) => mockInjectCanMessage(...args),
   injectScenario: (...args: unknown[]) => mockInjectScenario(...args),
@@ -28,9 +30,12 @@ vi.mock("@/common/contexts/ToastContext", () => ({
   useToast: () => mockToast,
 }));
 
+let capturedOptions: Record<string, unknown> = {};
+
 vi.mock("@/common/utils/wsEnvelope", () => ({
-  createReconnectingWs: (_urlFactory: () => string, options?: { onStateChange?: (state: string) => void }) => {
-    options?.onStateChange?.("connected");
+  createReconnectingWs: (_urlFactory: () => string, options?: Record<string, unknown>) => {
+    capturedOptions = options ?? {};
+    (options?.onStateChange as ((state: string) => void) | undefined)?.("connected");
     return {
       getWs: () => fakeWs,
       close: vi.fn(),
@@ -38,6 +43,7 @@ vi.mock("@/common/utils/wsEnvelope", () => ({
       connectionState: "connected",
     };
   },
+  createSeqTracker: () => ({ check: vi.fn(), reset: vi.fn() }),
   parseWsMessage: (data: string) => JSON.parse(data),
 }));
 
@@ -64,6 +70,11 @@ describe("MonitoringView", () => {
       },
     ]);
     mockFetchInjections.mockResolvedValue([]);
+    mockFetchDynamicSessionDetail.mockResolvedValue({
+      session: { id: "session-1", status: "running" },
+      alerts: [],
+      recentMessages: [],
+    });
     mockStopDynamicSession.mockResolvedValue(undefined);
     mockInjectCanMessage.mockResolvedValue(undefined);
     mockInjectScenario.mockResolvedValue([]);
@@ -77,6 +88,21 @@ describe("MonitoringView", () => {
     await waitFor(() => expect(mockFetchInjections).toHaveBeenCalledWith("session-1"));
     expect(screen.getByRole("tab", { name: "CAN 주입" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "세션 목록으로" })).toBeInTheDocument();
+  });
+
+  it("surfaces failed connection state through ConnectionStatusBanner when onGiveUp fires", async () => {
+    render(<MonitoringView session={makeSession()} onBack={vi.fn()} onStopped={vi.fn()} />);
+    await waitFor(() => expect(typeof capturedOptions.onStateChange).toBe("function"));
+
+    act(() => {
+      // The real createReconnectingWs always calls setState("failed") -> onStateChange("failed")
+      // before invoking onGiveUp. Simulate that sequence here.
+      (capturedOptions.onStateChange as (state: string) => void)("failed");
+    });
+
+    // The MonitoringView passes wsConnectionState to the banner; once it
+    // transitions to "failed", the connection badge reflects a disconnected state.
+    expect(screen.getAllByText("연결 끊김").length).toBeGreaterThan(0);
   });
 
   it("renders websocket messages, flagged packets, and alerts", async () => {
@@ -127,5 +153,63 @@ describe("MonitoringView", () => {
     expect(screen.getByText("알림 패킷 (1)")).toBeInTheDocument();
     expect(screen.getByText("Diagnostic anomaly")).toBeInTheDocument();
     expect(screen.getByText("LLM 보조 분석 결과")).toBeInTheDocument();
+  });
+
+  it("fires REST fallback via fetchDynamicSessionDetail on reconnect and merges alerts", async () => {
+    mockFetchDynamicSessionDetail.mockResolvedValue({
+      session: { id: "session-1", status: "running" },
+      alerts: [
+        {
+          id: "alert-2",
+          severity: "medium",
+          title: "Replay attack detected",
+          description: "재생 공격 감지",
+          detectedAt: "2026-05-08T10:00:00Z",
+        },
+      ],
+      recentMessages: [
+        {
+          id: "0x123",
+          dlc: 4,
+          data: "DE AD BE EF",
+          timestamp: "2026-05-08T10:00:01Z",
+          flagged: false,
+          injected: false,
+        },
+      ],
+    });
+
+    render(<MonitoringView session={makeSession()} onBack={vi.fn()} onStopped={vi.fn()} />);
+    await waitFor(() => expect(typeof capturedOptions.onReconnect).toBe("function"));
+
+    await act(async () => {
+      await (capturedOptions.onReconnect as () => Promise<void>)();
+    });
+
+    expect(mockFetchDynamicSessionDetail).toHaveBeenCalledWith("session-1");
+    expect(screen.getByText("Replay attack detected")).toBeInTheDocument();
+    expect(screen.getByText("DE AD BE EF")).toBeInTheDocument();
+  });
+
+  it("logs a warning but does not break reconnect cycle when REST recovery fails", async () => {
+    mockFetchDynamicSessionDetail.mockRejectedValue(new Error("network error"));
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    render(<MonitoringView session={makeSession()} onBack={vi.fn()} onStopped={vi.fn()} />);
+    await waitFor(() => expect(typeof capturedOptions.onReconnect).toBe("function"));
+
+    await act(async () => {
+      await (capturedOptions.onReconnect as () => Promise<void>)();
+    });
+
+    expect(mockFetchDynamicSessionDetail).toHaveBeenCalledWith("session-1");
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("[WS:dynamic-analysis] REST recovery failed:"),
+      expect.any(Error),
+    );
+    // WS handlers still re-wired — onmessage should be a function
+    expect(typeof fakeWs.onmessage).toBe("function");
+
+    warnSpy.mockRestore();
   });
 });

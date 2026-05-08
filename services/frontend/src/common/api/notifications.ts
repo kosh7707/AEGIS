@@ -17,9 +17,10 @@ export async function fetchNotifications(
 export async function fetchNotificationCount(
   projectId: string,
 ): Promise<{ unread: number }> {
-  return apiFetch<{ unread: number }>(
+  const res = await apiFetch<{ success: boolean; data: { unread: number } }>(
     `/api/projects/${projectId}/notifications/count`,
   );
+  return res.data;
 }
 
 export async function markNotificationRead(notificationId: string): Promise<void> {

@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   createReconnectingWs,
-  createHeartbeat,
   type ConnectionState,
   type ReconnectOptions,
 } from "./wsEnvelope";
@@ -327,77 +326,5 @@ describe("createReconnectingWs", () => {
     expect(MockWebSocket.instances).toHaveLength(2);
 
     rws.close();
-  });
-});
-
-// ── createHeartbeat Tests ──
-
-describe("createHeartbeat", () => {
-  it("sends ping at interval", async () => {
-    const ws = new MockWebSocket("ws://test") as unknown as WebSocket;
-    const mock = ws as unknown as MockWebSocket;
-    mock.readyState = WebSocket.OPEN;
-
-    const hb = createHeartbeat({ interval: 1000, timeout: 500 });
-    hb.start(ws);
-
-    await vi.advanceTimersByTimeAsync(1000);
-    expect(mock.sent).toHaveLength(1);
-    expect(JSON.parse(mock.sent[0])).toEqual({ type: "ping" });
-
-    // Respond with pong
-    mock.simulateMessage({ type: "pong" });
-
-    await vi.advanceTimersByTimeAsync(1000);
-    expect(mock.sent).toHaveLength(2);
-
-    hb.stop();
-  });
-
-  it("force-closes WS on pong timeout", async () => {
-    const ws = new MockWebSocket("ws://test") as unknown as WebSocket;
-    const mock = ws as unknown as MockWebSocket;
-    mock.readyState = WebSocket.OPEN;
-    const closeSpy = vi.spyOn(mock, "close");
-
-    const hb = createHeartbeat({ interval: 1000, timeout: 500 });
-    hb.start(ws);
-
-    await vi.advanceTimersByTimeAsync(1000); // ping sent
-    // No pong
-    await vi.advanceTimersByTimeAsync(500); // timeout
-    expect(closeSpy).toHaveBeenCalled();
-
-    hb.stop();
-  });
-
-  it("stop() clears all timers", async () => {
-    const ws = new MockWebSocket("ws://test") as unknown as WebSocket;
-    const mock = ws as unknown as MockWebSocket;
-    mock.readyState = WebSocket.OPEN;
-    const closeSpy = vi.spyOn(mock, "close");
-
-    const hb = createHeartbeat({ interval: 1000, timeout: 500 });
-    hb.start(ws);
-    hb.stop();
-
-    await vi.advanceTimersByTimeAsync(5000);
-    expect(mock.sent).toHaveLength(0);
-    expect(closeSpy).not.toHaveBeenCalled();
-  });
-
-  it("does not send duplicate pings while awaiting pong", async () => {
-    const ws = new MockWebSocket("ws://test") as unknown as WebSocket;
-    const mock = ws as unknown as MockWebSocket;
-    mock.readyState = WebSocket.OPEN;
-
-    const hb = createHeartbeat({ interval: 100, timeout: 500 });
-    hb.start(ws);
-
-    await vi.advanceTimersByTimeAsync(100); // first ping
-    await vi.advanceTimersByTimeAsync(100); // second interval — should skip (awaiting pong)
-    expect(mock.sent).toHaveLength(1);
-
-    hb.stop();
   });
 });

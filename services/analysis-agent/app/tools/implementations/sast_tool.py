@@ -69,7 +69,11 @@ class SastScanTool:
                 except S4OwnershipError as exc:
                     return ToolResult(
                         tool_call_id="", name="", success=False,
-                        content=json.dumps({"error": str(exc), "detail": exc.payload}, ensure_ascii=False),
+                        content=json.dumps({
+                            "error": str(exc),
+                            "statusCode": exc.status_code,
+                            "detail": exc.payload,
+                        }, ensure_ascii=False),
                         error=str(exc),
                     )
             return await self._stream_scan(arguments, headers)
@@ -297,6 +301,21 @@ class SastScanTool:
     @staticmethod
     def _build_result(data: dict, *, stall_detected: bool = False) -> ToolResult:
         """동기/스트리밍 공통 — ScanResponse를 ToolResult로 변환."""
+        if data.get("success") is False:
+            detail = data.get("failureDetail") or data.get("errorDetail")
+            message = None
+            code = None
+            if isinstance(detail, dict):
+                message = detail.get("message")
+                code = detail.get("code") or detail.get("category")
+            message = message or data.get("error") or data.get("message") or "SAST scan failed"
+            error = f"{code}: {message}" if code else str(message)
+            return ToolResult(
+                tool_call_id="", name="", success=False,
+                content=json.dumps(data, ensure_ascii=False),
+                error=error,
+            )
+
         findings = [SastFinding.model_validate(f) for f in data.get("findings", [])[:10]]
         new_refs = [f"eref-sast-{f.ruleId}" for f in findings if f.ruleId]
 

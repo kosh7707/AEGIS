@@ -48,6 +48,7 @@ const mockApprovals = [
 
 const mockFetchApprovals = vi.fn();
 const mockDecideApproval = vi.fn();
+const mockFetchApprovalDetail = vi.fn();
 const mockToast = { error: vi.fn(), success: vi.fn(), info: vi.fn() };
 
 vi.mock("react-router-dom", async () => {
@@ -61,6 +62,7 @@ vi.mock("react-router-dom", async () => {
 vi.mock("@/common/api/approval", () => ({
   fetchProjectApprovals: (...args: unknown[]) => mockFetchApprovals(...args),
   decideApproval: (...args: unknown[]) => mockDecideApproval(...args),
+  fetchApprovalDetail: (...args: unknown[]) => mockFetchApprovalDetail(...args),
 }));
 
 vi.mock("@/common/api/core", () => ({ logError: vi.fn() }));
@@ -83,6 +85,11 @@ describe("ApprovalsPage", () => {
     vi.clearAllMocks();
     mockFetchApprovals.mockResolvedValue([...mockApprovals]);
     mockDecideApproval.mockResolvedValue(mockApprovals[0]);
+    mockFetchApprovalDetail.mockImplementation(async (id: string) => {
+      const found = mockApprovals.find((a) => a.id === id);
+      if (!found) throw new Error("not found");
+      return found;
+    });
   });
 
   it("shows loading feedback before approvals resolve", () => {
@@ -278,6 +285,33 @@ describe("ApprovalsPage", () => {
       const updatedTabs = within(masterList).getAllByRole("tab");
       expect(updatedTabs[1]).toHaveAttribute("aria-selected", "true");
     });
+  });
+
+  it("fetches canonical detail (GET /api/approvals/:id) when a rail row is clicked", async () => {
+    renderPage();
+
+    await screen.findByText("긴급 릴리즈 필요");
+    const masterList = await screen.findByRole("tablist", { name: "승인 요청 목록" });
+    const tabs = within(masterList).getAllByRole("tab");
+    fireEvent.click(tabs[0]);
+
+    await waitFor(() =>
+      expect(mockFetchApprovalDetail).toHaveBeenCalledWith("APR-0058"),
+    );
+  });
+
+  it("does not crash when fetchApprovalDetail rejects (logs and falls back to list data)", async () => {
+    mockFetchApprovalDetail.mockRejectedValueOnce(new Error("detail fetch boom"));
+
+    renderPage();
+
+    await screen.findByText("긴급 릴리즈 필요");
+    const masterList = await screen.findByRole("tablist", { name: "승인 요청 목록" });
+    const tabs = within(masterList).getAllByRole("tab");
+    fireEvent.click(tabs[0]);
+
+    // List-derived reason still renders since detail is optional/best-effort.
+    expect(screen.getByText("긴급 릴리즈 필요")).toBeInTheDocument();
   });
 
   it("renders the missing-detail message when neither findings nor impactSummary exist", async () => {

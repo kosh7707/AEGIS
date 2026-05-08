@@ -515,7 +515,7 @@ export const NOTIFICATIONS = [
   },
 ];
 
-export const NOTIFICATION_COUNT = { unread: 3 };
+export const NOTIFICATION_COUNT = { success: true, data: { unread: 3 } };
 
 // ── Auth ──
 

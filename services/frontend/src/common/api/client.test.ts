@@ -143,7 +143,7 @@ describe("deleteBuildTarget", () => {
 });
 
 describe("discoverBuildTargets", () => {
-  it("sends POST to discover endpoint", async () => {
+  it("sends POST to discover endpoint and returns full result shape", async () => {
     const discovered = [{ id: "t-3", name: "gateway" }];
     mockResponse({
       success: true,
@@ -151,7 +151,9 @@ describe("discoverBuildTargets", () => {
     });
 
     const result = await discoverBuildTargets("proj-1");
-    expect(result).toEqual(discovered);
+    expect(result.targets).toEqual(discovered);
+    expect(result.discovered).toBe(1);
+    expect(result.created).toBe(1);
 
     const [url, opts] = mockFetch.mock.calls[0];
     expect(url).toContain("/api/projects/proj-1/targets/discover");
@@ -160,11 +162,13 @@ describe("discoverBuildTargets", () => {
 });
 
 describe("runPipelineTarget", () => {
-  it("uses the canonical targetId/status retry payload", async () => {
-    mockResponse({ success: true, data: { targetId: "t-7", status: "running" } });
+  it("uses the canonical pipelineId/targetId/status payload", async () => {
+    mockResponse({ success: true, data: { pipelineId: "pipe-99", targetId: "t-7", status: "running" } });
 
     const result = await runPipelineTarget("proj-1", "t-7");
-    expect(result).toEqual({ targetId: "t-7", status: "running" });
+    expect(result.pipelineId).toBe("pipe-99");
+    expect(result.targetId).toBe("t-7");
+    expect(result.status).toBe("running");
 
     const [url, opts] = mockFetch.mock.calls[0];
     expect(url).toContain("/api/projects/proj-1/pipeline/run/t-7");

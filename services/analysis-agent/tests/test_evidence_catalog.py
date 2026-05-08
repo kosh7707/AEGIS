@@ -196,7 +196,11 @@ def test_empty_ref_id_logs_warning(caplog):
 def test_sast_zero_findings_emits_negative_catalog_entry():
     catalog = EvidenceCatalog()
 
-    catalog.ingest_phase1_result(Phase1Result(sast_findings=[]))
+    catalog.ingest_phase1_result(Phase1Result(
+        sast_findings=[],
+        sast_scan_attempted=True,
+        sast_scan_completed=True,
+    ))
 
     negative_refs = catalog.negative_ref_ids()
     assert len(negative_refs) == 1
@@ -206,6 +210,39 @@ def test_sast_zero_findings_emits_negative_catalog_entry():
     assert entry.tool_arguments == {"phase": "phase1", "findingCount": 0}
     assert entry.evidence_class == "negative"
     assert "sast_no_findings" in entry.roles
+    assert entry.ref_id not in catalog.final_ref_ids()
+    assert entry.ref_id not in {ref["refId"] for ref in catalog.as_evidence_refs()}
+
+
+def test_sast_failure_emits_operational_not_no_findings():
+    catalog = EvidenceCatalog()
+
+    catalog.ingest_phase1_result(Phase1Result(
+        sast_findings=[],
+        sast_scan_attempted=True,
+        sast_scan_completed=False,
+        sast_failure_detail={
+            "code": "SDK_NOT_FOUND",
+            "message": "Unknown SDK profile",
+            "statusCode": 400,
+        },
+    ))
+
+    assert catalog.negative_ref_ids() == set()
+    operational_refs = catalog.operational_ref_ids()
+    assert len(operational_refs) == 1
+    entry = catalog.get(next(iter(operational_refs)))
+    assert entry is not None
+    assert entry.source_tool == "sast"
+    assert entry.tool_arguments == {
+        "phase": "phase1",
+        "findingCount": 0,
+        "failureCode": "SDK_NOT_FOUND",
+        "statusCode": 400,
+    }
+    assert entry.evidence_class == "operational"
+    assert "sast_scan_failed" in entry.roles
+    assert "sast_contract_failure" in entry.roles
     assert entry.ref_id not in catalog.final_ref_ids()
     assert entry.ref_id not in {ref["refId"] for ref in catalog.as_evidence_refs()}
 

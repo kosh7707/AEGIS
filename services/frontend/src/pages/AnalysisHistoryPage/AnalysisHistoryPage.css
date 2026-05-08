@@ -193,6 +193,31 @@
   color: var(--foreground-muted);
 }
 
+/* ── Trailing actions cell (delete + chevron) ────────────────────────────── */
+.history-page .history-run-actions-cell {
+  text-align: right;
+  white-space: nowrap;
+  padding-right: var(--space-5);
+}
+.history-page .history-run-actions-cell > * {
+  vertical-align: middle;
+}
+.history-page .history-run-actions-cell .run-chev-cell {
+  display: inline-flex;
+  padding-right: 0;
+  margin-left: var(--space-2);
+}
+
+/* Delete affordance — review-tone caution-review (--warning) on hover.
+   destructive workflow action, not a finding severity (handoff §2.1). */
+.history-run-delete-btn {
+  color: var(--foreground-subtle);
+}
+.history-run-delete-btn:hover,
+.history-run-delete-btn:focus-visible {
+  color: var(--warning);
+}
+
 /* ── Empty state shell ───────────────────────────────────────────────────── */
 .history-empty-shell {
   border: 1px solid var(--border);

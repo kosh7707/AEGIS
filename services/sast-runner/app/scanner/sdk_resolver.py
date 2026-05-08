@@ -32,6 +32,34 @@ def _profile_sdk_id(profile: BuildProfile) -> str | None:
     return sdk_id or None
 
 
+def _descriptor_dict(profile: BuildProfile | None) -> dict[str, Any]:
+    if profile is None or profile.sdk_descriptor is None:
+        return {}
+    return profile.sdk_descriptor.model_dump(by_alias=True, exclude_none=True)
+
+
+def _descriptor_base(profile: BuildProfile | None) -> Path | None:
+    descriptor = _descriptor_dict(profile)
+    root = descriptor.get("sdkRootPath")
+    return Path(root) if root else None
+
+
+def _descriptor_path(base: Path, raw: str | None) -> Path | None:
+    if not raw:
+        return None
+    candidate = Path(raw)
+    if not candidate.is_absolute():
+        candidate = base / candidate
+    return candidate
+
+
+def _looks_like_readable_dir(path: Path) -> bool:
+    try:
+        return path.is_dir()
+    except OSError:
+        return False
+
+
 def _get_sdk_root() -> Path:
     """SDK 루트 디렉토리. .env의 SAST_SDK_ROOT → 폴백 ~/sdks."""
     from app.config import settings
@@ -91,6 +119,8 @@ def sdk_reference_exists(profile: BuildProfile | None) -> bool:
     """profile에 sdkId가 주어진 경우 해당 SDK reference가 존재하는지 확인."""
     sdk_id = profile_sdk_id(profile)
     if sdk_id is None:
+        return True
+    if profile and profile.sdk_resolution_mode in {"none", "non-registered"}:
         return True
     if _get_registry().get(sdk_id):
         return True
@@ -181,6 +211,22 @@ def resolve_sdk_paths(profile: BuildProfile) -> list[str]:
     """
     paths: list[str] = []
     sdk_id = _profile_sdk_id(profile)
+    descriptor = _descriptor_dict(profile)
+
+    if profile.sdk_resolution_mode == "none":
+        if profile.include_paths:
+            paths.extend(profile.include_paths)
+        return paths
+
+    if profile.sdk_resolution_mode == "non-registered":
+        base = _descriptor_base(profile)
+        if descriptor.get("includePaths"):
+            paths.extend(descriptor["includePaths"])
+        if base:
+            paths.extend(_resolve_from_descriptor(base, descriptor))
+        if profile.include_paths:
+            paths.extend(profile.include_paths)
+        return paths
 
     # 1. SDK 레지스트리에서 자동 해석
     if sdk_id is not None:
@@ -206,6 +252,21 @@ def resolve_sdk_paths(profile: BuildProfile) -> list[str]:
 
 def get_sdk_compiler(profile: BuildProfile) -> str | None:
     """SDK의 크로스 컴파일러 경로를 반환."""
+    if profile.sdk_resolution_mode == "none":
+        return None
+
+    if profile.sdk_resolution_mode == "non-registered":
+        descriptor = _descriptor_dict(profile)
+        compiler_path = descriptor.get("compilerPath")
+        if compiler_path and Path(compiler_path).exists():
+            return compiler_path
+        base = _descriptor_base(profile)
+        if base:
+            inferred = _descriptor_compiler_path(base, descriptor)
+            if inferred and inferred.exists():
+                return str(inferred)
+        return None
+
     sdk_id = _profile_sdk_id(profile)
     if sdk_id is None:
         return None
@@ -228,6 +289,19 @@ def get_sdk_compiler(profile: BuildProfile) -> str | None:
 
 def get_sdk_environment_setup(profile: BuildProfile) -> str | None:
     """SDK의 environment-setup 스크립트 경로를 반환."""
+    if profile.sdk_resolution_mode == "none":
+        return None
+
+    if profile.sdk_resolution_mode == "non-registered":
+        descriptor = _descriptor_dict(profile)
+        base = _descriptor_base(profile)
+        if not base:
+            return None
+        setup_path = _descriptor_path(base, descriptor.get("setupScript"))
+        if setup_path and setup_path.exists():
+            return str(setup_path)
+        return None
+
     sdk_id = _profile_sdk_id(profile)
     if sdk_id is None:
         return None
@@ -320,5 +394,49 @@ def _resolve_from_registry(base: Path, sdk_info: dict[str, Any]) -> list[str]:
         # libc 헤더
         libc_include,
     ]
+
+    return [str(p) for p in candidates if p.exists()]
+
+
+def _descriptor_compiler_path(base: Path, descriptor: dict[str, Any]) -> Path | None:
+    sysroot = descriptor.get("sysroot") or ""
+    triplet = descriptor.get("toolchainTriplet") or ""
+    if not sysroot or not triplet:
+        return None
+    sysroot_dir = _descriptor_path(base, sysroot)
+    if not sysroot_dir:
+        return None
+    return sysroot_dir / "usr" / "bin" / f"{triplet}-gcc"
+
+
+def _resolve_from_descriptor(base: Path, descriptor: dict[str, Any]) -> list[str]:
+    """Build deterministic include candidates from a caller-resolved SDK descriptor."""
+    sysroot = descriptor.get("sysroot") or ""
+    triplet = descriptor.get("toolchainTriplet") or ""
+    gcc_ver = descriptor.get("compilerVersion") or ""
+    if not sysroot:
+        return []
+
+    sysroot_dir = _descriptor_path(base, sysroot)
+    if not sysroot_dir or not _looks_like_readable_dir(sysroot_dir):
+        return []
+
+    candidates: list[Path] = [
+        sysroot_dir / "usr" / "include",
+    ]
+    if triplet:
+        candidates.extend([
+            sysroot_dir / "usr" / triplet / "include",
+            sysroot_dir / "usr" / triplet / "libc" / "usr" / "include",
+        ])
+    if triplet and gcc_ver:
+        gcc_base = sysroot_dir / "usr" / "lib" / "gcc" / triplet / gcc_ver
+        candidates.extend([
+            gcc_base / "include",
+            gcc_base / "include-fixed",
+            sysroot_dir / "usr" / triplet / "include" / "c++" / gcc_ver,
+            sysroot_dir / "usr" / triplet / "include" / "c++" / gcc_ver / triplet,
+            sysroot_dir / "usr" / triplet / "include" / "c++" / gcc_ver / "backward",
+        ])
 
     return [str(p) for p in candidates if p.exists()]

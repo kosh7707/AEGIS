@@ -1,7 +1,9 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import type { AnalysisProgress, WsAnalysisMessage } from "@aegis/shared";
 import { ApiError, runAnalysis, getWsBaseUrl, logError } from "@/common/api/client";
-import { fetchAnalysisStatus } from "@/common/api/analysis";
+import { fetchAnalysisStatus, runDeepAnalysis } from "@/common/api/analysis";
+
+export type AnalysisMode = "quick" | "deep";
 import { createSeqTracker, parseWsMessage, createReconnectingWs } from "@/common/utils/wsEnvelope";
 import type { ConnectionState, ReconnectableHookResult } from "@/common/utils/wsEnvelope";
 
@@ -91,7 +93,7 @@ const INITIAL_STATE: AnalysisWsState = {
 
 export function useAnalysisWebSocket(): AnalysisWsState & ReconnectableHookResult & {
   isRunning: boolean;
-  startAnalysis: (projectId: string, buildTargetId: string) => Promise<void>;
+  startAnalysis: (projectId: string, buildTargetId: string, mode?: AnalysisMode) => Promise<void>;
   resumeAnalysis: (analysisId: string, initialStatus?: AnalysisProgress) => Promise<void>;
   reset: () => void;
 } {
@@ -217,17 +219,19 @@ export function useAnalysisWebSocket(): AnalysisWsState & ReconnectableHookResul
     wireWsHandlers(rws.getWs(), seqTracker);
   }, [wireWsHandlers]);
 
-  const startAnalysis = useCallback(async (projectId: string, buildTargetId: string) => {
+  const startAnalysis = useCallback(async (projectId: string, buildTargetId: string, mode: AnalysisMode = "quick") => {
     cleanup();
+    const initialStage: AnalysisStage = mode === "deep" ? "deep_submitting" : "quick_sast";
     setState({
       ...INITIAL_STATE,
       buildTargetId,
-      stage: "quick_sast",
+      stage: initialStage,
       message: "분석 준비 중...",
     });
 
     try {
-      const { analysisId, executionId } = await runAnalysis(projectId, buildTargetId);
+      const runner = mode === "deep" ? runDeepAnalysis : runAnalysis;
+      const { analysisId, executionId } = await runner(projectId, buildTargetId);
       setState((prev) => ({
         ...prev,
         analysisId,

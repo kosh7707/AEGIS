@@ -194,7 +194,27 @@ class EvidenceCatalog:
             self.add(_entry_from_request_ref(ref))
 
     def ingest_phase1_result(self, result: Phase1Result) -> None:
-        if not result.sast_findings:
+        if result.sast_failure_detail:
+            attempted = {
+                "phase": "phase1",
+                "findingCount": len(result.sast_findings),
+            }
+            code = result.sast_failure_detail.get("code") or result.sast_failure_detail.get("category")
+            status_code = result.sast_failure_detail.get("statusCode")
+            if code:
+                attempted["failureCode"] = code
+            if status_code:
+                attempted["statusCode"] = status_code
+            roles = ["operational_status", "sast_scan_failed"]
+            if (isinstance(code, str) and code.startswith("SDK_")) or status_code in {400, 422}:
+                roles.append("sast_contract_failure")
+            self.add_operational(
+                "sast",
+                attempted,
+                str(code or result.sast_failure_detail.get("message") or "scan_failed"),
+                roles=tuple(roles),
+            )
+        elif result.sast_scan_completed and not result.sast_findings:
             self.add_negative(
                 "sast",
                 {"phase": "phase1", "findingCount": 0},

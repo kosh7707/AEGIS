@@ -3,11 +3,11 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { AttackScenario, CanInjectionResponse, CanMessage, DynamicAlert, DynamicAnalysisSession, InjectionClassification, WsMessage as SharedWsMessage } from "@aegis/shared";
 import { AlertTriangle, Pause, Play, Plug, Radio, Send, Square, Wifi, WifiOff } from "lucide-react";
 import { cn } from "@/common/utils/cn";
-import { fetchInjections, fetchScenarios, getWsBaseUrl, injectCanMessage, injectScenario, logError, stopDynamicSession } from "@/common/api/client";
+import { fetchDynamicSessionDetail, fetchInjections, fetchScenarios, getWsBaseUrl, injectCanMessage, injectScenario, logError, stopDynamicSession } from "@/common/api/client";
 import { useToast } from "@/common/contexts/ToastContext";
 import { BackButton, ConnectionStatusBanner, SeverityBadge, Spinner } from "@/common/ui/primitives";
 import { formatTime } from "@/common/utils/format";
-import { createReconnectingWs, parseWsMessage, type ConnectionState } from "@/common/utils/wsEnvelope";
+import { createReconnectingWs, createSeqTracker, parseWsMessage, type ConnectionState } from "@/common/utils/wsEnvelope";
 
 const MAX_MESSAGES = 500;
 
@@ -55,12 +55,15 @@ export const MonitoringView: React.FC<Props> = ({ session, onBack, onStopped }) 
 
   useEffect(() => {
     const wsUrl = `${getWsBaseUrl()}/ws/dynamic-analysis?sessionId=${session.id}`;
+    const seqTracker = createSeqTracker("dynamic-analysis");
 
     function wireHandlers(ws: WebSocket | null) {
       if (!ws) return;
       ws.onmessage = (event) => {
         try {
-          const msg = parseWsMessage(event.data) as unknown as SharedWsMessage;
+          const parsed = parseWsMessage(event.data);
+          seqTracker.check(parsed.meta);
+          const msg = parsed as unknown as SharedWsMessage;
           switch (msg.type) {
             case "message":
               if (pausedRef.current) {
@@ -100,9 +103,35 @@ export const MonitoringView: React.FC<Props> = ({ session, onBack, onStopped }) 
         setWsConnected(state === "connected");
         setWsConnectionState(state);
       },
-      onReconnect() {
+      onDisconnect() {
+        seqTracker.reset();
+      },
+      async onReconnect() {
+        try {
+          const detail = await fetchDynamicSessionDetail(session.id);
+          setAlerts(detail.alerts);
+          setMessages((previous) => {
+            const combined = [...previous, ...detail.recentMessages];
+            const seen = new Set<string>();
+            const deduped = combined.filter((m) => {
+              const key = `${m.timestamp}:${m.id}:${m.data}`;
+              if (seen.has(key)) return false;
+              seen.add(key);
+              return true;
+            });
+            return deduped.length > MAX_MESSAGES ? deduped.slice(-MAX_MESSAGES) : deduped;
+          });
+          if (detail.session.status) {
+            setMessageCount((previous) => Math.max(previous, detail.recentMessages.length));
+            setAlertCount((previous) => Math.max(previous, detail.alerts.length));
+          }
+        } catch (error) {
+          console.warn("[WS:dynamic-analysis] REST recovery failed:", error);
+        }
         wireHandlers(reconnectingWs.getWs());
       },
+      // onGiveUp: setState("failed") is called by createReconnectingWs before
+      // invoking onGiveUp, so onStateChange already surfaces the "failed" state.
     });
 
     wireHandlers(reconnectingWs.getWs());

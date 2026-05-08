@@ -421,7 +421,7 @@ class ScanOrchestrator:
             "gcc-fanalyzer" in active["_skipped"]
             and active["_skipped"]["gcc-fanalyzer"] in {"runtime-tool-missing", "environment-drift", "tool-check-failed"}
             and profile
-            and profile.sdk_id
+            and (profile.sdk_id or profile.sdk_resolution_mode == "non-registered")
         ):
             sdk_ok, sdk_ver = await self.gcc_analyzer.check_available(profile)
             if sdk_ok:
@@ -444,15 +444,41 @@ class ScanOrchestrator:
     ) -> dict[str, Any]:
         """SDK 해석 정보를 dict로 반환 (SdkResolutionInfo 생성에 사용)."""
         if original is None:
-            return {"resolved": False, "sdk_id": None, "include_paths_added": 0}
+            return {
+                "resolved": False,
+                "sdk_id": None,
+                "include_paths_added": 0,
+                "resolution_mode": None,
+                "resolved_from": None,
+                "sdk_root_path": None,
+                "degrade_reasons": [],
+            }
 
         original_paths = len(original.include_paths or [])
         enriched_paths = len(enriched.include_paths or []) if enriched else 0
+        descriptor = original.sdk_descriptor
+        resolution_mode = original.sdk_resolution_mode
+        if resolution_mode is None:
+            resolution_mode = "s4-registered" if original.sdk_id else None
+
+        resolved_from: str | None = None
+        if original.sdk_resolution_mode == "non-registered":
+            resolved_from = "sdkDescriptor"
+        elif original.sdk_id and enriched_paths > original_paths:
+            resolved_from = "s4Registry"
 
         return {
-            "resolved": enriched_paths > original_paths,
+            "resolved": (
+                bool(descriptor)
+                if original.sdk_resolution_mode == "non-registered"
+                else enriched_paths > original_paths
+            ),
             "sdk_id": original.sdk_id,
             "include_paths_added": enriched_paths - original_paths,
+            "resolution_mode": resolution_mode,
+            "resolved_from": resolved_from,
+            "sdk_root_path": descriptor.sdk_root_path if descriptor else None,
+            "degrade_reasons": [],
         }
 
     def _enrich_profile_with_sdk(

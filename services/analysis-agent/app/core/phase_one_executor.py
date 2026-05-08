@@ -88,6 +88,7 @@ class Phase1Executor:
         compile_commands_path: str | None = None,
         revision_hint: str | None = None,
         provenance: dict | None = None,
+        build_environment: dict | None = None,
     ) -> Phase1Result:
         return await _phase_one_run_individual_tools(
             result,
@@ -107,6 +108,7 @@ class Phase1Executor:
             compile_commands_path=compile_commands_path,
             revision_hint=revision_hint,
             provenance=provenance,
+            build_environment=build_environment,
         )
 
     async def _ingest_code_graph(
@@ -131,6 +133,7 @@ class Phase1Executor:
         project_path: str | None = None,
         compile_commands_path: str | None = None,
         sast_tools: list[str] | None = None,
+        build_environment: dict | None = None,
     ) -> Phase1Result:
         return await _phase_one_run_sast(
             self._sast_tool,
@@ -144,12 +147,14 @@ class Phase1Executor:
             project_path=project_path,
             compile_commands_path=compile_commands_path,
             sast_tools=sast_tools,
+            build_environment=build_environment,
         )
 
     async def _run_codegraph(
         self, result: Phase1Result, files, project_id, build_profile, request_id,
         *, project_path: str | None = None,
         compile_commands_path: str | None = None,
+        build_environment: dict | None = None,
     ) -> Phase1Result:
         return await _phase_one_run_codegraph(
             self._codegraph_tool,
@@ -161,6 +166,7 @@ class Phase1Executor:
             logger,
             project_path=project_path,
             compile_commands_path=compile_commands_path,
+            build_environment=build_environment,
         )
 
     async def _run_sca(

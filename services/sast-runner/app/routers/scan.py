@@ -17,7 +17,13 @@ from fastapi.responses import JSONResponse, StreamingResponse
 
 from app.config import settings
 from app.context import set_request_id
-from app.errors import NoFilesError, PolicyViolationError, SastRunnerError, SdkNotFoundError
+from app.errors import (
+    InvalidSdkProfileError,
+    NoFilesError,
+    PolicyViolationError,
+    SastRunnerError,
+    SdkNotFoundError,
+)
 from app.runtime.request_ownership import request_ownership_store
 from app.runtime.request_summary import request_summary_tracker
 from app.scanner.ast_dumper import AstDumper
@@ -100,14 +106,76 @@ def _get_timeout(request: Request, body_timeout: int | None = None) -> int:
 
 
 def _validate_sdk_profile(profile) -> None:
-    """analysis-path profile의 sdkId reference를 검증한다."""
+    """analysis-path profile의 SDK reference mode를 검증한다.
+
+    S4 accepts three SDK resolution contracts:
+    - no profile / omitted SDK: native or SDK-independent analysis.
+    - sdkResolutionMode="none": explicitly no SDK and no registry lookup.
+    - sdkResolutionMode="non-registered": caller-resolved SDK descriptor.
+    - sdkId without sdkResolutionMode: S4-local registered SDK reference.
+
+    Unknown bare sdkId must fail early and stop; callers that resolve an SDK
+    outside the S4 registry must use non-registered + sdkDescriptor instead.
+    """
+    if profile is None:
+        return
+
+    mode = profile.sdk_resolution_mode
     sdk_id = profile_sdk_id(profile)
+    descriptor = profile.sdk_descriptor
+
+    if mode == "none":
+        if sdk_id is not None or descriptor is not None:
+            raise InvalidSdkProfileError(
+                "sdkResolutionMode='none' must omit sdkId and sdkDescriptor.",
+            )
+        return
+
+    if mode == "non-registered":
+        if descriptor is None or not descriptor.sdk_root_path:
+            raise InvalidSdkProfileError(
+                "sdkResolutionMode='non-registered' requires sdkDescriptor.sdkRootPath.",
+            )
+        return
+
+    if descriptor is not None:
+        raise InvalidSdkProfileError(
+            "sdkDescriptor requires sdkResolutionMode='non-registered'.",
+        )
+
     if sdk_id is None:
         return
+
     if sdk_reference_exists(profile):
         return
     raise SdkNotFoundError(
-        f"Unknown sdkId '{sdk_id}'. Register it in sdk-registry.json or omit sdkId for native/non-SDK builds.",
+        f"Unknown sdkId '{sdk_id}'. Use a registered sdkId, "
+        "sdkResolutionMode='non-registered' with sdkDescriptor for caller-resolved SDKs, "
+        "or sdkResolutionMode='none' / omit sdkId for no-SDK analysis.",
+    )
+
+
+def _scan_validation_error_response(
+    *,
+    body: ScanRequest,
+    request_id: str,
+    exc: SastRunnerError,
+    response: Response,
+) -> ScanResponse:
+    """Build a typed ScanResponse for early scan validation failures."""
+    response.status_code = exc.status_code
+    return ScanResponse(
+        success=False,
+        scanId=body.scan_id,
+        status="failed",
+        provenance=body.provenance,
+        error=exc.message,
+        errorDetail=ErrorDetail(
+            code=exc.code,
+            message=exc.message,
+            requestId=request_id,
+            retryable=exc.retryable,
+        ),
     )
 
 
@@ -733,11 +801,19 @@ async def scan(request: Request, body: ScanRequest, response: Response) -> ScanR
 
     # Durable ownership mode wins over NDJSON compatibility streaming.
     if _wants_async_ownership(request):
-        if not body.files and not body.project_path:
-            raise NoFilesError("No files or projectPath provided for scanning")
-        for f in body.files:
-            _validate_path(f.path)
-        _validate_sdk_profile(body.build_profile)
+        try:
+            if not body.files and not body.project_path:
+                raise NoFilesError("No files or projectPath provided for scanning")
+            for f in body.files:
+                _validate_path(f.path)
+            _validate_sdk_profile(body.build_profile)
+        except SastRunnerError as exc:
+            return _scan_validation_error_response(
+                body=body,
+                request_id=request_id,
+                exc=exc,
+                response=response,
+            )
         rulesets = resolve_rulesets(
             body.rulesets, body.build_profile, settings.default_rulesets,
         )
@@ -772,11 +848,19 @@ async def scan(request: Request, body: ScanRequest, response: Response) -> ScanR
 
     # NDJSON 스트리밍 모드 — 입력 검증 후 분기 (실패 시 일반 HTTP 에러)
     if _wants_ndjson(request):
-        if not body.files and not body.project_path:
-            raise NoFilesError("No files or projectPath provided for scanning")
-        for f in body.files:
-            _validate_path(f.path)
-        _validate_sdk_profile(body.build_profile)
+        try:
+            if not body.files and not body.project_path:
+                raise NoFilesError("No files or projectPath provided for scanning")
+            for f in body.files:
+                _validate_path(f.path)
+            _validate_sdk_profile(body.build_profile)
+        except SastRunnerError as exc:
+            return _scan_validation_error_response(
+                body=body,
+                request_id=request_id,
+                exc=exc,
+                response=response,
+            )
         request_summary_tracker.register(request_id, endpoint="scan")
         rulesets = resolve_rulesets(
             body.rulesets, body.build_profile, settings.default_rulesets,
@@ -1063,7 +1147,10 @@ async def build_and_analyze(
         return {"error": "buildCommand is required"}
 
     scan_profile = body.scan_profile
-    _validate_sdk_profile(scan_profile)
+    try:
+        _validate_sdk_profile(scan_profile)
+    except SastRunnerError as exc:
+        return _error_response(request_id, exc, response)
 
     if _wants_async_ownership(request):
         async def _owned_build_and_analyze() -> BuildAndAnalyzeResponse:
@@ -1498,6 +1585,14 @@ async def request_result(request_id: str) -> JSONResponse:
     """Durable terminal result/failure retrieval for async production requests."""
     payload, status_code = await request_ownership_store.get_result(request_id)
     return JSONResponse(payload, status_code=status_code)
+
+
+@router.delete("/requests/{request_id}")
+async def cancel_request(request_id: str) -> JSONResponse:
+    """Best-effort durable ownership cancellation for async production requests."""
+    payload, status_code = await request_ownership_store.cancel(request_id)
+    return _ownership_response(payload, status_code)
+
 
 @router.get("/health", response_model=HealthResponse)
 async def health(request_id: str | None = Query(default=None, alias="requestId")) -> HealthResponse:

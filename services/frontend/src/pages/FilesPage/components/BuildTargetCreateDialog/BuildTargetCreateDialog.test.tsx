@@ -111,7 +111,7 @@ describe("BuildTargetCreateDialog", () => {
     await waitFor(() => expect(screen.getByText(/1개 파일/)).toBeTruthy());
   });
 
-  it("preloads includedPaths in edit mode and submits updated payload", () => {
+  it("preloads includedPaths in edit mode and submits updated payload (when explicitly editable)", () => {
     const onSubmit = vi.fn().mockResolvedValue(undefined);
     render(
       <BuildTargetCreateDialog
@@ -120,6 +120,7 @@ describe("BuildTargetCreateDialog", () => {
         submitLabel="저장"
         initialName="gateway"
         initialIncludedPaths={["src/"]}
+        includedPathsEditable={true}
         onSubmit={onSubmit}
       />,
     );
@@ -133,6 +134,27 @@ describe("BuildTargetCreateDialog", () => {
       name: "gateway",
       includedPaths: expect.arrayContaining(["src/main.c", "src/utils.c", "include/utils.h"]),
     }));
+  });
+
+  it("auto-locks includedPaths selection when onSubmit is provided (edit mode default)", () => {
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+    render(
+      <BuildTargetCreateDialog
+        {...defaultProps}
+        title="BuildTarget 수정"
+        submitLabel="저장"
+        initialName="gateway"
+        initialIncludedPaths={["src/"]}
+        onSubmit={onSubmit}
+      />,
+    );
+
+    const notes = screen.getAllByRole("note");
+    expect(notes.some((n) => n.textContent?.includes("includedPaths는 수정 API에서 갱신되지 않습니다"))).toBe(true);
+
+    fireEvent.click(screen.getAllByText("utils.h")[0]);
+    fireEvent.click(screen.getByText("저장"));
+    expect(onSubmit.mock.calls[0]?.[0].includedPaths).not.toContain("include/utils.h");
   });
 
   it("locks includedPaths selection when edit support is disabled", () => {
@@ -177,6 +199,7 @@ describe("BuildTargetCreateDialog", () => {
         <BuildTargetCreateDialog
           {...defaultProps}
           submitLabel="저장"
+          includedPathsEditable={true}
           onSubmit={onSubmit}
         />,
       );
@@ -201,6 +224,7 @@ describe("BuildTargetCreateDialog", () => {
         <BuildTargetCreateDialog
           {...defaultProps}
           submitLabel="저장"
+          includedPathsEditable={true}
           onSubmit={onSubmit}
         />,
       );

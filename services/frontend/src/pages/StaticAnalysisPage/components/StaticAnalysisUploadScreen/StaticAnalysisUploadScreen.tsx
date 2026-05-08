@@ -1,14 +1,17 @@
 import "./StaticAnalysisUploadScreen.css";
 import React from "react";
 import { BackButton, PageHeader } from "@/common/ui/primitives";
+import type { AnalysisMode } from "@/common/hooks/useAnalysisWebSocket";
 import { SourceUploadView } from "../SourceUploadView/SourceUploadView";
 
 type StaticAnalysisUploadScreenProps = {
   projectId: string;
   onBack: () => void;
-  onAnalysisStart: () => void;
+  onAnalysisStart: (mode: AnalysisMode) => void;
   onBrowseTree: () => void;
   onDiscoverTargets: () => void;
+  onPrepare?: () => void;
+  isPreparing?: boolean;
 };
 
 export function StaticAnalysisUploadScreen({
@@ -17,6 +20,8 @@ export function StaticAnalysisUploadScreen({
   onAnalysisStart,
   onBrowseTree,
   onDiscoverTargets,
+  onPrepare,
+  isPreparing,
 }: StaticAnalysisUploadScreenProps) {
   return (
     <div className="page-shell static-analysis-upload-screen">
@@ -27,6 +32,8 @@ export function StaticAnalysisUploadScreen({
         onAnalysisStart={onAnalysisStart}
         onBrowseTree={onBrowseTree}
         onDiscoverTargets={onDiscoverTargets}
+        onPrepare={onPrepare}
+        isPreparing={isPreparing}
       />
     </div>
   );

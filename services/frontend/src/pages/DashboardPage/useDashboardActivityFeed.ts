@@ -2,7 +2,12 @@ import { useEffect, useMemo, useState } from "react";
 import { logError } from "@/common/api/core";
 import { getNotificationWsUrl } from "@/common/api/notifications";
 import { fetchProjectActivity, type ActivityEntry } from "@/common/api/projects";
-import { createReconnectingWs, type ConnectionState } from "@/common/utils/wsEnvelope";
+import {
+  createReconnectingWs,
+  createSeqTracker,
+  parseWsMessage,
+  type ConnectionState,
+} from "@/common/utils/wsEnvelope";
 import type { ActivityEvent, ActivityIcon, ActivityTone, DashboardProject } from "./dashboardTypes";
 import {
   latestProjectTimestamp,
@@ -45,6 +50,7 @@ export function useDashboardActivityFeed({
       ? "connected"
       : "disconnected"
   ));
+  const [realtimeOffline, setRealtimeOffline] = useState(false);
 
   const primaryProjectId = projects[0]?.id;
 
@@ -105,22 +111,43 @@ export function useDashboardActivityFeed({
       return;
     }
 
+    setRealtimeOffline(false);
+    const seqTracker = createSeqTracker("notification");
+
     function wireActivityRefresh(ws: WebSocket | null) {
       if (!ws) {
         return;
       }
 
-      ws.onmessage = () => {
-        setActivityRevision((current) => current + 1);
+      ws.onmessage = (event) => {
+        try {
+          const msg = parseWsMessage(event.data);
+          // Drop frames whose envelope channel does not match this consumer.
+          if (msg.meta && msg.meta.channel !== "notification") return;
+          seqTracker.check(msg.meta);
+          // Only notification frames bump activity — drop heartbeat / other types
+          // (audit DRIFT: previously every frame triggered an unnecessary REST refresh).
+          if (msg.type !== "notification") return;
+          setActivityRevision((current) => current + 1);
+        } catch {
+          // ignore non-JSON / malformed messages
+        }
       };
     }
 
     let socket: ReturnType<typeof createReconnectingWs> | null = null;
     socket = createReconnectingWs(() => getNotificationWsUrl(primaryProjectId), {
       onStateChange: setConnectionState,
+      onDisconnect() {
+        seqTracker.reset();
+      },
       onReconnect() {
         wireActivityRefresh(socket.getWs());
         setActivityRevision((current) => current + 1);
+      },
+      onGiveUp() {
+        // Activity feed has REST refresh fallback already (refreshed on visibleActivityCount/projects changes).
+        setRealtimeOffline(true);
       },
     });
     wireActivityRefresh(socket.getWs());
@@ -142,6 +169,7 @@ export function useDashboardActivityFeed({
     hasMore: hasPotentialMore || activity.length > visibleActivity.length,
     loadMore,
     connectionState,
+    realtimeOffline,
   };
 }
 

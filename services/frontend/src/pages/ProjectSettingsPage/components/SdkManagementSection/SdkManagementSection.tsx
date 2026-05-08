@@ -35,6 +35,8 @@ import type {
 } from "@/common/hooks/useSdkProgress";
 import { logError } from "@/common/api/core";
 import { SdkUploadForm } from "../SdkUploadForm/SdkUploadForm";
+import { SdkMetricsPanel } from "../SdkMetricsPanel/SdkMetricsPanel";
+import { SdkProfilesPanel } from "../SdkProfilesPanel/SdkProfilesPanel";
 
 const STATUS_CONFIG: Record<SdkRegistryStatus, { label: string; icon: "spin" | "check" | "fail"; tone: "pending" | "ready" | "failed" }> = {
   uploading: { label: "업로드 중", icon: "spin", tone: "pending" },
@@ -498,6 +500,10 @@ export const SdkManagementSection: React.FC<SdkManagementSectionProps> = ({
           SDK 추가
         </button>
       </div>
+
+      <SdkMetricsPanel projectId={projectId} />
+
+      <SdkProfilesPanel />
 
       {showForm ? (
         <div className="panel ps-sdk__upload-card">

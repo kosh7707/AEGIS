@@ -1,7 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Finding, FindingSourceType, FindingStatus, Severity } from "@aegis/shared";
-import type { FindingGroup } from "@/common/api/analysis";
-import { bulkUpdateFindingStatus, fetchFindingGroups, fetchProjectFindings } from "@/common/api/analysis";
+import type { FindingGroup, FindingsSummary } from "@/common/api/analysis";
+import {
+  bulkUpdateFindingStatus,
+  fetchFindingGroups,
+  fetchFindingsSummary,
+  fetchProjectFindings,
+} from "@/common/api/analysis";
 import { logError } from "@/common/api/core";
 import { useKeyboardShortcuts } from "@/common/hooks/useKeyboardShortcuts";
 import { SEVERITY_ORDER } from "@/common/utils/severity";
@@ -34,10 +39,32 @@ export function useVulnerabilitiesPageController(
   const [groups, setGroups] = useState<FindingGroup[]>([]);
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
   const [groupsLoading, setGroupsLoading] = useState(false);
+  const [summary, setSummary] = useState<FindingsSummary | null>(null);
 
   useEffect(() => {
     document.title = "AEGIS — Vulnerabilities";
   }, []);
+
+  useEffect(() => {
+    if (!projectId) {
+      setSummary(null);
+      return;
+    }
+    let cancelled = false;
+    fetchFindingsSummary(projectId)
+      .then((data) => {
+        if (cancelled) return;
+        setSummary(data);
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        logError("Findings summary", error);
+        setSummary(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId]);
 
   const loadFindings = useCallback(async () => {
     if (!projectId) {
@@ -219,5 +246,6 @@ export function useVulnerabilitiesPageController(
     handleBulkAction,
     clearSelection: () => setSelectedIds(new Set()),
     toggleGroup,
+    summary,
   };
 }

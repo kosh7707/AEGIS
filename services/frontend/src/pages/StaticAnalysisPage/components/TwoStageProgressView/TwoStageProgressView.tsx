@@ -22,6 +22,7 @@ interface Props {
   onRetry: () => void;
   onViewResults: () => void;
   onBack: () => void;
+  onAbort?: (analysisId: string) => void;
 }
 
 const STAGES: { key: AnalysisStage; label: string }[] = [
@@ -65,6 +66,7 @@ export const TwoStageProgressView: React.FC<Props> = ({
   onRetry,
   onViewResults,
   onBack,
+  onAbort,
 }) => {
   const [showAbortConfirm, setShowAbortConfirm] = useState(false);
   const timerActive = stage !== "deep_complete" && stage !== "error" && stage !== "idle";
@@ -236,12 +238,16 @@ export const TwoStageProgressView: React.FC<Props> = ({
       <ConfirmDialog
         open={showAbortConfirm}
         title="분석 중단"
-        message="진행 중인 분석을 중단하시겠습니까?"
+        message="진행 중인 분석을 중단하시겠습니까? 중단하면 결과가 저장되지 않습니다."
         confirmLabel="중단"
         danger
         onConfirm={() => {
           setShowAbortConfirm(false);
-          onBack();
+          if (onAbort && analysisId) {
+            onAbort(analysisId);
+          } else {
+            onBack();
+          }
         }}
         onCancel={() => setShowAbortConfirm(false)}
       />

@@ -1,0 +1,39 @@
+/* SdkMetricsPanel — compact KPI row above SDK list.
+ * Reuses canonical .kpi vocab from handoff/components/kpi.css for caps-mono
+ * dt + tabular-nums dd. No severity ramp — backend metrics are aggregate
+ * counts/durations, not finding severities. */
+.sdk-metrics-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.sdk-metrics-panel__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: var(--space-7);
+  margin: 0;
+  padding: var(--space-5);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+
+.sdk-metrics-panel__cell {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 72px;
+}
+
+.sdk-metrics-panel__empty {
+  margin: 0;
+  padding: var(--space-5);
+  background: var(--surface-sunken);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-md);
+  color: var(--foreground-subtle);
+  font-size: var(--text-sm);
+  text-align: center;
+}

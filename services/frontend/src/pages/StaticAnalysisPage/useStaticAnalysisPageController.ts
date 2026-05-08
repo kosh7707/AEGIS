@@ -10,7 +10,9 @@ import {
   fetchSourceFiles,
   logError,
 } from "@/common/api/client";
-import type { useAnalysisWebSocket } from "@/common/hooks/useAnalysisWebSocket";
+import { abortAnalysis } from "@/common/api/analysis";
+import { usePipelineProgress } from "@/common/hooks/usePipelineProgress";
+import type { AnalysisMode, useAnalysisWebSocket } from "@/common/hooks/useAnalysisWebSocket";
 import type { useBuildTargets } from "@/common/hooks/useBuildTargets";
 import type { useStaticDashboard } from "@/common/hooks/useStaticDashboard";
 
@@ -53,6 +55,10 @@ export function useStaticAnalysisPageController(
   const [selectedFindingId, setSelectedFindingId] = useState<string | null>(null);
   const [runDetailLoading, setRunDetailLoading] = useState(false);
   const [showTargetSelect, setShowTargetSelect] = useState(false);
+  const [pendingMode, setPendingMode] = useState<AnalysisMode>("quick");
+  const [confirmAbortId, setConfirmAbortId] = useState<string | null>(null);
+  const [aborting, setAborting] = useState(false);
+  const pipeline = usePipelineProgress();
 
   useEffect(() => {
     guard.setBlocking(analysis.isRunning);
@@ -72,7 +78,8 @@ export function useStaticAnalysisPageController(
 
   const loadSourceData = useCallback(() => {
     if (!projectId) return;
-    fetchSourceFiles(projectId)
+    /* StaticAnalysis source view filters source-only (excludes binaries/configs); FilesPage tree shows full upload set, no filter. */
+    fetchSourceFiles(projectId, "source")
       .then(setSourceFiles)
       .catch(() => setSourceFiles([]));
     fetchProjectFindings(projectId)
@@ -129,38 +136,83 @@ export function useStaticAnalysisPageController(
 
   const handleDiscoverTargets = useCallback(async () => {
     try {
-      const discovered = await buildTargets.discover();
-      toast.success(`${discovered?.length ?? 0}개 빌드 타겟 발견`);
+      const result = await buildTargets.discover();
+      if (!result) return;
+      // E3 decision: contract returns {discovered, created, targets, elapsedMs}.
+      // All count fields are surfaced here via toast. No separate inline panel
+      // is added — toast feedback is sufficient (Karpathy §2 simplicity: do not
+      // add UI surface where existing path already provides feedback).
+      toast.success(
+        `빌드 타겟 ${result.discovered}개 발견 · ${result.created}개 생성 · ${result.elapsedMs}ms`,
+      );
     } catch {
       toast.error("타겟 탐색에 실패했습니다.");
     }
   }, [buildTargets, toast]);
 
-  const handleAnalysisStart = useCallback(() => {
+  const handleAnalysisStart = useCallback((mode: AnalysisMode = "quick") => {
     if (!projectId) return;
     if (buildTargets.targets.length === 0) {
       toast.warning("분석을 시작하려면 BuildTarget을 먼저 생성하세요.");
       return;
     }
+    setPendingMode(mode);
     if (buildTargets.targets.length > 1) {
       setShowTargetSelect(true);
       return;
     }
-    analysis.startAnalysis(projectId, buildTargets.targets[0]!.id);
+    analysis.startAnalysis(projectId, buildTargets.targets[0]!.id, mode);
     setView("progress");
   }, [analysis, buildTargets.targets, projectId, toast]);
 
   const handleAnalysisWithTargets = useCallback((selectedTargetId: string) => {
     if (!projectId) return;
     setShowTargetSelect(false);
-    analysis.startAnalysis(projectId, selectedTargetId);
+    analysis.startAnalysis(projectId, selectedTargetId, pendingMode);
     setView("progress");
-  }, [analysis, projectId]);
+  }, [analysis, pendingMode, projectId]);
 
   const handleRetry = useCallback(() => {
     if (!projectId || !analysis.buildTargetId) return;
-    analysis.startAnalysis(projectId, analysis.buildTargetId);
-  }, [analysis, projectId]);
+    analysis.startAnalysis(projectId, analysis.buildTargetId, pendingMode);
+  }, [analysis, pendingMode, projectId]);
+
+  const handleRequestAbortAnalysis = useCallback((analysisId: string) => {
+    setConfirmAbortId(analysisId);
+  }, []);
+
+  const handleConfirmAbortAnalysis = useCallback(async () => {
+    const analysisId = confirmAbortId;
+    if (!analysisId) return;
+    setAborting(true);
+    try {
+      await abortAnalysis(analysisId);
+      toast.success("분석을 중단했습니다.");
+      analysis.reset();
+      dashboard.refresh();
+    } catch (error) {
+      logError("Abort analysis", error);
+      toast.error("분석 중단에 실패했습니다.");
+    } finally {
+      setAborting(false);
+      setConfirmAbortId(null);
+    }
+  }, [analysis, confirmAbortId, dashboard, toast]);
+
+  const handleCancelAbortAnalysis = useCallback(() => {
+    setConfirmAbortId(null);
+  }, []);
+
+  const handlePrepare = useCallback(async () => {
+    if (!projectId) return;
+    try {
+      await pipeline.startPreparation(projectId);
+      toast.success("빌드 검증 시작");
+    } catch (error) {
+      logError("Start pipeline preparation", error);
+      toast.error("빌드 검증 시작에 실패했습니다.");
+    }
+  }, [pipeline, projectId, toast]);
 
   const handleResumeAnalysis = useCallback(() => {
     if (analysis.isRunning) setView("progress");
@@ -250,6 +302,9 @@ export function useStaticAnalysisPageController(
     runDetailLoading,
     showTargetSelect,
     setShowTargetSelect,
+    pendingMode,
+    confirmAbortId,
+    aborting,
     goToDashboard,
     handleViewRun,
     handleSelectFinding,
@@ -262,5 +317,10 @@ export function useStaticAnalysisPageController(
     handleViewResults: goToDashboard,
     handleResumeAnalysis,
     handleFileClick,
+    handleRequestAbortAnalysis,
+    handleConfirmAbortAnalysis,
+    handleCancelAbortAnalysis,
+    handlePrepare,
+    isPreparing: pipeline.isPreparing,
   };
 }

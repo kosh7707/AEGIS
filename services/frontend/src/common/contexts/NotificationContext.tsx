@@ -8,13 +8,15 @@ import {
   getNotificationWsUrl,
 } from "@/common/api/notifications";
 import { logError } from "@/common/api/core";
-import { parseWsMessage, createReconnectingWs } from "@/common/utils/wsEnvelope";
+import { createSeqTracker, parseWsMessage, createReconnectingWs } from "@/common/utils/wsEnvelope";
 import { useToast } from "./ToastContext";
 
 interface NotificationContextValue {
   notifications: Notification[];
   unreadCount: number;
   loading: boolean;
+  /** True after WS retry budget exhausted; consumers may render an offline banner. */
+  realtimeOffline: boolean;
   markRead: (id: string) => Promise<void>;
   markAllRead: () => Promise<void>;
   refresh: () => Promise<void>;
@@ -45,6 +47,7 @@ export function NotificationProvider({
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [loading, setLoading] = useState(false);
+  const [realtimeOffline, setRealtimeOffline] = useState(false);
   const seenIdsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
@@ -80,8 +83,14 @@ export function NotificationProvider({
     if (!projectId) return;
     if (import.meta.env.VITE_MOCK === "true") return;
 
+    setRealtimeOffline(false);
+    const seqTracker = createSeqTracker("notification");
+
     const rws = createReconnectingWs(() => getNotificationWsUrl(projectId), {
       maxRetries: 10,
+      onDisconnect() {
+        seqTracker.reset();
+      },
       async onReconnect() {
         // Catch up on missed notifications via REST
         try {
@@ -97,6 +106,9 @@ export function NotificationProvider({
         }
         wireHandlers(rws.getWs());
       },
+      onGiveUp() {
+        setRealtimeOffline(true);
+      },
     });
 
     function wireHandlers(ws: WebSocket | null) {
@@ -104,6 +116,9 @@ export function NotificationProvider({
       ws.onmessage = (event) => {
         try {
           const msg = parseWsMessage(event.data);
+          // Drop frames whose envelope channel does not match this consumer.
+          if (msg.meta && msg.meta.channel !== "notification") return;
+          seqTracker.check(msg.meta);
           const payload = msg;
           if (payload.type === "notification" && payload.payload) {
             const notif = payload.payload as Notification;
@@ -147,7 +162,7 @@ export function NotificationProvider({
   }, [projectId]);
 
   return (
-    <NotificationContext.Provider value={{ notifications, unreadCount, loading, markRead, markAllRead, refresh }}>
+    <NotificationContext.Provider value={{ notifications, unreadCount, loading, realtimeOffline, markRead, markAllRead, refresh }}>
       {children}
     </NotificationContext.Provider>
   );

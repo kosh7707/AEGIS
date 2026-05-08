@@ -8,6 +8,7 @@ import {
   discoverBuildTargets,
   logError,
 } from "@/common/api/client";
+import type { DiscoverBuildTargetsResult } from "@/common/api/pipeline";
 
 export function useBuildTargets(projectId?: string) {
   const [targets, setTargets] = useState<BuildTarget[]>([]);
@@ -33,6 +34,7 @@ export function useBuildTargets(projectId?: string) {
     name: string,
     relativePath: string,
     buildProfile?: BuildProfile,
+    buildSystem?: string,
     includedPaths?: string[],
     scriptHintPath?: string,
   ) => {
@@ -41,6 +43,7 @@ export function useBuildTargets(projectId?: string) {
       name,
       relativePath,
       buildProfile,
+      ...(buildSystem !== undefined ? { buildSystem } : {}),
       includedPaths,
       ...(scriptHintPath !== undefined && scriptHintPath !== "" ? { scriptHintPath } : {}),
     });
@@ -59,6 +62,9 @@ export function useBuildTargets(projectId?: string) {
     },
   ) => {
     if (!projectId) return;
+    if (body.includedPaths !== undefined) {
+      throw new Error("includedPaths edits unsupported by S2 contract; use BuildTarget recreate flow.");
+    }
     const { includedPaths: _ignoredIncludedPaths, ...supportedBody } = body;
     const updated = await updateBuildTarget(projectId, targetId, supportedBody);
     setTargets((prev) => prev.map((t) => (t.id === targetId ? updated : t)));
@@ -71,13 +77,13 @@ export function useBuildTargets(projectId?: string) {
     setTargets((prev) => prev.filter((t) => t.id !== targetId));
   }, [projectId]);
 
-  const discover = useCallback(async () => {
-    if (!projectId) return [];
+  const discover = useCallback(async (): Promise<DiscoverBuildTargetsResult | undefined> => {
+    if (!projectId) return undefined;
     setDiscovering(true);
     try {
-      const discovered = await discoverBuildTargets(projectId) ?? [];
-      setTargets(discovered);
-      return discovered;
+      const result = await discoverBuildTargets(projectId);
+      setTargets(result.targets);
+      return result;
     } catch (e) {
       logError("Discover targets", e);
       throw e;

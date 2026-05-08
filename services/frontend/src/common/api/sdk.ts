@@ -9,6 +9,11 @@ import type {
   SdkPhaseDetail as _SdkPhaseDetail,
   SdkProgressPhase as _SdkProgressPhase,
   SdkPhaseHistoryEntry as _SdkPhaseHistoryEntry,
+  SdkProfile as _SdkProfile,
+  SdkMetrics as _SdkMetrics,
+  SdkProfileListResponse,
+  SdkProfileResponse,
+  SdkMetricsResponse,
 } from "@aegis/shared";
 
 /* ── Re-exported shared types ── */
@@ -22,6 +27,8 @@ export type SdkErrorPhase = _SdkErrorPhase;
 export type SdkPhaseDetail = _SdkPhaseDetail;
 export type SdkProgressPhase = _SdkProgressPhase;
 export type SdkPhaseHistoryEntry = _SdkPhaseHistoryEntry;
+export type SdkProfile = _SdkProfile;
+export type SdkMetrics = _SdkMetrics;
 
 /* ── SDK quota / retry / log response shapes ── */
 
@@ -42,23 +49,6 @@ export interface SdkLogResponse {
 
 export type SdkRetryFromPhase = "analyzing" | "verifying";
 
-/* ── Local types (NOT migrated — SdkProfile.defaults shape differs from shared) ── */
-
-export interface SdkProfile {
-  id: string;
-  name: string;
-  vendor: string;
-  description: string;
-  defaults: {
-    compiler: string;
-    targetArch: string;
-    languageStandard: string;
-    headerLanguage: string;
-    includePaths?: string[];
-    defines?: Record<string, string>;
-  };
-}
-
 export interface SdkListResponse {
   builtIn: SdkProfile[];
   registered: RegisteredSdk[];
@@ -76,24 +66,6 @@ export async function fetchProjectSdks(projectId: string): Promise<SdkListRespon
 export async function fetchSdkDetail(projectId: string, sdkId: string): Promise<RegisteredSdk> {
   const res = await apiFetch<{ success: boolean; data: RegisteredSdk }>(
     `/api/projects/${projectId}/sdk/${sdkId}`,
-  );
-  return res.data;
-}
-
-/** @deprecated Use registerSdkByUpload instead. Will be removed after S2 confirms localPath removal. */
-export async function registerSdkByPath(
-  projectId: string,
-  name: string,
-  localPath: string,
-  description?: string,
-): Promise<RegisteredSdk> {
-  const res = await apiFetch<{ success: boolean; data: RegisteredSdk }>(
-    `/api/projects/${projectId}/sdk`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, localPath, description }),
-    },
   );
   return res.data;
 }
@@ -172,6 +144,32 @@ export function getSdkLogDownloadUrl(projectId: string, sdkId: string): string {
 export async function fetchSdkQuota(projectId: string): Promise<SdkQuota> {
   const res = await apiFetch<{ success: boolean; data: SdkQuota }>(
     `/api/projects/${projectId}/sdk/quota`,
+  );
+  return res.data;
+}
+
+/* ── SDK Profiles (GET /api/sdk-profiles) ── */
+
+export async function fetchSdkProfiles(): Promise<SdkProfile[]> {
+  const res = await apiFetch<SdkProfileListResponse>("/api/sdk-profiles");
+  return res.data;
+}
+
+export async function fetchSdkProfile(profileId: string): Promise<SdkProfile> {
+  const res = await apiFetch<SdkProfileResponse>(
+    `/api/sdk-profiles/${profileId}`,
+  );
+  if (!res.data) {
+    throw new Error(res.error ?? "SDK profile not found");
+  }
+  return res.data;
+}
+
+/* ── SDK Metrics (GET /api/projects/:pid/sdk/metrics) ── */
+
+export async function fetchSdkMetrics(projectId: string): Promise<SdkMetrics> {
+  const res = await apiFetch<SdkMetricsResponse>(
+    `/api/projects/${projectId}/sdk/metrics`,
   );
   return res.data;
 }

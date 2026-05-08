@@ -13,9 +13,10 @@ interface AdminRegistrationsRowProps {
   busy?: "approve" | "reject";
   onApprove: (id: string, role: UserRole) => void;
   onReject: (id: string, reason: string) => Promise<boolean>;
+  onOpenDetail: (id: string) => void;
 }
 
-export const AdminRegistrationsRow: React.FC<AdminRegistrationsRowProps> = ({ request, busy, onApprove, onReject }) => {
+export const AdminRegistrationsRow: React.FC<AdminRegistrationsRowProps> = ({ request, busy, onApprove, onReject, onOpenDetail }) => {
   const {
     role,
     setRole,
@@ -47,6 +48,18 @@ export const AdminRegistrationsRow: React.FC<AdminRegistrationsRowProps> = ({ re
           rejectedAt={request.rejectedAt}
         />
         {request.decisionReason ? <AdminRegistrationsRowReason reason={request.decisionReason} /> : null}
+        {/* 상세 button is status-agnostic by design — even decided rows preserve audit value
+            (admins frequently revisit approved/rejected requests for context). */}
+        <div className="admin-reg-row__inline-actions">
+          <button
+            type="button"
+            className="btn btn-ghost btn-sm"
+            onClick={() => onOpenDetail(request.id)}
+            aria-label={`${request.fullName} 가입 요청 상세 보기`}
+          >
+            상세
+          </button>
+        </div>
       </div>
 
       {isPending ? (

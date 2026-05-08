@@ -53,7 +53,23 @@ export async function updateProjectSettings(projectId: string, settings: Partial
 // ── Project Overview ──
 
 export async function fetchProjectOverview(projectId: string): Promise<ProjectOverviewResponse> {
-  return apiFetch<ProjectOverviewResponse>(`/api/projects/${projectId}/overview`);
+  // Contract: GET /api/projects/:id/overview returns { success, data: ProjectOverviewResponse }
+  const res = await apiFetch<{ success: boolean; data: ProjectOverviewResponse }>(
+    `/api/projects/${projectId}/overview`,
+  );
+  return res.data;
+}
+
+// ── Project Update ──
+
+export async function updateProject(projectId: string, body: { name: string }): Promise<Project> {
+  // Contract: PUT /api/projects/:id — trims name; 400 on empty
+  const res = await apiFetch<ProjectResponse>(`/api/projects/${projectId}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  return res.data!;
 }
 
 // ── Activity Timeline ──

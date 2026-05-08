@@ -91,11 +91,6 @@ export interface ReconnectOptions {
   WebSocketCtor?: typeof WebSocket;
 }
 
-export interface HeartbeatOptions {
-  interval?: number;
-  timeout?: number;
-}
-
 interface ReconnectingWs {
   getWs(): WebSocket | null;
   connectionState: ConnectionState;
@@ -227,78 +222,6 @@ export function createReconnectingWs(
     },
     resetRetries() {
       retryCount = 0;
-    },
-  };
-}
-
-interface Heartbeat {
-  start(ws: WebSocket): void;
-  stop(): void;
-}
-
-const HEARTBEAT_DEFAULTS = {
-  interval: 30_000,
-  timeout: 10_000,
-} as const;
-
-/**
- * Monitors connection liveness via periodic pings.
- * If no pong arrives within timeout, force-closes the WS to trigger reconnect.
- */
-export function createHeartbeat(options?: HeartbeatOptions): Heartbeat {
-  const opts = { ...HEARTBEAT_DEFAULTS, ...options };
-  let intervalId: ReturnType<typeof setInterval> | null = null;
-  let timeoutId: ReturnType<typeof setTimeout> | null = null;
-  let currentWs: WebSocket | null = null;
-  let awaitingPong = false;
-
-  function onMessage(event: MessageEvent) {
-    try {
-      const data = JSON.parse(event.data);
-      if (data.type === "pong") {
-        awaitingPong = false;
-        if (timeoutId !== null) {
-          clearTimeout(timeoutId);
-          timeoutId = null;
-        }
-      }
-    } catch {
-      // not a JSON message — ignore
-    }
-  }
-
-  return {
-    start(ws: WebSocket) {
-      this.stop();
-      currentWs = ws;
-      ws.addEventListener("message", onMessage);
-
-      intervalId = setInterval(() => {
-        if (!currentWs || currentWs.readyState !== WebSocket.OPEN) return;
-        if (awaitingPong) return; // still waiting for previous pong
-        awaitingPong = true;
-        currentWs.send(JSON.stringify({ type: "ping" }));
-        timeoutId = setTimeout(() => {
-          if (awaitingPong && currentWs) {
-            currentWs.close(); // triggers reconnect via createReconnectingWs
-          }
-        }, opts.timeout);
-      }, opts.interval);
-    },
-    stop() {
-      if (intervalId !== null) {
-        clearInterval(intervalId);
-        intervalId = null;
-      }
-      if (timeoutId !== null) {
-        clearTimeout(timeoutId);
-        timeoutId = null;
-      }
-      if (currentWs) {
-        currentWs.removeEventListener("message", onMessage);
-        currentWs = null;
-      }
-      awaitingPong = false;
     },
   };
 }

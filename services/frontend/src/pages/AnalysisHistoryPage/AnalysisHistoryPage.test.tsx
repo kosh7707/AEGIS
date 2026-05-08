@@ -8,6 +8,7 @@ import { AnalysisHistoryPage } from "./AnalysisHistoryPage";
 const mockNavigate = vi.fn();
 const mockFetchProjectRuns = vi.fn();
 const mockLogError = vi.fn();
+const mockDeleteAnalysisResult = vi.fn();
 const mockToast = { error: vi.fn(), success: vi.fn(), info: vi.fn() };
 
 vi.mock("react-router-dom", async () => {
@@ -21,6 +22,10 @@ vi.mock("react-router-dom", async () => {
 vi.mock("@/common/api/client", () => ({
   fetchProjectRuns: (...args: unknown[]) => mockFetchProjectRuns(...args),
   logError: (...args: unknown[]) => mockLogError(...args),
+}));
+
+vi.mock("@/common/api/analysis", () => ({
+  deleteAnalysisResult: (...args: unknown[]) => mockDeleteAnalysisResult(...args),
 }));
 
 vi.mock("@/common/contexts/ToastContext", () => ({
@@ -161,5 +166,47 @@ describe("AnalysisHistoryPage", () => {
     await waitFor(() => expect(screen.getByText("아직 분석 이력이 없습니다")).toBeInTheDocument());
     expect(mockFetchProjectRuns).not.toHaveBeenCalled();
     expect(mockToast.error).not.toHaveBeenCalled();
+  });
+
+  it("requests delete confirmation and reloads runs after delete succeeds", async () => {
+    mockDeleteAnalysisResult.mockResolvedValue(undefined);
+    mockFetchProjectRuns.mockResolvedValue([
+      makeRun({
+        id: "run-1",
+        analysisResultId: "analysis-1",
+        module: "static_analysis",
+        status: "completed",
+      }),
+    ]);
+
+    renderPage();
+
+    await waitFor(() => expect(mockFetchProjectRuns).toHaveBeenCalledTimes(1));
+    const deleteButton = await screen.findByRole("button", { name: /분석 결과 삭제/ });
+    fireEvent.click(deleteButton);
+
+    expect(await screen.findByText("분석 결과 삭제")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "삭제" }));
+
+    await waitFor(() => expect(mockDeleteAnalysisResult).toHaveBeenCalledWith("analysis-1"));
+    await waitFor(() => expect(mockFetchProjectRuns).toHaveBeenCalledTimes(2));
+    expect(mockToast.success).toHaveBeenCalledWith("분석 결과를 삭제했습니다.");
+  });
+
+  it("toasts an error and keeps the row when delete fails", async () => {
+    mockDeleteAnalysisResult.mockRejectedValue(new Error("nope"));
+    mockFetchProjectRuns.mockResolvedValue([
+      makeRun({ id: "run-1", analysisResultId: "analysis-1", status: "completed" }),
+    ]);
+
+    renderPage();
+
+    await waitFor(() => expect(mockFetchProjectRuns).toHaveBeenCalledTimes(1));
+    fireEvent.click(await screen.findByRole("button", { name: /분석 결과 삭제/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "삭제" }));
+
+    await waitFor(() =>
+      expect(mockToast.error).toHaveBeenCalledWith("분석 결과 삭제에 실패했습니다."),
+    );
   });
 });

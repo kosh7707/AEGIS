@@ -108,6 +108,8 @@ async def execute_phase_one(executor, session: "AgentSession", logger: logging.L
 
     if pre_findings is not None:
         result.sast_findings = pre_findings
+        result.sast_scan_attempted = True
+        result.sast_scan_completed = True
         if pre_sca is not None:
             result.sca_libraries = pre_sca
         agent_log(
@@ -153,6 +155,7 @@ async def execute_phase_one(executor, session: "AgentSession", logger: logging.L
                     compile_commands_path=result.build_compile_commands_path,
                     revision_hint=revision_hint,
                     provenance=provenance,
+                    build_environment=build_environment,
                 )
         else:
             result = await executor._run_individual_tools(
@@ -162,6 +165,7 @@ async def execute_phase_one(executor, session: "AgentSession", logger: logging.L
                 compile_commands_path=result.build_compile_commands_path,
                 revision_hint=revision_hint,
                 provenance=provenance,
+                build_environment=build_environment,
             )
 
     if result.sca_libraries:

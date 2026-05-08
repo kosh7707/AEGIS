@@ -77,14 +77,22 @@ interface UseSdkProgressOptions {
   onLog?: (sdkId: string, payload: SdkLogEventPayload) => void;
 }
 
+export interface UseSdkProgressResult extends ReconnectableHookResult {
+  /** True after retry budget exhausted or close 4000 — UX should surface a banner. */
+  disconnected: boolean;
+  /** Human-readable reason populated when disconnected becomes true. */
+  giveUpReason: string | null;
+}
+
 export function useSdkProgress({
   projectId,
   onProgress,
   onComplete,
   onError,
   onLog,
-}: UseSdkProgressOptions): ReconnectableHookResult {
+}: UseSdkProgressOptions): UseSdkProgressResult {
   const [connectionState, setConnectionState] = useState<ConnectionState>("disconnected");
+  const [giveUpReason, setGiveUpReason] = useState<string | null>(null);
   const rwsRef = useRef<ReturnType<typeof createReconnectingWs> | null>(null);
   const callbacksRef = useRef({ onProgress, onComplete, onError, onLog });
   callbacksRef.current = { onProgress, onComplete, onError, onLog };
@@ -104,6 +112,7 @@ export function useSdkProgress({
       return;
     }
 
+    setGiveUpReason(null);
     const seqTracker = createSeqTracker("sdk");
     const wsUrl = getSdkWsUrl(projectId);
 
@@ -187,6 +196,9 @@ export function useSdkProgress({
         }
         wireHandlers(rws.getWs());
       },
+      onGiveUp() {
+        setGiveUpReason("SDK 실시간 진행 상황 연결이 끊어졌습니다. 페이지를 새로고침해 주세요.");
+      },
     });
     rwsRef.current = rws;
     wireHandlers(rws.getWs());
@@ -196,5 +208,9 @@ export function useSdkProgress({
     };
   }, [projectId, cleanup]);
 
-  return { connectionState };
+  return {
+    connectionState,
+    disconnected: connectionState === "failed",
+    giveUpReason,
+  };
 }

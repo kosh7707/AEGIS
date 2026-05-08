@@ -1,0 +1,96 @@
+/* FindingsSummaryPanel — compact KPI row above severity distribution.
+ * Reuses canonical .kpi vocab from handoff/components/kpi.css for caps-mono
+ * dt + tabular-nums dd. Severity-bound numeral tinting per handoff §2.2 +
+ * design-doctrine §3.4 (severity finding-count numerals MAY use severity
+ * ramp on the numeral itself; never on chrome). */
+.findings-summary-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.findings-summary-panel__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: var(--space-7);
+  margin: 0;
+  padding: var(--space-5);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+
+.findings-summary-panel__cell {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 64px;
+}
+
+/* Severity-bound numeral tinting — handoff §2.2 narrow whitelist
+ * (severity-bound numerals). Only the numeral carries the severity
+ * signal; surrounding chrome stays neutral. */
+.findings-summary-panel__num--critical { color: var(--severity-critical); }
+.findings-summary-panel__num--high { color: var(--severity-high); }
+.findings-summary-panel__num--medium { color: var(--severity-medium); }
+.findings-summary-panel__num--low { color: var(--severity-low); }
+.findings-summary-panel__num--info { color: var(--foreground-muted); }
+
+.findings-summary-panel__empty {
+  margin: 0;
+  padding: var(--space-5);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-caps);
+  color: var(--foreground-subtle);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+
+/* Status row — review-tone pills, NEVER severity. Status conveys process
+ * state (open / fixed / accepted), so it uses the review-tone vocabulary
+ * (--success / --warning / --danger / --primary) per handoff §3.3. */
+.findings-summary-panel__status-row {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.findings-summary-panel__status-pill {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  padding: 2px var(--space-3);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+.findings-summary-panel__status-label {
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-caps);
+  color: var(--foreground-subtle);
+}
+
+.findings-summary-panel__status-count {
+  font-variant-numeric: tabular-nums;
+  color: var(--foreground);
+}
+
+.findings-summary-panel__status-pill--success { border-color: var(--success); }
+.findings-summary-panel__status-pill--success .findings-summary-panel__status-count { color: var(--success); }
+.findings-summary-panel__status-pill--warning { border-color: var(--warning); }
+.findings-summary-panel__status-pill--warning .findings-summary-panel__status-count { color: var(--warning); }
+.findings-summary-panel__status-pill--danger { border-color: var(--danger); }
+.findings-summary-panel__status-pill--danger .findings-summary-panel__status-count { color: var(--danger); }
+.findings-summary-panel__status-pill--primary { border-color: var(--primary); }
+.findings-summary-panel__status-pill--primary .findings-summary-panel__status-count { color: var(--primary); }
+.findings-summary-panel__status-pill--muted .findings-summary-panel__status-count { color: var(--foreground-muted); }

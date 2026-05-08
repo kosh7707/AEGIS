@@ -70,18 +70,28 @@ describe("useBuildTargets", () => {
   });
 
   it("update replaces target in list", async () => {
-    const updated = { ...mockTargets[0], name: "gw-renamed", includedPaths: ["src/", "include/"] };
+    const updated = { ...mockTargets[0], name: "gw-renamed" };
     mockUpdateBuildTarget.mockResolvedValue(updated);
 
     const { result } = renderHook(() => useBuildTargets("p-1"));
     await waitFor(() => expect(result.current.loading).toBe(false));
 
     await act(async () => {
-      await result.current.update("t-1", { name: "gw-renamed", includedPaths: ["src/", "include/"] });
+      await result.current.update("t-1", { name: "gw-renamed" });
     });
 
     expect(result.current.targets[0].name).toBe("gw-renamed");
     expect(mockUpdateBuildTarget).toHaveBeenCalledWith("p-1", "t-1", { name: "gw-renamed" });
+  });
+
+  it("update throws when caller passes includedPaths (unsupported by S2 contract)", async () => {
+    const { result } = renderHook(() => useBuildTargets("p-1"));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    await expect(
+      result.current.update("t-1", { name: "gw-renamed", includedPaths: ["src/"] }),
+    ).rejects.toThrow("includedPaths edits unsupported by S2 contract; use BuildTarget recreate flow.");
+    expect(mockUpdateBuildTarget).not.toHaveBeenCalled();
   });
 
   it("remove filters target from list", async () => {
@@ -102,7 +112,7 @@ describe("useBuildTargets", () => {
       { ...mockTargets[0], id: "t-10", name: "discovered-1" },
       { ...mockTargets[0], id: "t-11", name: "discovered-2" },
     ];
-    mockDiscoverBuildTargets.mockResolvedValue(discovered);
+    mockDiscoverBuildTargets.mockResolvedValue({ discovered: 2, created: 2, targets: discovered, elapsedMs: 10 });
 
     const { result } = renderHook(() => useBuildTargets("p-1"));
     await waitFor(() => expect(result.current.loading).toBe(false));
@@ -115,6 +125,21 @@ describe("useBuildTargets", () => {
     expect(result.current.targets[0].name).toBe("discovered-1");
   });
 
+  it("discover returns the full DiscoverBuildTargetsResult including count fields", async () => {
+    const discovered = [{ ...mockTargets[0], id: "t-10", name: "discovered-1" }];
+    mockDiscoverBuildTargets.mockResolvedValue({ discovered: 3, created: 1, targets: discovered, elapsedMs: 42 });
+
+    const { result } = renderHook(() => useBuildTargets("p-1"));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    let returned: Awaited<ReturnType<typeof result.current.discover>> | undefined;
+    await act(async () => {
+      returned = await result.current.discover();
+    });
+
+    expect(returned).toEqual({ discovered: 3, created: 1, targets: discovered, elapsedMs: 42 });
+  });
+
   it("add forwards scriptHintPath when provided", async () => {
     const newTarget = { ...mockTargets[0], id: "t-2", name: "body" };
     mockCreateBuildTarget.mockResolvedValue(newTarget);
@@ -123,7 +148,7 @@ describe("useBuildTargets", () => {
     await waitFor(() => expect(result.current.loading).toBe(false));
 
     await act(async () => {
-      await result.current.add("body", "body/", undefined, undefined, "scripts/build.sh");
+      await result.current.add("body", "body/", undefined, undefined, undefined, "scripts/build.sh");
     });
 
     expect(mockCreateBuildTarget).toHaveBeenCalledWith("p-1", expect.objectContaining({
@@ -141,14 +166,14 @@ describe("useBuildTargets", () => {
     await waitFor(() => expect(result.current.loading).toBe(false));
 
     await act(async () => {
-      await result.current.add("body", "body/", undefined, undefined, undefined);
+      await result.current.add("body", "body/", undefined, undefined, undefined, undefined);
     });
     expect(mockCreateBuildTarget.mock.calls[0][1]).not.toHaveProperty("scriptHintPath");
 
     mockCreateBuildTarget.mockClear();
     mockCreateBuildTarget.mockResolvedValue(newTarget);
     await act(async () => {
-      await result.current.add("body", "body/", undefined, undefined, "");
+      await result.current.add("body", "body/", undefined, undefined, undefined, "");
     });
     expect(mockCreateBuildTarget.mock.calls[0][1]).not.toHaveProperty("scriptHintPath");
   });
@@ -167,22 +192,18 @@ describe("useBuildTargets", () => {
     expect(mockUpdateBuildTarget).toHaveBeenCalledWith("p-1", "t-1", { scriptHintPath: null });
   });
 
-  it("update forwards scriptHintPath string while still stripping includedPaths", async () => {
-    const updated = { ...mockTargets[0], name: "gateway" };
-    mockUpdateBuildTarget.mockResolvedValue(updated);
-
+  it("update throws when scriptHintPath and includedPaths are both provided (includedPaths unsupported)", async () => {
     const { result } = renderHook(() => useBuildTargets("p-1"));
     await waitFor(() => expect(result.current.loading).toBe(false));
 
-    await act(async () => {
-      await result.current.update("t-1", { scriptHintPath: "scripts/build.sh", includedPaths: ["src/"] });
-    });
-
-    expect(mockUpdateBuildTarget).toHaveBeenCalledWith("p-1", "t-1", { scriptHintPath: "scripts/build.sh" });
+    await expect(
+      result.current.update("t-1", { scriptHintPath: "scripts/build.sh", includedPaths: ["src/"] }),
+    ).rejects.toThrow("includedPaths edits unsupported by S2 contract; use BuildTarget recreate flow.");
+    expect(mockUpdateBuildTarget).not.toHaveBeenCalled();
   });
 
   it("sets discovering flag during discover", async () => {
-    let resolveDiscover: (value: BuildTarget[]) => void;
+    let resolveDiscover: (value: { discovered: number; created: number; targets: BuildTarget[]; elapsedMs: number }) => void;
     mockDiscoverBuildTargets.mockImplementation(
       () => new Promise((r) => { resolveDiscover = r; }),
     );
@@ -198,7 +219,7 @@ describe("useBuildTargets", () => {
     expect(result.current.discovering).toBe(true);
 
     await act(async () => {
-      resolveDiscover!(mockTargets);
+      resolveDiscover!({ discovered: 1, created: 1, targets: mockTargets, elapsedMs: 5 });
       await promise!;
     });
 

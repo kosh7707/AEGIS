@@ -5,7 +5,7 @@
   overflow-y: auto;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
-  background: var(--card);
+  background: var(--card); /* canonical token (index.css light/dark) — not compat-layer */
 }
 .script-hint-tree--empty {
   padding: var(--space-4);

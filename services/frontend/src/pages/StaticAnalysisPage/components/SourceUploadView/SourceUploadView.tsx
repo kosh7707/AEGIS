@@ -1,6 +1,6 @@
 import "./SourceUploadView.css";
 import React, { useState, useEffect, useMemo, useCallback } from "react";
-import { Crosshair, Folder, FolderArchive, GitBranch, Play, Search, Upload } from "lucide-react";
+import { Crosshair, Folder, FolderArchive, GitBranch, Play, Search, Upload, Wrench } from "lucide-react";
 import { cn } from "@/common/utils/cn";
 import type { SourceFileEntry } from "@/common/api/client";
 import { cloneSource, fetchSourceFiles, logError, uploadSource } from "@/common/api/client";
@@ -8,6 +8,7 @@ import { LANG_GROUPS } from "@/common/constants/languages";
 import { useToast } from "@/common/contexts/ToastContext";
 import { useUploadProgress } from "@/common/hooks/useUploadProgress";
 import { ConnectionStatusBanner, Spinner } from "@/common/ui/primitives";
+import type { AnalysisMode } from "@/common/hooks/useAnalysisWebSocket";
 import { formatFileSize } from "@/common/utils/format";
 import { buildTree, countFiles } from "@/common/utils/tree";
 
@@ -15,12 +16,15 @@ type UploadTab = "zip" | "git";
 
 interface Props {
   projectId: string;
-  onAnalysisStart: () => void;
+  onAnalysisStart: (mode: AnalysisMode) => void;
   onBrowseTree?: () => void;
   onDiscoverTargets?: () => void;
+  onPrepare?: () => void;
+  isPreparing?: boolean;
 }
 
-export const SourceUploadView: React.FC<Props> = ({ projectId, onAnalysisStart, onBrowseTree, onDiscoverTargets }) => {
+export const SourceUploadView: React.FC<Props> = ({ projectId, onAnalysisStart, onBrowseTree, onDiscoverTargets, onPrepare, isPreparing }) => {
+  const [analysisMode, setAnalysisMode] = useState<AnalysisMode>("quick");
   const toast = useToast();
   const upload = useUploadProgress();
   const [tab, setTab] = useState<UploadTab>("zip");
@@ -210,7 +214,58 @@ export const SourceUploadView: React.FC<Props> = ({ projectId, onAnalysisStart, 
               <Upload size={14} />
               재업로드
             </button>
-            <button type="button" className="btn btn-primary btn-sm" onClick={onAnalysisStart}>
+            {onPrepare ? (
+              <button
+                type="button"
+                className="btn btn-outline btn-sm"
+                onClick={onPrepare}
+                disabled={isPreparing}
+              >
+                <Wrench size={14} />
+                {isPreparing ? "빌드 검증 중..." : "빌드 검증"}
+              </button>
+            ) : null}
+            <div
+              className="seg source-upload-mode-seg"
+              role="radiogroup"
+              aria-label="분석 모드"
+              onKeyDown={(event) => {
+                if (event.key === "ArrowRight" || event.key === "ArrowLeft") {
+                  event.preventDefault();
+                  setAnalysisMode((prev) => (prev === "quick" ? "deep" : "quick"));
+                } else if (event.key === "Home") {
+                  event.preventDefault();
+                  setAnalysisMode("quick");
+                } else if (event.key === "End") {
+                  event.preventDefault();
+                  setAnalysisMode("deep");
+                }
+              }}
+            >
+              <button
+                type="button"
+                role="radio"
+                aria-checked={analysisMode === "quick"}
+                className={cn("source-upload-mode-seg__btn", analysisMode === "quick" && "active")}
+                onClick={() => setAnalysisMode("quick")}
+              >
+                QUICK
+              </button>
+              <button
+                type="button"
+                role="radio"
+                aria-checked={analysisMode === "deep"}
+                className={cn("source-upload-mode-seg__btn", analysisMode === "deep" && "active")}
+                onClick={() => setAnalysisMode("deep")}
+              >
+                DEEP
+              </button>
+            </div>
+            <button
+              type="button"
+              className="btn btn-primary btn-sm"
+              onClick={() => onAnalysisStart(analysisMode)}
+            >
               <Play size={14} />
               분석 실행
             </button>

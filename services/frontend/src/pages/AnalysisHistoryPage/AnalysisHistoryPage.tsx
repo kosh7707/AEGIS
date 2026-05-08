@@ -1,6 +1,6 @@
 import React, { useEffect } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { PageHeader, Spinner } from "@/common/ui/primitives";
+import { ConfirmDialog, PageHeader, Spinner } from "@/common/ui/primitives";
 import { useToast } from "@/common/contexts/ToastContext";
 import { getModuleRoute } from "@/common/constants/modules";
 import { AnalysisHistoryToolbar } from "./components/AnalysisHistoryToolbar/AnalysisHistoryToolbar";
@@ -20,6 +20,11 @@ export const AnalysisHistoryPage: React.FC = () => {
     filteredRuns,
     completedCount,
     failedCount,
+    confirmDeleteId,
+    deleting,
+    requestDelete,
+    cancelDelete,
+    confirmDelete,
   } = useAnalysisHistoryPageController(projectId, toast);
 
   useEffect(() => {
@@ -74,6 +79,21 @@ export const AnalysisHistoryPage: React.FC = () => {
           }
           navigate(getModuleRoute(run.module, projectId, run.analysisResultId));
         }}
+        onDeleteRun={(run) => {
+          if (run.analysisResultId) {
+            requestDelete(run.analysisResultId);
+          }
+        }}
+      />
+
+      <ConfirmDialog
+        open={confirmDeleteId !== null}
+        title="분석 결과 삭제"
+        message="이 분석 결과를 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다."
+        confirmLabel={deleting ? "삭제 중..." : "삭제"}
+        danger
+        onConfirm={confirmDelete}
+        onCancel={cancelDelete}
       />
     </div>
   );

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { RegistrationRequest, UserRole } from "@aegis/shared";
 import {
   approveRegistrationRequest,
+  fetchRegistrationRequest,
   listRegistrationRequests,
   rejectRegistrationRequest,
 } from "@/common/api/auth";
@@ -17,6 +18,9 @@ export function useAdminRegistrationsPageController() {
   const [busy, setBusy] = useState<BusyMap>({});
   const [actionError, setActionError] = useState<string | null>(null);
   const [filter, setFilter] = useState<RegistrationStatusFilter>("pending");
+  const [detailRequest, setDetailRequest] = useState<RegistrationRequest | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -80,6 +84,27 @@ export function useAdminRegistrationsPageController() {
     }
   }, []);
 
+  const openDetail = useCallback(async (id: string) => {
+    setDetailError(null);
+    setDetailLoading(true);
+    setDetailRequest(null);
+    try {
+      const fresh = await fetchRegistrationRequest(id);
+      setDetailRequest(fresh);
+    } catch (failure: unknown) {
+      const message = failure instanceof Error ? failure.message : "가입 요청 상세를 불러오지 못했습니다.";
+      setDetailError(message);
+    } finally {
+      setDetailLoading(false);
+    }
+  }, []);
+
+  const closeDetail = useCallback(() => {
+    setDetailRequest(null);
+    setDetailError(null);
+    setDetailLoading(false);
+  }, []);
+
   const counts = useMemo(() => ({
     pending: requests.filter((r) => r.status === "pending_admin_review").length,
     approved: requests.filter((r) => r.status === "approved").length,
@@ -110,5 +135,10 @@ export function useAdminRegistrationsPageController() {
     filter,
     setFilter,
     displayRequests,
+    detailRequest,
+    detailLoading,
+    detailError,
+    openDetail,
+    closeDetail,
   };
 }

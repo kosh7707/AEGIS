@@ -31,6 +31,7 @@ const mockRegisterSdkByUpload = vi.fn();
 const mockDeleteSdk = vi.fn();
 const mockFetchProject = vi.fn();
 const mockUpdateProjectSettings = vi.fn();
+const mockUpdateProject = vi.fn();
 const mockDeleteProject = vi.fn();
 const mockRetrySdk = vi.fn();
 const mockFetchSdkLog = vi.fn();
@@ -51,10 +52,27 @@ vi.mock("@/common/api/sdk", () => ({
 vi.mock("@/common/api/projects", () => ({
   fetchProject: (...args: unknown[]) => mockFetchProject(...args),
   updateProjectSettings: (...args: unknown[]) => mockUpdateProjectSettings(...args),
+  updateProject: (...args: unknown[]) => mockUpdateProject(...args),
   deleteProject: (...args: unknown[]) => mockDeleteProject(...args),
 }));
 
-vi.mock("@/common/api/core", () => ({ logError: vi.fn() }));
+vi.mock("@/common/api/core", () => ({
+  logError: vi.fn(),
+  ApiError: class ApiError extends Error {
+    code: string;
+    retryable: boolean;
+    requestId: string;
+    detailMessage?: string;
+    constructor(message: string, code = "UNKNOWN", retryable = false, requestId = "test-rid", detailMessage?: string) {
+      super(message);
+      this.name = "ApiError";
+      this.code = code;
+      this.retryable = retryable;
+      this.requestId = requestId;
+      this.detailMessage = detailMessage;
+    }
+  },
+}));
 vi.mock("@/common/contexts/ToastContext", () => ({ useToast: () => mockToast }));
 
 function renderPage() {
@@ -100,6 +118,7 @@ describe("ProjectSettingsPage", () => {
       updatedAt: "2026-04-04T00:00:00Z",
     });
     mockUpdateProjectSettings.mockResolvedValue({ id: "p-1" });
+    mockUpdateProject.mockResolvedValue({ id: "p-1", name: "Renamed" });
     mockDeleteProject.mockResolvedValue(undefined);
     mockRetrySdk.mockResolvedValue({
       id: "sdk-1",
@@ -148,6 +167,37 @@ describe("ProjectSettingsPage", () => {
     expect(screen.getByPlaceholderText("프로젝트 이름")).toBeInTheDocument();
     expect(screen.getByPlaceholderText("프로젝트 설명")).toBeInTheDocument();
     expect(document.title).toBe("AEGIS — Project Settings");
+  });
+
+  it("calls updateProject (PUT /api/projects/:id) when only the project name changes", async () => {
+    renderPage();
+
+    await waitFor(() => expect(mockFetchProject).toHaveBeenCalledWith("p-1"));
+    const nameInput = await screen.findByPlaceholderText("프로젝트 이름");
+    fireEvent.change(nameInput, { target: { value: "Renamed Project" } });
+
+    fireEvent.click(screen.getByRole("button", { name: /저장$/ }));
+
+    await waitFor(() => expect(mockUpdateProject).toHaveBeenCalledWith("p-1", { name: "Renamed Project" }));
+    // Description didn't change → updateProjectSettings is not called.
+    expect(mockUpdateProjectSettings).not.toHaveBeenCalled();
+    expect(mockToast.success).toHaveBeenCalledWith("프로젝트 이름이 변경되었습니다.");
+  });
+
+  it("blocks save and toasts when the trimmed project name is empty", async () => {
+    renderPage();
+
+    await waitFor(() => expect(mockFetchProject).toHaveBeenCalledWith("p-1"));
+    const nameInput = await screen.findByPlaceholderText("프로젝트 이름");
+    fireEvent.change(nameInput, { target: { value: "   " } });
+
+    fireEvent.click(screen.getByRole("button", { name: /저장$/ }));
+
+    await waitFor(() =>
+      expect(mockToast.error).toHaveBeenCalledWith("프로젝트 이름을 입력해 주세요."),
+    );
+    expect(mockUpdateProject).not.toHaveBeenCalled();
+    expect(mockUpdateProjectSettings).not.toHaveBeenCalled();
   });
 
   it("shows the danger zone copy when the danger section is selected", async () => {
@@ -659,5 +709,36 @@ describe("ProjectSettingsPage", () => {
 
     await waitFor(() => expect(mockToast.error).toHaveBeenCalledWith("SDK 목록을 불러올 수 없습니다."));
     expect(await screen.findByPlaceholderText("프로젝트 이름")).toBeInTheDocument();
+  });
+
+  it("partial failure surfaces nameUpdated message when name saves but description fails", async () => {
+    mockFetchProject.mockResolvedValue({
+      id: "p-1",
+      name: "Original Name",
+      description: "original desc",
+      createdAt: "2026-04-04T00:00:00Z",
+      updatedAt: "2026-04-04T00:00:00Z",
+    });
+    mockUpdateProject.mockResolvedValue({ id: "p-1", name: "New Name" });
+    mockUpdateProjectSettings.mockRejectedValue(new Error("network error"));
+
+    renderPage();
+
+    await waitFor(() => expect(mockFetchProject).toHaveBeenCalledWith("p-1"));
+    const nameInput = await screen.findByPlaceholderText("프로젝트 이름");
+    const descInput = await screen.findByPlaceholderText("프로젝트 설명");
+    fireEvent.change(nameInput, { target: { value: "New Name" } });
+    fireEvent.change(descInput, { target: { value: "new desc" } });
+
+    fireEvent.click(screen.getByRole("button", { name: /저장$/ }));
+
+    await waitFor(() => expect(mockUpdateProject).toHaveBeenCalledWith("p-1", { name: "New Name" }));
+    await waitFor(() => expect(mockUpdateProjectSettings).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(mockToast.error).toHaveBeenCalledWith(
+        expect.stringContaining("이름은 저장됐지만"),
+      ),
+    );
+    expect(mockToast.success).not.toHaveBeenCalled();
   });
 });

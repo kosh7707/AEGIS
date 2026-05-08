@@ -252,13 +252,64 @@ async def test_async_build_and_analyze_result_recovery(client: AsyncClient) -> N
 
 
 @pytest.mark.asyncio
+async def test_async_build_cancel_marks_terminal_cancelled_and_stops_active_count(client: AsyncClient) -> None:
+    gate = asyncio.Event()
+
+    async def _slow_build(*args, on_runtime_state=None, **kwargs):
+        if on_runtime_state:
+            await on_runtime_state({"localAckState": "transport-only", "lastAckSource": "build-subprocess-alive"})
+        await gate.wait()
+        return _build_result(success=True)
+
+    with patch("app.routers.scan.Path.is_dir", return_value=True), patch(
+        "app.routers.scan.build_runner.build",
+        AsyncMock(side_effect=_slow_build),
+    ):
+        submit = await client.post(
+            "/v1/build",
+            headers={"X-Request-Id": "owned-build-cancel", "Prefer": "respond-async"},
+            json={"projectPath": "/tmp/project", "buildCommand": "make"},
+        )
+        assert submit.status_code == 202
+        await asyncio.sleep(0.05)
+
+        cancel = await client.delete("/v1/requests/owned-build-cancel")
+        duplicate_cancel = await client.delete("/v1/requests/owned-build-cancel")
+        result = await client.get("/v1/requests/owned-build-cancel/result")
+        health = await client.get("/v1/health", params={"requestId": "owned-build-cancel"})
+
+    assert cancel.status_code == 202
+    cancel_payload = cancel.json()
+    assert cancel_payload["state"] == "cancelled"
+    assert cancel_payload["resultReady"] is True
+    assert cancel_payload["result"]["success"] is False
+    assert cancel_payload["result"]["errorDetail"]["code"] == "REQUEST_CANCELLED"
+    assert duplicate_cancel.status_code == 200
+    assert duplicate_cancel.json()["state"] == "cancelled"
+    assert result.status_code == 200
+    assert result.json()["state"] == "cancelled"
+    assert result.json()["result"]["errorDetail"]["code"] == "REQUEST_CANCELLED"
+    health_payload = health.json()
+    assert health_payload["activeRequestCount"] == 0
+    summary = health_payload["requestSummary"]
+    assert summary["state"] == "cancelled"
+    assert summary["ackStatus"] == "broken"
+    assert summary["localAckState"] == "ack-break"
+    assert summary["blockedReason"] == "request cancelled"
+    assert summary["lastAckSource"] == "request-cancelled"
+
+
+@pytest.mark.asyncio
 async def test_unknown_request_status_and_result_are_404(client: AsyncClient) -> None:
     status = await client.get("/v1/requests/missing")
     result = await client.get("/v1/requests/missing/result")
+    cancel = await client.delete("/v1/requests/missing")
     assert status.status_code == 404
     assert status.json()["error"] == "REQUEST_NOT_FOUND"
     assert result.status_code == 404
     assert result.json()["error"] == "REQUEST_NOT_FOUND"
+    assert cancel.status_code == 404
+    assert cancel.json()["error"] == "REQUEST_NOT_FOUND"
 
 
 @pytest.mark.asyncio

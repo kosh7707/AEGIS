@@ -19,11 +19,34 @@ if TYPE_CHECKING:
     from app.agent_runtime.tools.base import ToolImplementation
 
 
-def _s4_build_profile(build_profile) -> dict:
+def _first_string(mapping: dict, keys: tuple[str, ...]) -> str | None:
+    for key in keys:
+        value = mapping.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return None
+
+
+def _s4_sdk_descriptor_from_environment(build_environment) -> dict:
+    if not isinstance(build_environment, dict):
+        return {}
+    descriptor = {
+        "sdkRootPath": _first_string(build_environment, ("AEGIS_SDK_ROOT", "SDK_ROOT", "SDK_DIR")),
+        "setupScript": _first_string(build_environment, ("AEGIS_SDK_SETUP_SCRIPT", "SDK_SETUP_SCRIPT", "ENVIRONMENT_SETUP_SCRIPT")),
+        "sysroot": _first_string(build_environment, ("AEGIS_SDK_SYSROOT", "SDKTARGETSYSROOT", "SYSROOT")),
+        "toolchainTriplet": _first_string(build_environment, ("AEGIS_TOOLCHAIN_TRIPLET", "TOOLCHAIN_TRIPLET", "TARGET_TRIPLET")),
+        "compilerPath": _first_string(build_environment, ("AEGIS_COMPILER_PATH", "COMPILER_PATH")),
+    }
+    return {key: value for key, value in descriptor.items() if value}
+
+
+def _s4_build_profile(build_profile, *, build_environment=None) -> dict:
     """Normalize S4-facing buildProfile/scanProfile.
 
-    S4 no longer accepts the legacy sdkId='custom' native-build sentinel. Native
-    builds must omit sdkId entirely while preserving other profile hints.
+    S4 now treats bare sdkId as an S4-local registry lookup. When S3 has a
+    caller-resolved SDK path in trusted build metadata, route that profile
+    through S4's non-registered descriptor contract instead of leaking an
+    unregistered label as a registry id.
     """
     if not isinstance(build_profile, dict):
         return {}
@@ -32,7 +55,72 @@ def _s4_build_profile(build_profile) -> dict:
         for key, value in build_profile.items()
         if not (key == "sdkId" and value == "custom")
     }
+    mode = normalized.get("sdkResolutionMode")
+    if mode == "none":
+        normalized.pop("sdkId", None)
+        normalized.pop("sdkDescriptor", None)
+        return normalized
+    if mode == "non-registered":
+        normalized.pop("sdkId", None)
+        descriptor = normalized.get("sdkDescriptor")
+        if isinstance(descriptor, dict):
+            normalized["sdkDescriptor"] = {
+                key: value
+                for key, value in descriptor.items()
+                if value not in (None, "", [], {})
+            }
+        return normalized
+
+    descriptor = _s4_sdk_descriptor_from_environment(build_environment)
+    sdk_id = normalized.get("sdkId")
+    if sdk_id and sdk_id != "custom" and descriptor.get("sdkRootPath"):
+        normalized.pop("sdkId", None)
+        normalized["sdkResolutionMode"] = "non-registered"
+        normalized["sdkDescriptor"] = descriptor
     return normalized
+
+
+def _sast_failure_detail(payload, *, status_code: int | None = None, fallback_message: str = "SAST scan failed") -> dict:
+    detail: dict = {}
+    if isinstance(payload, dict):
+        payload_status_code = payload.get("statusCode")
+        if status_code is None and isinstance(payload_status_code, int):
+            status_code = payload_status_code
+        candidate = payload.get("failureDetail") or payload.get("errorDetail")
+        if isinstance(candidate, dict):
+            detail.update(candidate)
+        elif isinstance(payload.get("detail"), dict):
+            nested = _sast_failure_detail(
+                payload["detail"],
+                status_code=status_code,
+                fallback_message=fallback_message,
+            )
+            detail.update(nested)
+        else:
+            for key in ("code", "category", "message", "error"):
+                if key in payload:
+                    detail[key] = payload[key]
+    elif payload is not None:
+        detail["message"] = str(payload)
+
+    if "message" not in detail:
+        error_value = detail.pop("error", None)
+        detail["message"] = str(error_value or fallback_message)
+    if status_code is not None:
+        detail["statusCode"] = status_code
+    return {key: value for key, value in detail.items() if value not in (None, "", [], {})}
+
+
+def _record_sast_failure(result: "Phase1Result", detail: dict) -> None:
+    result.sast_scan_attempted = True
+    result.sast_scan_completed = False
+    result.sast_failure_detail = dict(detail)
+
+
+def _record_sast_success(result: "Phase1Result") -> None:
+    result.sast_scan_attempted = True
+    result.sast_scan_completed = True
+    result.sast_failure_detail = {}
 
 
 async def run_build_and_analyze(
@@ -51,6 +139,7 @@ async def run_build_and_analyze(
     third_party_paths: list[str] | None = None,
 ) -> "Phase1Result | None":
     """S4 build-and-analyze 한 번에 호출. 실패 시 None 반환 (fallback 유도)."""
+    result.sast_scan_attempted = True
     agent_log(
         logger, "Phase 1: build-and-analyze",
         component="phase_one", phase="build_and_analyze_start",
@@ -65,7 +154,7 @@ async def run_build_and_analyze(
         body["buildCommand"] = build_command
     if isinstance(build_environment, dict) and build_environment:
         body["buildEnvironment"] = build_environment
-    scan_profile = _s4_build_profile(build_profile)
+    scan_profile = _s4_build_profile(build_profile, build_environment=build_environment)
     if scan_profile:
         body["scanProfile"] = scan_profile
     if isinstance(provenance, dict) and provenance:
@@ -111,6 +200,10 @@ async def run_build_and_analyze(
                 raise
     except Exception as exc:
         elapsed = int((time.monotonic() - start) * 1000)
+        _record_sast_failure(
+            result,
+            _sast_failure_detail(None, fallback_message=str(exc)),
+        )
         agent_log(
             logger, "Phase 1: build-and-analyze 실패",
             component="phase_one", phase="build_and_analyze_error",
@@ -137,6 +230,12 @@ async def run_build_and_analyze(
             result.build_failure_detail = failure_detail
 
     if status_code >= 400:
+        failure_detail = _sast_failure_detail(
+            data if isinstance(data, dict) else None,
+            status_code=status_code,
+            fallback_message=f"S4 build-and-analyze failed with HTTP {status_code}",
+        )
+        _record_sast_failure(result, failure_detail)
         agent_log(
             logger, "Phase 1: build-and-analyze HTTP 실패",
             component="phase_one", phase="build_and_analyze_http_error",
@@ -149,6 +248,14 @@ async def run_build_and_analyze(
         return None
 
     if not data.get("success", True):
+        _record_sast_failure(
+            result,
+            _sast_failure_detail(
+                data,
+                status_code=status_code,
+                fallback_message=str(data.get("error") or "S4 build-and-analyze unsuccessful"),
+            ),
+        )
         agent_log(
             logger, "Phase 1: build-and-analyze 비성공 응답",
             component="phase_one", phase="build_and_analyze_unsuccessful",
@@ -162,6 +269,13 @@ async def run_build_and_analyze(
 
     scan_data = data.get("scan")
     if not isinstance(scan_data, dict):
+        _record_sast_failure(
+            result,
+            _sast_failure_detail(
+                {"code": "SAST_SCAN_MISSING", "message": "S4 build-and-analyze response did not include scan"},
+                status_code=status_code,
+            ),
+        )
         agent_log(
             logger, "Phase 1: build-and-analyze scan 누락",
             component="phase_one", phase="build_and_analyze_missing_scan",
@@ -172,6 +286,7 @@ async def run_build_and_analyze(
     result.sast_findings = scan_data.get("findings", [])
     result.sast_stats = scan_data.get("stats", {})
     result.sast_duration_ms = scan_data.get("execution", {}).get("elapsedMs", 0)
+    _record_sast_success(result)
 
     for tool_name, tool_result in scan_data.get("execution", {}).get("toolResults", {}).items():
         status = tool_result.get("status", "ok")
@@ -224,6 +339,7 @@ async def run_individual_tools(
     compile_commands_path: str | None = None,
     revision_hint: str | None = None,
     provenance: dict | None = None,
+    build_environment: dict | None = None,
 ) -> "Phase1Result":
     """개별 도구 호출 (files 또는 projectPath 기반)."""
     if sast_tool and (files or project_path):
@@ -233,12 +349,14 @@ async def run_individual_tools(
             project_path=project_path,
             compile_commands_path=compile_commands_path,
             sast_tools=sast_tools,
+            build_environment=build_environment,
         )
     if codegraph_tool and (files or project_path):
         result = await run_codegraph(
             codegraph_tool, result, files, project_id, build_profile, request_id, logger,
             project_path=project_path,
             compile_commands_path=compile_commands_path,
+            build_environment=build_environment,
         )
     if sca_tool and project_path:
         result = await run_sca(sca_tool, result, project_id, project_path, request_id, logger)
@@ -366,8 +484,10 @@ async def run_sast(
     project_path: str | None = None,
     compile_commands_path: str | None = None,
     sast_tools: list[str] | None = None,
+    build_environment: dict | None = None,
 ) -> "Phase1Result":
     """SAST 스캔 실행."""
+    result.sast_scan_attempted = True
     agent_log(
         logger, "Phase 1: SAST 스캔",
         component="phase_one", phase="sast_start",
@@ -385,7 +505,7 @@ async def run_sast(
         args["projectPath"] = project_path
     if compile_commands_path:
         args["compileCommands"] = compile_commands_path
-    normalized_build_profile = _s4_build_profile(build_profile)
+    normalized_build_profile = _s4_build_profile(build_profile, build_environment=build_environment)
     if normalized_build_profile:
         args["buildProfile"] = normalized_build_profile
     if third_party_paths:
@@ -400,8 +520,25 @@ async def run_sast(
 
         if tool_result.success:
             data = json.loads(tool_result.content)
+            if data.get("success") is False:
+                _record_sast_failure(
+                    result,
+                    _sast_failure_detail(
+                        data,
+                        fallback_message="SAST scan returned unsuccessful payload",
+                    ),
+                )
+                agent_log(
+                    logger, "Phase 1: SAST 비성공 payload",
+                    component="phase_one", phase="sast_error",
+                    error=result.sast_failure_detail.get("message"),
+                    errorCode=result.sast_failure_detail.get("code") or result.sast_failure_detail.get("category"),
+                    level=logging.WARNING,
+                )
+                return result
             result.sast_findings = data.get("findings", [])
             result.sast_stats = data.get("stats", {})
+            _record_sast_success(result)
 
             for tool_name, tool_result_info in data.get("execution", {}).get("toolResults", {}).items():
                 status = tool_result_info.get("status", "ok")
@@ -418,6 +555,17 @@ async def run_sast(
                 durationMs=result.sast_duration_ms,
             )
         else:
+            try:
+                payload = json.loads(tool_result.content) if tool_result.content else None
+            except json.JSONDecodeError:
+                payload = {"message": tool_result.content}
+            _record_sast_failure(
+                result,
+                _sast_failure_detail(
+                    payload,
+                    fallback_message=tool_result.error or "SAST scan failed",
+                ),
+            )
             agent_log(
                 logger, "Phase 1: SAST 실패",
                 component="phase_one", phase="sast_error",
@@ -426,6 +574,10 @@ async def run_sast(
             )
     except Exception as exc:
         result.sast_duration_ms = int((time.monotonic() - start) * 1000)
+        _record_sast_failure(
+            result,
+            _sast_failure_detail(None, fallback_message=str(exc)),
+        )
         agent_log(
             logger, "Phase 1: SAST 예외",
             component="phase_one", phase="sast_error",
@@ -446,6 +598,7 @@ async def run_codegraph(
     *,
     project_path: str | None = None,
     compile_commands_path: str | None = None,
+    build_environment: dict | None = None,
 ) -> "Phase1Result":
     """코드 그래프 추출."""
     agent_log(
@@ -461,7 +614,7 @@ async def run_codegraph(
         args["projectPath"] = project_path
     if compile_commands_path:
         args["compileCommands"] = compile_commands_path
-    normalized_build_profile = _s4_build_profile(build_profile)
+    normalized_build_profile = _s4_build_profile(build_profile, build_environment=build_environment)
     if normalized_build_profile:
         args["buildProfile"] = normalized_build_profile
 

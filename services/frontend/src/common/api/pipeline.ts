@@ -21,6 +21,7 @@ export async function createBuildTarget(
     name: string;
     relativePath: string;
     buildProfile?: BuildProfile;
+    buildSystem?: BuildTarget["buildSystem"];
     includedPaths?: string[];
     scriptHintPath?: string;
   },
@@ -69,7 +70,14 @@ export async function deleteBuildTarget(
   await apiFetch(`/api/projects/${projectId}/targets/${targetId}`, { method: "DELETE" });
 }
 
-export async function discoverBuildTargets(projectId: string): Promise<BuildTarget[]> {
+export interface DiscoverBuildTargetsResult {
+  discovered: number;
+  created: number;
+  targets: BuildTarget[];
+  elapsedMs: number;
+}
+
+export async function discoverBuildTargets(projectId: string): Promise<DiscoverBuildTargetsResult> {
   const res = await apiFetch<{
     success: boolean;
     data?: {
@@ -82,7 +90,12 @@ export async function discoverBuildTargets(projectId: string): Promise<BuildTarg
     `/api/projects/${projectId}/targets/discover`,
     { method: "POST" },
   );
-  return res.data?.targets ?? [];
+  return {
+    discovered: res.data?.discovered ?? 0,
+    created: res.data?.created ?? 0,
+    targets: res.data?.targets ?? [],
+    elapsedMs: res.data?.elapsedMs ?? 0,
+  };
 }
 
 // ── Target Libraries (third-party) ──
@@ -143,8 +156,8 @@ export async function runPipeline(
 export async function runPipelineTarget(
   projectId: string,
   targetId: string,
-): Promise<{ targetId: string; status: string }> {
-  const res = await apiFetch<{ success: boolean; data: { targetId: string; status: string } }>(
+): Promise<{ pipelineId: string; targetId: string; status: string }> {
+  const res = await apiFetch<{ success: boolean; data: { pipelineId: string; targetId: string; status: string } }>(
     `/api/projects/${projectId}/pipeline/run/${targetId}`,
     { method: "POST" },
   );
@@ -157,11 +170,14 @@ export interface PipelineStatusResponse {
     name: string;
     status: BuildTargetStatus;
     phase: PipelinePhase;
+    message?: string;
+    error?: string;
     compileCommandsPath?: string;
     sastScanId?: string;
     codeGraphNodeCount?: number;
     lastBuiltAt?: string;
   }>;
+  isRunning?: boolean;
   readyCount: number;
   failedCount: number;
   totalCount: number;
@@ -170,6 +186,30 @@ export interface PipelineStatusResponse {
 export async function fetchPipelineStatus(projectId: string): Promise<PipelineStatusResponse> {
   const res = await apiFetch<{ success: boolean; data: PipelineStatusResponse }>(
     `/api/projects/${projectId}/pipeline/status`,
+  );
+  return res.data;
+}
+
+export async function preparePipeline(
+  projectId: string,
+  targetIds?: string[],
+): Promise<{ preparationId: string; status: "running" }> {
+  const body: Record<string, unknown> = {};
+  if (targetIds && targetIds.length > 0) body.targetIds = targetIds;
+  const res = await apiFetch<{ success: boolean; data: { preparationId: string; status: "running" } }>(
+    `/api/projects/${projectId}/pipeline/prepare`,
+    { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) },
+  );
+  return res.data;
+}
+
+export async function preparePipelineTarget(
+  projectId: string,
+  targetId: string,
+): Promise<{ preparationId: string; targetId: string; status: "running" }> {
+  const res = await apiFetch<{ success: boolean; data: { preparationId: string; targetId: string; status: "running" } }>(
+    `/api/projects/${projectId}/pipeline/prepare/${targetId}`,
+    { method: "POST" },
   );
   return res.data;
 }

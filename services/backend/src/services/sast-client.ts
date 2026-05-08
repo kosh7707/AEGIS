@@ -203,13 +203,17 @@ export class SastClient {
     const ownedRequestId = this.deriveOwnedRequestId("scan", normalizedRequest, requestId);
     const headers: Record<string, string> = this.buildOwnedHeaders(ownedRequestId);
 
-    const data = await this.doOwnedScanFetch(
-      "scan",
-      this.endpointUrl("/v1/scan"),
-      headers,
-      normalizedRequest,
+    const data = await this.withOwnedCancellation(
       ownedRequestId,
       signal,
+      () => this.doOwnedScanFetch(
+        "scan",
+        this.endpointUrl("/v1/scan"),
+        headers,
+        normalizedRequest,
+        ownedRequestId,
+        signal,
+      ),
     );
 
     if (data.status === "completed") {
@@ -251,13 +255,17 @@ export class SastClient {
     const ownedRequestId = this.deriveOwnedRequestId("build", request, requestId);
     const headers: Record<string, string> = this.buildOwnedHeaders(ownedRequestId);
 
-    const data = await this.doOwnedJsonFetch<S4BuildRawResponse>(
-      "build",
-      this.endpointUrl("/v1/build"),
-      headers,
-      request,
+    const data = await this.withOwnedCancellation(
       ownedRequestId,
       signal,
+      () => this.doOwnedJsonFetch<S4BuildRawResponse>(
+        "build",
+        this.endpointUrl("/v1/build"),
+        headers,
+        request,
+        ownedRequestId,
+        signal,
+      ),
     );
 
     return this.toBuildResponse(data);
@@ -352,6 +360,55 @@ export class SastClient {
   private endpointUrl(pathname: string): string {
     const base = this.baseUrl.replace(/\/+$/, "");
     return `${base}${pathname}`;
+  }
+
+  private async withOwnedCancellation<T>(
+    requestId: string,
+    signal: AbortSignal | undefined,
+    operation: () => Promise<T>,
+  ): Promise<T> {
+    try {
+      return await operation();
+    } catch (err) {
+      if (signal?.aborted) {
+        await this.cancelOwnedRequest(requestId, err);
+        throw signal.reason ?? err;
+      }
+      throw err;
+    }
+  }
+
+  private async cancelOwnedRequest(requestId: string, cause?: unknown): Promise<void> {
+    try {
+      const res = await fetch(
+        this.endpointUrl(`/v1/requests/${encodeURIComponent(requestId)}`),
+        {
+          method: "DELETE",
+          headers: { "X-Request-Id": requestId },
+        },
+      );
+
+      if (res.status === 200 || res.status === 202) {
+        logger.info({ requestId }, "SAST Runner owned request cancelled after local abort");
+        return;
+      }
+
+      if (res.status === 404 || res.status === 410) {
+        logger.warn(
+          { requestId, status: res.status, cause },
+          "SAST Runner owned request cancel skipped because ownership is no longer retained",
+        );
+        return;
+      }
+
+      const text = await res.text().catch(() => "");
+      logger.warn(
+        { requestId, status: res.status, response: text.slice(0, 200), cause },
+        "SAST Runner owned request cancel returned non-success status",
+      );
+    } catch (cancelErr) {
+      logger.warn({ requestId, err: cancelErr, cause }, "SAST Runner owned request cancel failed");
+    }
   }
 
   private async doOwnedScanFetch(

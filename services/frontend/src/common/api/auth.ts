@@ -270,6 +270,17 @@ export async function lookupRegistration(lookupToken: string): Promise<Registrat
   return res.data;
 }
 
+export async function fetchRegistrationRequest(id: string): Promise<RegistrationRequest> {
+  const res = await apiFetch<{ success: boolean; data: RegistrationRequest }>(
+    `/api/auth/registration-requests/${encodeURIComponent(id)}`,
+    { method: "GET" },
+  );
+  if (!res.data) {
+    throw new Error("가입 요청을 찾을 수 없습니다.");
+  }
+  return res.data;
+}
+
 export async function listRegistrationRequests(): Promise<RegistrationRequest[]> {
   if (isMockAuthEnabled()) {
     await new Promise((resolve) => window.setTimeout(resolve, 200));

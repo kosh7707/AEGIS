@@ -3,6 +3,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import { useToast } from "@/common/contexts/ToastContext";
 import { useUploadProgress } from "@/common/hooks/useUploadProgress";
 import { useBuildTargets } from "@/common/hooks/useBuildTargets";
+import { ConfirmDialog } from "@/common/ui/primitives";
 import { FilesEmptyState } from "./components/FilesPageChrome/FilesEmptyState/FilesEmptyState";
 import { BuildTargetCreateDialog } from "./components/BuildTargetCreateDialog/BuildTargetCreateDialog";
 import { FilesPageHeader } from "./components/FilesPageHeader/FilesPageHeader";
@@ -56,6 +57,11 @@ export const FilesPage: React.FC = () => {
           activeTargetFilters={state.activeTargetFilters}
           onToggleFilter={state.toggleTargetFilter}
           onClearFilters={state.clearTargetFilters}
+          onRequestDeleteSource={() => state.setShowDeleteSource(true)}
+          deletingSource={state.deletingSource}
+          onPrepareTarget={state.handlePrepareTarget}
+          isPreparing={state.isPreparingPipeline}
+          preparingTargetId={state.preparingTargetId}
         />
         <FilesSourceWorkspace
           search={state.search}
@@ -103,6 +109,16 @@ export const FilesPage: React.FC = () => {
         sourceFiles={state.sourceFiles}
         onCreated={state.onBuildTargetCreated}
         onCancel={() => state.setShowBuildTargetDialog(false)}
+      />
+
+      <ConfirmDialog
+        open={state.showDeleteSource}
+        title="소스 일괄 삭제"
+        message="프로젝트의 모든 소스 파일을 삭제합니다. 이 작업은 되돌릴 수 없습니다. 정말 삭제하시겠습니까?"
+        confirmLabel={state.deletingSource ? "삭제 중..." : "삭제"}
+        danger
+        onConfirm={() => void state.handleConfirmDeleteSource()}
+        onCancel={() => state.setShowDeleteSource(false)}
       />
     </FilesPageShell>
   );

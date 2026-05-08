@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Finding, Severity } from "@aegis/shared";
 import {
+  ApiError,
+  deleteSource,
   fetchProjectFindings,
   fetchSourceFileContent,
   fetchSourceFilesWithComposition,
@@ -16,6 +18,7 @@ import { buildTree, filterTree } from "@/common/utils/tree";
 import type { TreeNode } from "@/common/utils/tree";
 import type { useBuildTargets } from "@/common/hooks/useBuildTargets";
 import type { useUploadProgress } from "@/common/hooks/useUploadProgress";
+import { usePipelineProgress } from "@/common/hooks/usePipelineProgress";
 
 const TREE_PANEL_STORAGE_KEY = "aegis:filesTreePanelWidth";
 const DEFAULT_TREE_PANEL_WIDTH = 360;
@@ -70,6 +73,7 @@ const collectDefaultOpenPaths = (node: TreeNode<SourceFileEntry>, maxDepth = 1):
 
 type ToastApi = {
   error: (message: string) => void;
+  success: (message: string) => void;
 };
 
 export function useFilesPageController(
@@ -96,6 +100,14 @@ export function useFilesPageController(
   const [previewSize, setPreviewSize] = useState(0);
   const [previewDrawerOpen, setPreviewDrawerOpen] = useState(false);
   const [activeTargetFilters, setActiveTargetFilters] = useState<Set<string>>(() => new Set());
+  // C12 — bulk source delete confirm + 409 blockers surface.
+  const [showDeleteSource, setShowDeleteSource] = useState(false);
+  const [deletingSource, setDeletingSource] = useState(false);
+  // C1 E1/E2 — per-target Prepare trigger + transient progress label. The hook
+  // exposes isPreparing globally; we track targetId locally so the button that
+  // started the run shows "빌드 검증 중..." while others stay disabled.
+  const pipeline = usePipelineProgress();
+  const [preparingTargetId, setPreparingTargetId] = useState<string | null>(null);
   const layoutRef = useRef<HTMLDivElement | null>(null);
   const [treePanelWidth, setTreePanelWidth] = useState(readInitialTreePanelWidth);
   const [isResizing, setIsResizing] = useState(false);
@@ -364,6 +376,65 @@ export function useFilesPageController(
     setActiveTargetFilters(new Set());
   }, []);
 
+  // C1 E1 — per-target prepare. Reuses usePipelineProgress.prepareTarget
+  // (already wired in Wave 2A). Toast on dispatch matches the SourceUploadView
+  // pattern. Failures surface via toast; preparingTargetId is cleared so the
+  // button can be retried.
+  const handlePrepareTarget = useCallback(
+    async (targetId: string) => {
+      if (!projectId || pipeline.isPreparing) return;
+      setPreparingTargetId(targetId);
+      try {
+        await pipeline.prepareTarget(projectId, targetId);
+        toast.success("빌드 검증 시작");
+      } catch (error) {
+        logError("Prepare pipeline target", error);
+        toast.error("빌드 검증 시작에 실패했습니다.");
+        setPreparingTargetId(null);
+      }
+    },
+    [pipeline, projectId, toast],
+  );
+
+  // Clear the local preparingTargetId once the hook reports the run is no
+  // longer active (terminal pipeline-complete or onGiveUp).
+  useEffect(() => {
+    if (!pipeline.isPreparing) setPreparingTargetId(null);
+  }, [pipeline.isPreparing]);
+
+  // C12 — DELETE /api/projects/:pid/source. 409 CONFLICT surfaces blockers
+  // from errorDetail.blockers via ApiError.detailMessage (backend supplies the
+  // user-facing message). On success: refresh tree, clear preview, toast.
+  const handleConfirmDeleteSource = useCallback(async () => {
+    if (!projectId || deletingSource) return;
+    setDeletingSource(true);
+    try {
+      await deleteSource(projectId);
+      toast.success("프로젝트 소스를 모두 삭제했습니다.");
+      setShowDeleteSource(false);
+      setSelectedPath(null);
+      setPreviewContent(null);
+      setPreviewDrawerOpen(false);
+      loadData();
+    } catch (error) {
+      logError("Delete source", error);
+      if (error instanceof ApiError) {
+        const blockers = Array.isArray(error.errorDetail?.blockers) ? error.errorDetail.blockers as string[] : null;
+        if (blockers && blockers.length > 0) {
+          toast.error(`삭제 불가: ${blockers.join(", ")}`);
+        } else {
+          toast.error(error.detailMessage ?? error.message);
+        }
+      } else {
+        toast.error("소스를 삭제할 수 없습니다.");
+      }
+      // Policy: keep dialog open on delete failure so user can retry without re-opening.
+      // `setShowDeleteSource(false)` only on success.
+    } finally {
+      setDeletingSource(false);
+    }
+  }, [projectId, deletingSource, toast, loadData]);
+
   return {
     sourceFiles,
     targetMapping,
@@ -413,5 +484,12 @@ export function useFilesPageController(
       setShowBuildTargetDialog(false);
       void buildTargets.load();
     },
+    showDeleteSource,
+    setShowDeleteSource,
+    deletingSource,
+    handleConfirmDeleteSource,
+    handlePrepareTarget,
+    isPreparingPipeline: pipeline.isPreparing,
+    preparingTargetId,
   };
 }

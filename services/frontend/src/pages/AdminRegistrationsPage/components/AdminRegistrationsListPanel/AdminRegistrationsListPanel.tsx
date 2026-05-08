@@ -15,6 +15,7 @@ interface AdminRegistrationsListPanelProps {
   onFilterChange: (value: RegistrationStatusFilter) => void;
   onApprove: (id: string, role: UserRole) => void;
   onReject: (id: string, reason: string) => Promise<boolean>;
+  onOpenDetail: (id: string) => void;
 }
 
 export const AdminRegistrationsListPanel: React.FC<AdminRegistrationsListPanelProps> = ({
@@ -25,6 +26,7 @@ export const AdminRegistrationsListPanel: React.FC<AdminRegistrationsListPanelPr
   onFilterChange,
   onApprove,
   onReject,
+  onOpenDetail,
 }) => (
   <section className="panel" aria-label="가입 요청 목록">
     <AdminRegistrationsListPanelHeader count={requests.length} filter={filter} onFilterChange={onFilterChange} />
@@ -33,7 +35,13 @@ export const AdminRegistrationsListPanel: React.FC<AdminRegistrationsListPanelPr
     ) : requests.length === 0 ? (
       <AdminRegistrationsEmptyState pendingFilter={filter === "pending"} />
     ) : (
-      <AdminRegistrationsList requests={requests} busy={busy} onApprove={onApprove} onReject={onReject} />
+      <AdminRegistrationsList
+        requests={requests}
+        busy={busy}
+        onApprove={onApprove}
+        onReject={onReject}
+        onOpenDetail={onOpenDetail}
+      />
     )}
   </section>
 );

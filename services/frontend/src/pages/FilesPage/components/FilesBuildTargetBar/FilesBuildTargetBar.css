@@ -30,7 +30,7 @@
   border-radius: 999px;
   background: var(--surface);
   font-family: var(--font-code);
-  font-size: 11.5px;
+  font-size: var(--text-2xs);
   letter-spacing: 0.005em;
   color: var(--foreground-muted);
   white-space: nowrap;
@@ -46,4 +46,79 @@
   background: color-mix(in srgb, var(--primary) 12%, transparent);
   color: var(--primary);
   font-weight: var(--weight-medium);
+}
+
+/* Per-target "빌드 검증" prepare row — workflow-positive trigger that
+   pushes the target into pipeline preparation. Reuses canonical .btn-outline
+   neutral baseline; --primary hover only (interactive). The active state
+   ("빌드 검증 중...") is signaled via label text + disabled state rather than
+   a new color token (signal vs decoration). */
+.files-build-target-bar__prepare-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.files-target-prepare {
+  flex-shrink: 0;
+  gap: 6px;
+}
+
+/* Cross-surface banner: shown when pipeline.isPreparing but preparingTargetId is null
+   (preparation was initiated from another surface, e.g. SourceUploadView). */
+.files-target-prepare__cross-surface-banner {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-semibold);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-caps);
+  color: var(--foreground-muted);
+}
+
+.files-target-prepare:not(:disabled):hover {
+  border-color: color-mix(in srgb, var(--primary) 40%, var(--border));
+  color: var(--primary);
+}
+
+.files-target-prepare__label {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-semibold);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-caps);
+}
+
+.files-target-prepare__target {
+  font-family: var(--font-code);
+  font-size: var(--text-2xs);
+  color: var(--foreground-muted);
+  letter-spacing: 0.005em;
+  white-space: nowrap;
+  max-width: 14ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Bulk source delete — workflow-destructive, distinct from per-file delete.
+   review-tone critical-review hover state (--danger), uses canonical .btn-outline
+   neutral baseline so the action is restrained until hovered. */
+.files-source-bulk-delete {
+  margin-left: auto;
+  flex-shrink: 0;
+  gap: 6px;
+}
+
+.files-source-bulk-delete:not(:disabled):hover {
+  border-color: color-mix(in srgb, var(--danger) 40%, var(--border));
+  color: var(--danger);
+}
+
+.files-source-bulk-delete__label {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-semibold);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-caps);
 }

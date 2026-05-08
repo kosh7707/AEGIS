@@ -25,6 +25,12 @@ class SdkNotFoundError(SastRunnerError):
     retryable = False
 
 
+class InvalidSdkProfileError(SastRunnerError):
+    code = "SDK_PROFILE_INVALID"
+    status_code = 400
+    retryable = False
+
+
 class SemgrepNotAvailableError(SastRunnerError):
     code = "SEMGREP_NOT_AVAILABLE"
     status_code = 503

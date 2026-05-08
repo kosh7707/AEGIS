@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ApprovalRequest } from "@/common/api/approval";
-import { decideApproval, fetchProjectApprovals } from "@/common/api/approval";
+import { decideApproval, fetchApprovalDetail, fetchProjectApprovals } from "@/common/api/approval";
 import { logError } from "@/common/api/core";
 
 export type ApprovalFilterStatus = "all" | "pending" | "approved" | "rejected" | "expired";
@@ -45,6 +45,7 @@ export function useApprovalsPageController(projectId: string | undefined, toast:
   const [filter, setFilter] = useState<ApprovalFilterStatus>("pending");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [decidingId, setDecidingId] = useState<string | null>(null);
+  const [detailById, setDetailById] = useState<Record<string, ApprovalRequest>>({});
 
   const loadApprovals = useCallback(async () => {
     if (!projectId) {
@@ -71,6 +72,24 @@ export function useApprovalsPageController(projectId: string | undefined, toast:
     void loadApprovals();
   }, [loadApprovals]);
 
+  // C9 — fetch fresh single-record detail when selection changes.
+  // Existing list-row data covers the rail; the document pane wants the
+  // canonical detail (additive H4/H5 fields + future server-only fields).
+  useEffect(() => {
+    if (!selectedId || detailById[selectedId]) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const detail = await fetchApprovalDetail(selectedId);
+        if (cancelled) return;
+        setDetailById((prev) => ({ ...prev, [selectedId]: detail }));
+      } catch (error) {
+        logError("Load approval detail", error);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [selectedId, detailById]);
+
   const submitDecision = useCallback(
     async (approvalId: string, action: ApprovalDecisionAction, comment: string) => {
       const trimmed = comment.trim() || undefined;
@@ -78,6 +97,13 @@ export function useApprovalsPageController(projectId: string | undefined, toast:
       try {
         await decideApproval(approvalId, action, undefined, trimmed);
         toast.success(action === "approved" ? "승인 완료" : "거부 완료");
+        // Invalidate cached detail for this row so next selection re-fetches.
+        setDetailById((prev) => {
+          if (!(approvalId in prev)) return prev;
+          const next = { ...prev };
+          delete next[approvalId];
+          return next;
+        });
         await loadApprovals();
       } catch (error) {
         logError("Decide approval", error);
@@ -156,5 +182,6 @@ export function useApprovalsPageController(projectId: string | undefined, toast:
     sevenDayStats,
     imminentCount,
     oldestPendingAge,
+    detailById,
   };
 }

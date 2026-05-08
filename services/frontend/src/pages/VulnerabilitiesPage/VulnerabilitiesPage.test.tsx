@@ -8,12 +8,14 @@ import { VulnerabilitiesPage } from "./VulnerabilitiesPage";
 const mockFetchProjectFindings = vi.fn();
 const mockBulkUpdateFindingStatus = vi.fn();
 const mockFetchFindingGroups = vi.fn();
+const mockFetchFindingsSummary = vi.fn();
 const mockToast = { error: vi.fn(), success: vi.fn(), info: vi.fn() };
 
 vi.mock("@/common/api/analysis", () => ({
   fetchProjectFindings: (...args: unknown[]) => mockFetchProjectFindings(...args),
   bulkUpdateFindingStatus: (...args: unknown[]) => mockBulkUpdateFindingStatus(...args),
   fetchFindingGroups: (...args: unknown[]) => mockFetchFindingGroups(...args),
+  fetchFindingsSummary: (...args: unknown[]) => mockFetchFindingsSummary(...args),
 }));
 
 vi.mock("@/common/api/core", () => ({
@@ -92,6 +94,7 @@ describe("VulnerabilitiesPage", () => {
     mockFetchFindingGroups.mockResolvedValue({
       groups: [{ key: "src/file-1.c:1", count: 1, topSeverity: "critical", findingIds: ["finding-1"] }],
     });
+    mockFetchFindingsSummary.mockResolvedValue({});
   });
 
   it("shows loading feedback before findings resolve", () => {

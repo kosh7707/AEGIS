@@ -14,7 +14,7 @@
 .static-upload-view__file-name { min-width:0; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:var(--weight-medium); color:var(--foreground); }
 .static-upload-view__file-lang { border:1px solid color-mix(in srgb, var(--border) 70%, transparent); border-radius:999px; padding:2px 8px; font-size:var(--text-xs); color:var(--foreground-muted); }
 .static-upload-view__file-size { flex-shrink:0; font-family:var(--font-mono); font-size:var(--text-sm); color:var(--foreground-muted); }
-.static-upload-view__dropzone { cursor:pointer; border:2px dashed var(--border-strong); background:linear-gradient(180deg, rgba(255,255,255,0.98), rgba(244,244,244,0.55)); transition:border-color 160ms ease, background-color 160ms ease; }
+.static-upload-view__dropzone { cursor:pointer; border:2px dashed var(--border-strong); background:var(--surface); transition:border-color 160ms ease, background-color 160ms ease; }
 .static-upload-view__dropzone:hover { border-color:var(--primary); background:color-mix(in srgb, var(--primary) 5%, var(--surface)); }
 .static-upload-view__dropzone-body { padding:64px 20px; text-align:center; color:var(--foreground-muted); }
 .static-upload-view__dropzone-icon { display:flex; justify-content:center; margin-bottom:16px; color:var(--foreground-muted); }
@@ -40,13 +40,38 @@
 .source-upload-dir-icon { flex-shrink:0; color:var(--warning); }
 .source-upload-dir-name { flex:1; font-family:var(--font-mono); font-weight:var(--weight-medium); color:var(--foreground); }
 .source-upload-dir-count { color:var(--foreground-muted); }
-.source-upload-actions { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:12px; }
+.source-upload-actions { display:flex; flex-wrap:wrap; justify-content:flex-end; align-items:center; gap:12px; }
+/* Quick/Deep mode toggle — caps-mono labels per design-doctrine §3 caps-mono.
+   Uses canonical .seg vocab from handoff/components/seg.css for the inset surface,
+   plus page-local class for active-state coloring (workflow choice, --primary tint
+   only on selected segment, no severity ramp). */
+.source-upload-mode-seg { display:inline-flex; padding:2px; gap:0; }
+.source-upload-mode-seg__btn {
+  appearance:none;
+  border:0;
+  background:transparent;
+  cursor:pointer;
+  padding:6px 12px;
+  font-family:var(--font-mono);
+  font-size:var(--text-2xs);
+  font-weight:var(--weight-semibold);
+  letter-spacing:var(--tracking-caps);
+  text-transform:uppercase;
+  color:var(--foreground-muted);
+  border-radius:var(--radius-sm);
+  transition:background-color var(--duration-fast) var(--ease-out), color var(--duration-fast) var(--ease-out);
+}
+.source-upload-mode-seg__btn:hover { color:var(--foreground); }
+.source-upload-mode-seg__btn.active {
+  background:var(--surface);
+  color:var(--primary);
+}
 .source-upload-tabs { height:auto; flex-wrap:wrap; gap:4px; border-radius:var(--radius-xl); background:color-mix(in srgb, var(--surface-sunken) 50%, transparent); padding:4px; }
 .source-upload-tab { gap:8px; padding:8px 16px; }
 .source-upload-progress-card,
 .source-upload-git-card { box-shadow:none; }
 .source-upload-progress-body { display:flex; align-items:center; justify-content:center; padding-block:64px; }
-.source-upload-dropzone { cursor:pointer; border:2px dashed var(--border-strong); background:linear-gradient(180deg, rgba(255,255,255,0.98), rgba(244,244,244,0.55)); box-shadow:none; transition:border-color 160ms ease, background-color 160ms ease; }
+.source-upload-dropzone { cursor:pointer; border:2px dashed var(--border-strong); background:var(--surface); box-shadow:none; transition:border-color 160ms ease, background-color 160ms ease; }
 .source-upload-dropzone:hover,
 .source-upload-dropzone.is-dragover { border-color:var(--primary); background:color-mix(in srgb, var(--primary) 5%, var(--surface)); }
 .source-upload-dropzone-body { padding:64px 20px; text-align:center; color:var(--foreground-muted); }

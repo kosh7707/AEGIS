@@ -49,6 +49,19 @@ def _blocked_reason(payload: dict[str, Any], fallback: str = "request failed") -
     return fallback
 
 
+def _cancel_payload(request_id: str, reason: str = "request cancelled") -> dict[str, Any]:
+    return {
+        "success": False,
+        "error": reason,
+        "errorDetail": {
+            "code": "REQUEST_CANCELLED",
+            "message": reason,
+            "requestId": request_id,
+            "retryable": False,
+        },
+    }
+
+
 class RequestOwnershipStore:
     def __init__(self, retention_seconds: int = _RETENTION_SECONDS) -> None:
         self.retention_seconds = retention_seconds
@@ -120,6 +133,11 @@ class RequestOwnershipStore:
                 reason = _blocked_reason(payload)
                 request_summary_tracker.mark_failed(request_id, reason)
                 await self._complete(request_id, "failed", payload, error=reason)
+        except asyncio.CancelledError:
+            reason = "request cancelled"
+            payload = _cancel_payload(request_id, reason)
+            request_summary_tracker.mark_cancelled(request_id, reason)
+            await self._complete(request_id, "cancelled", payload, error=reason)
         except PolicyViolationError as exc:
             payload = _payload(exc.scan_response)
             reason = exc.message
@@ -164,6 +182,8 @@ class RequestOwnershipStore:
             entry = self._entries.get(request_id)
             if not entry:
                 return
+            if entry.get("state") == "cancelled" and state != "cancelled":
+                return
             completed_at = _now_ms()
             entry.update(
                 {
@@ -196,11 +216,38 @@ class RequestOwnershipStore:
                 return {"error": "REQUEST_EXPIRED", "requestId": request_id}, 410
             if entry["state"] in {"queued", "running"}:
                 return self._status_locked(entry), 202
-            envelope = self._status_locked(entry)
-            envelope["result"] = deepcopy(entry.get("result"))
-            if entry.get("error"):
-                envelope["error"] = entry["error"]
-            return envelope, 200
+            return self._result_locked(entry), 200
+
+    async def cancel(self, request_id: str) -> tuple[dict[str, Any], int]:
+        async with self._lock:
+            self._prune_locked()
+            entry = self._entries.get(request_id)
+            if not entry:
+                return {"error": "REQUEST_NOT_FOUND", "requestId": request_id}, 404
+            if self._is_expired_locked(entry):
+                return {"error": "REQUEST_EXPIRED", "requestId": request_id}, 410
+
+            if entry["state"] in {"queued", "running"}:
+                task = entry.get("task")
+                if task and not task.done():
+                    task.cancel()
+
+                reason = "request cancelled"
+                completed_at = _now_ms()
+                entry.update(
+                    {
+                        "state": "cancelled",
+                        "resultReady": True,
+                        "completedAt": completed_at,
+                        "expiresAt": completed_at + self.retention_seconds * 1000,
+                        "result": _cancel_payload(request_id, reason),
+                        "error": reason,
+                    },
+                )
+                request_summary_tracker.mark_cancelled(request_id, reason)
+                return self._result_locked(entry), 202
+
+            return self._result_locked(entry), 200
 
     def _status_locked(self, entry: dict[str, Any], *, reused: bool = False) -> dict[str, Any]:
         status = {
@@ -222,6 +269,13 @@ class RequestOwnershipStore:
         if reused:
             status["reused"] = True
         return status
+
+    def _result_locked(self, entry: dict[str, Any]) -> dict[str, Any]:
+        envelope = self._status_locked(entry)
+        envelope["result"] = deepcopy(entry.get("result"))
+        if entry.get("error"):
+            envelope["error"] = entry["error"]
+        return envelope
 
     def _is_expired_locked(self, entry: dict[str, Any]) -> bool:
         expires_at = entry.get("expiresAt")

@@ -32,13 +32,26 @@ vi.mock("@/common/api/client", () => ({
   logError: vi.fn(),
 }));
 
+vi.mock("@/common/api/pipeline", async () => {
+  const actual = await vi.importActual<typeof import("@/common/api/pipeline")>("@/common/api/pipeline");
+  return {
+    ...actual,
+    preparePipeline: vi.fn(),
+    preparePipelineTarget: vi.fn(),
+    fetchPipelineStatus: vi.fn(),
+  };
+});
+
 import { runPipeline, runPipelineTarget } from "@/common/api/client";
+import { preparePipeline, preparePipelineTarget } from "@/common/api/pipeline";
 
 beforeEach(() => {
   MockWebSocket.instances = [];
   vi.stubGlobal("WebSocket", MockWebSocket);
   vi.mocked(runPipeline).mockResolvedValue({ pipelineId: "pipe-1", status: "running" });
-  vi.mocked(runPipelineTarget).mockResolvedValue({ targetId: "t-2", status: "running" });
+  vi.mocked(runPipelineTarget).mockResolvedValue({ pipelineId: "pipe-2", targetId: "t-2", status: "running" });
+  vi.mocked(preparePipeline).mockResolvedValue({ preparationId: "prep-1", status: "running" });
+  vi.mocked(preparePipelineTarget).mockResolvedValue({ preparationId: "prep-2", targetId: "t-3", status: "running" });
 });
 
 afterEach(() => {
@@ -185,6 +198,52 @@ describe("usePipelineProgress", () => {
     expect(runPipelineTarget).toHaveBeenCalledWith("p-1", "t-2");
     expect(result.current.isRunning).toBe(true);
     expect(MockWebSocket.instances).toHaveLength(1);
+  });
+
+  it("startPreparation calls preparePipeline API and connects WS without isRunning=true", async () => {
+    const { result } = renderHook(() => usePipelineProgress());
+
+    await act(async () => {
+      await result.current.startPreparation("p-1", ["t-1"]);
+    });
+
+    expect(preparePipeline).toHaveBeenCalledWith("p-1", ["t-1"]);
+    expect(result.current.isPreparing).toBe(true);
+    expect(result.current.isRunning).toBe(false);
+    expect(result.current.preparationId).toBe("prep-1");
+    expect(MockWebSocket.instances).toHaveLength(1);
+  });
+
+  it("prepareTarget calls preparePipelineTarget API and reconnects WS if disconnected", async () => {
+    const { result } = renderHook(() => usePipelineProgress());
+
+    await act(async () => {
+      await result.current.prepareTarget("p-1", "t-3");
+    });
+
+    expect(preparePipelineTarget).toHaveBeenCalledWith("p-1", "t-3");
+    expect(result.current.isPreparing).toBe(true);
+    expect(result.current.preparationId).toBe("prep-2");
+    expect(MockWebSocket.instances).toHaveLength(1);
+  });
+
+  it("pipeline-complete clears isPreparing alongside isRunning", async () => {
+    const { result } = renderHook(() => usePipelineProgress());
+
+    await act(async () => {
+      await result.current.startPreparation("p-1");
+    });
+
+    const ws = MockWebSocket.instances[0];
+    act(() => {
+      ws.simulateMessage({
+        type: "pipeline-complete",
+        payload: { readyCount: 1, failedCount: 0, totalCount: 1 },
+      });
+    });
+
+    expect(result.current.isPreparing).toBe(false);
+    expect(result.current.isRunning).toBe(false);
   });
 
   it("reset clears state", async () => {

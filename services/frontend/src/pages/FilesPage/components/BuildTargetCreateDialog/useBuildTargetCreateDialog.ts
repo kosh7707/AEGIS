@@ -121,7 +121,7 @@ export function useBuildTargetCreateDialog({
       if (onSubmit) {
         await onSubmit({ name: name.trim(), profile, includedPaths, scriptHintPath: apiHint });
       } else {
-        await addBuildTarget(name.trim(), `${name.trim()}/`, profile, includedPaths, apiHint ?? undefined);
+        await addBuildTarget(name.trim(), `${name.trim()}/`, profile, undefined, includedPaths, apiHint ?? undefined);
         onCreated?.();
       }
       toast.success(`BuildTarget "${name.trim()}" ${onSubmit ? "수정" : "생성"} 완료 (${selectedCount}개 파일)`);

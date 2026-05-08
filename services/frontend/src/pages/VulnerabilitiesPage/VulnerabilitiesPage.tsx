@@ -5,6 +5,7 @@ import { useToast } from "@/common/contexts/ToastContext";
 import { FindingDetailView } from "@/common/ui/findings/FindingDetailView";
 import { Spinner } from "@/common/ui/primitives";
 import { SEVERITY_ORDER } from "@/common/utils/severity";
+import { FindingsSummaryPanel } from "./components/FindingsSummaryPanel/FindingsSummaryPanel";
 import { VulnerabilitiesHeader } from "./components/VulnerabilitiesHeader/VulnerabilitiesHeader";
 import { VulnerabilityGroups } from "./components/VulnerabilityGroups/VulnerabilityGroups";
 import { VulnerabilityKeyboardHint } from "./components/VulnerabilityKeyboardHint/VulnerabilityKeyboardHint";
@@ -113,6 +114,8 @@ export const VulnerabilitiesPage: React.FC = () => {
         totalActiveFindings={state.counts.total}
         counts={state.counts}
       />
+
+      <FindingsSummaryPanel summary={state.summary} />
 
       <VulnerabilitiesToolbar
         counts={state.counts}

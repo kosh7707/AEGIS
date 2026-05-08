@@ -1,6 +1,6 @@
 import "./StaticAnalysisViewRouter.css";
 import React from "react";
-import { BackButton, ConnectionStatusBanner, Spinner } from "@/common/ui/primitives";
+import { BackButton, ConfirmDialog, ConnectionStatusBanner, Spinner } from "@/common/ui/primitives";
 import { FindingDetailView } from "@/common/ui/findings/FindingDetailView";
 import { AnalysisResultsView } from "../AnalysisResultsView/AnalysisResultsView";
 import { RunDetailView } from "../RunDetailView/RunDetailView";
@@ -9,6 +9,7 @@ import { StaticAnalysisEmptyState } from "../StaticAnalysisEmptyState/StaticAnal
 import { StaticDashboard } from "../StaticDashboard/StaticDashboard";
 import { TargetSelectDialog } from "../TargetSelectDialog/TargetSelectDialog";
 import { TwoStageProgressView } from "../TwoStageProgressView/TwoStageProgressView";
+import type { AnalysisMode } from "@/common/hooks/useAnalysisWebSocket";
 
 type StaticAnalysisViewRouterProps = {
   projectId: string;
@@ -56,16 +57,23 @@ type StaticAnalysisViewRouterProps = {
     handleViewResults: () => void;
     sourceFiles: unknown[];
     findings: unknown[];
-    handleAnalysisStart: () => void;
+    handleAnalysisStart: (mode?: AnalysisMode) => void;
     handleBrowseTree: () => void;
     handleDiscoverTargets: () => void;
     handleNewAnalysis: () => void;
+    handlePrepare?: () => void;
+    isPreparing?: boolean;
     handleViewRun: (runId: string) => void;
     handleResumeAnalysis: () => void;
     handleFileClick: (filePath: string) => void;
     showTargetSelect: boolean;
     setShowTargetSelect: (open: boolean) => void;
     handleAnalysisWithTargets: (selectedTargetId: string) => void;
+    confirmAbortId: string | null;
+    aborting: boolean;
+    handleRequestAbortAnalysis: (analysisId: string) => void;
+    handleConfirmAbortAnalysis: () => void;
+    handleCancelAbortAnalysis: () => void;
   };
 };
 
@@ -124,23 +132,35 @@ export function StaticAnalysisViewRouter({
 
   if (state.view === "progress") {
     return (
-      <TwoStageProgressView
-        analysisId={analysis.analysisId}
-        buildTargetId={analysis.buildTargetId}
-        executionId={analysis.executionId}
-        stage={analysis.stage as never}
-        message={analysis.message}
-        quickFindingCount={analysis.quickFindingCount}
-        deepFindingCount={analysis.deepFindingCount}
-        error={analysis.error}
-        errorPhase={analysis.errorPhase}
-        retryable={analysis.retryable}
-        targetName={analysis.targetName}
-        targetProgress={analysis.targetProgress}
-        onRetry={state.handleRetry}
-        onViewResults={state.handleViewResults}
-        onBack={state.goToDashboard}
-      />
+      <>
+        <TwoStageProgressView
+          analysisId={analysis.analysisId}
+          buildTargetId={analysis.buildTargetId}
+          executionId={analysis.executionId}
+          stage={analysis.stage as never}
+          message={analysis.message}
+          quickFindingCount={analysis.quickFindingCount}
+          deepFindingCount={analysis.deepFindingCount}
+          error={analysis.error}
+          errorPhase={analysis.errorPhase}
+          retryable={analysis.retryable}
+          targetName={analysis.targetName}
+          targetProgress={analysis.targetProgress}
+          onRetry={state.handleRetry}
+          onViewResults={state.handleViewResults}
+          onBack={state.goToDashboard}
+          onAbort={state.handleRequestAbortAnalysis}
+        />
+        <ConfirmDialog
+          open={state.confirmAbortId !== null}
+          title="분석 중단"
+          message="진행 중인 분석을 중단하시겠습니까? 중단하면 결과가 저장되지 않습니다."
+          confirmLabel={state.aborting ? "중단 중..." : "중단"}
+          danger
+          onConfirm={state.handleConfirmAbortAnalysis}
+          onCancel={state.handleCancelAbortAnalysis}
+        />
+      </>
     );
   }
 
@@ -174,6 +194,8 @@ export function StaticAnalysisViewRouter({
           onAnalysisStart={state.handleAnalysisStart}
           onBrowseTree={state.handleBrowseTree}
           onDiscoverTargets={state.handleDiscoverTargets}
+          onPrepare={state.handlePrepare}
+          isPreparing={state.isPreparing}
         />
         {targetSelectDialog}
       </>
@@ -194,6 +216,9 @@ export function StaticAnalysisViewRouter({
     return <StaticAnalysisEmptyState onUpload={() => state.setView("sourceUpload" as never)} />;
   }
 
+  const activeAnalysisId =
+    (dashboard.activeAnalysis as { analysisId?: string } | null)?.analysisId ?? null;
+
   return (
     <>
       <ConnectionStatusBanner connectionState={analysis.connectionState} />
@@ -211,12 +236,26 @@ export function StaticAnalysisViewRouter({
         onViewRun={state.handleViewRun}
         onSelectFinding={state.handleSelectFinding}
         onResumeAnalysis={state.handleResumeAnalysis}
-        onAbortAnalysis={state.goToDashboard}
+        onAbortAnalysis={() => {
+          if (activeAnalysisId) {
+            state.handleRequestAbortAnalysis(activeAnalysisId);
+          }
+        }}
         onFileClick={state.handleFileClick}
         onBrowseTree={state.sourceFiles.length > 0 ? state.handleBrowseTree : undefined}
       />
 
       {targetSelectDialog}
+
+      <ConfirmDialog
+        open={state.confirmAbortId !== null}
+        title="분석 중단"
+        message="진행 중인 분석을 중단하시겠습니까? 중단하면 결과가 저장되지 않습니다."
+        confirmLabel={state.aborting ? "중단 중..." : "중단"}
+        danger
+        onConfirm={state.handleConfirmAbortAnalysis}
+        onCancel={state.handleCancelAbortAnalysis}
+      />
     </>
   );
 }

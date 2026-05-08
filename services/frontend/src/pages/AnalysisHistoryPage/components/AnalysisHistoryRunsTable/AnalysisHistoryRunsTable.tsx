@@ -6,7 +6,7 @@ import type {
   AgentQualityOutcome,
   Run,
 } from "@aegis/shared";
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, Trash2 } from "lucide-react";
 import { EmptyState } from "@/common/ui/primitives";
 import { OutcomeChip } from "@/common/ui/primitives/OutcomeChip";
 import { deriveDominantOutcome } from "@/common/ui/analysis/deepOutcome";
@@ -63,12 +63,14 @@ interface AnalysisHistoryRunsTableProps {
   filter: AnalysisHistoryFilter;
   runs: HistoryRun[];
   onOpenRun: (run: HistoryRun) => void;
+  onDeleteRun?: (run: HistoryRun) => void;
 }
 
 export const AnalysisHistoryRunsTable: React.FC<AnalysisHistoryRunsTableProps> = ({
   filter,
   runs,
   onOpenRun,
+  onDeleteRun,
 }) => {
   if (runs.length === 0) {
     return (
@@ -199,8 +201,31 @@ export const AnalysisHistoryRunsTable: React.FC<AnalysisHistoryRunsTableProps> =
                       {durationSec > 0 ? formatUptime(durationSec) : "—"}
                     </span>
                   </td>
-                  <td className="run-chev-cell" aria-hidden="true">
-                    <ChevronRight size={16} />
+                  <td className="history-run-actions-cell">
+                    {onDeleteRun && run.analysisResultId ? (
+                      <button
+                        type="button"
+                        className="btn btn-ghost btn-icon-sm history-run-delete-btn"
+                        title="분석 결과 삭제"
+                        aria-label={`실행 #${index + 1} 분석 결과 삭제`}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onDeleteRun(run);
+                        }}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter" || event.key === " ") {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            onDeleteRun(run);
+                          }
+                        }}
+                      >
+                        <Trash2 size={14} aria-hidden="true" />
+                      </button>
+                    ) : null}
+                    <span className="run-chev-cell" aria-hidden="true">
+                      <ChevronRight size={16} />
+                    </span>
                   </td>
                 </tr>
               );

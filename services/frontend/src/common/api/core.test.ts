@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { getBackendUrl, setBackendUrl, getWsBaseUrl, ApiError, logError, healthFetch, apiFetch, healthCheck } from "./core";
+import { getBackendUrl, setBackendUrl, getWsBaseUrl, ApiError, logError, healthFetch, apiFetch, healthCheck, type HealthCheckResponse, type HealthServiceEntry, type HealthServiceControl } from "./core";
 
 describe("getBackendUrl", () => {
   beforeEach(() => localStorage.clear());
@@ -63,6 +63,18 @@ describe("ApiError", () => {
     const err = new ApiError("msg", "INVALID_INPUT", false, "req-2", "specific detail");
     expect(err.detailMessage).toBe("specific detail");
   });
+
+  it("retains optional errorDetail when provided", () => {
+    const detail = { blockers: ["활성 분석 1건", "빌드 타겟 2개"], extra: 42 };
+    const err = new ApiError("msg", "CONFLICT", false, "req-3", undefined, detail);
+    expect(err.errorDetail).toEqual(detail);
+    expect(err.errorDetail?.blockers).toEqual(["활성 분석 1건", "빌드 타겟 2개"]);
+  });
+
+  it("errorDetail is undefined when not provided", () => {
+    const err = new ApiError("msg", "NOT_FOUND", false, "req-4");
+    expect(err.errorDetail).toBeUndefined();
+  });
 });
 
 describe("logError", () => {
@@ -122,6 +134,29 @@ describe("healthFetch", () => {
     await healthFetch("http://localhost:3000///");
     expect(fetchSpy).toHaveBeenCalledWith("http://localhost:3000/health", expect.any(Object));
   });
+
+  it("appends ?requestId= query param when requestId provided", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ status: "ok" })));
+    await healthFetch("http://localhost:3000", "test-rid-123");
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "http://localhost:3000/health?requestId=test-rid-123",
+      expect.any(Object),
+    );
+  });
+
+  it("encodes special characters in requestId param", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ status: "ok" })));
+    await healthFetch("http://localhost:3000", "rid with spaces/slashes");
+    const calledUrl = (fetchSpy.mock.calls[0][0] as string);
+    expect(calledUrl).toBe("http://localhost:3000/health?requestId=rid%20with%20spaces%2Fslashes");
+  });
+
+  it("omits ?requestId= when no requestId provided", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ status: "ok" })));
+    await healthFetch("http://localhost:3000");
+    const calledUrl = (fetchSpy.mock.calls[0][0] as string);
+    expect(calledUrl).toBe("http://localhost:3000/health");
+  });
 });
 
 describe("apiFetch", () => {
@@ -164,6 +199,31 @@ describe("apiFetch", () => {
     }
   });
 
+  it("propagates full errorDetail object (including blockers) through to thrown ApiError", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const body = {
+      errorDetail: {
+        code: "CONFLICT",
+        retryable: false,
+        message: "소스를 삭제할 수 없습니다.",
+        blockers: ["활성 분석 1건", "빌드 타겟 2개"],
+      },
+    };
+    vi.spyOn(globalThis, "fetch").mockImplementation(() =>
+      Promise.resolve(new Response(JSON.stringify(body), { status: 409 })),
+    );
+    try {
+      await apiFetch("/api/projects/p-1/source");
+      expect.fail("should have thrown");
+    } catch (e) {
+      expect(e).toBeInstanceOf(ApiError);
+      const err = e as ApiError;
+      expect(err.code).toBe("CONFLICT");
+      expect(err.errorDetail).toEqual(body.errorDetail);
+      expect(err.errorDetail?.blockers).toEqual(["활성 분석 1건", "빌드 타겟 2개"]);
+    }
+  });
+
   it("throws PARSE_ERROR on invalid JSON response", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("not json", { status: 200, headers: { "Content-Type": "text/plain" } }));
     await expect(apiFetch("/bad")).rejects.toThrow(ApiError);
@@ -192,5 +252,90 @@ describe("healthCheck", () => {
     const result = await healthCheck();
 
     expect(result).toEqual({ status: "ok" });
+  });
+
+  it("appends ?requestId= when requestId provided", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ status: "ok" }), { status: 200 }),
+    );
+
+    await healthCheck("my-poll-rid");
+
+    const calledUrl = (fetchSpy.mock.calls[0][0] as string);
+    expect(calledUrl).toContain("/health?requestId=my-poll-rid");
+  });
+
+  it("encodes special characters in requestId query param", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ status: "ok" }), { status: 200 }),
+    );
+
+    await healthCheck("rid/with+special chars");
+
+    const calledUrl = (fetchSpy.mock.calls[0][0] as string);
+    expect(calledUrl).toContain("requestId=rid%2Fwith%2Bspecial%20chars");
+  });
+
+  it("omits ?requestId= when no requestId provided", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ status: "ok" }), { status: 200 }),
+    );
+
+    await healthCheck();
+
+    const calledUrl = (fetchSpy.mock.calls[0][0] as string);
+    expect(calledUrl).toMatch(/\/health$/);
+  });
+
+  it("returns rich aggregate fields from contract response", async () => {
+    const mockBody: HealthCheckResponse = {
+      status: "degraded",
+      controlPolicyVersion: "health-control-signal-rollout-v2",
+      requestIdQueried: "poll-rid-abc",
+      llmGateway: {
+        status: "ok",
+        control: {
+          state: "running",
+          pollDecision: "continue_waiting",
+          decisionReasons: ["phase-advancing"],
+        },
+      },
+      sastRunner: {
+        status: "degraded",
+        control: {
+          state: "failed",
+          localAckState: "ack-break",
+          blockedReason: "timeout",
+          pollDecision: "chain_abort",
+        },
+      },
+      buildAgent: { status: "unreachable" },
+    };
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify(mockBody), { status: 200 }),
+    );
+
+    const result = await healthCheck("poll-rid-abc");
+
+    expect(result.controlPolicyVersion).toBe("health-control-signal-rollout-v2");
+    expect(result.requestIdQueried).toBe("poll-rid-abc");
+    expect(result.llmGateway?.status).toBe("ok");
+    expect(result.llmGateway?.control?.pollDecision).toBe("continue_waiting");
+    expect(result.sastRunner?.control?.pollDecision).toBe("chain_abort");
+    expect(result.sastRunner?.control?.blockedReason).toBe("timeout");
+    expect(result.buildAgent?.status).toBe("unreachable");
+  });
+
+  it("HealthCheckResponse type accepts per-service entries without control (type-level check)", () => {
+    // This is a compile-time type assertion exercised at runtime
+    const entry: HealthServiceEntry = { status: "ok" };
+    expect(entry.status).toBe("ok");
+    expect(entry.control).toBeUndefined();
+  });
+
+  it("HealthServiceControl fields are all optional", () => {
+    const ctrl: HealthServiceControl = {};
+    expect(ctrl.pollDecision).toBeUndefined();
+    expect(ctrl.blockedReason).toBeUndefined();
   });
 });

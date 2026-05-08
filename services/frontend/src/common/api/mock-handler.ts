@@ -3,6 +3,7 @@
  * Replaces real fetch when VITE_MOCK=true.
  * Route map mirrors e2e/helpers/api-mocker.ts 1:1.
  */
+import { ApiError } from "./core";
 import * as data from "../../../e2e/fixtures/mock-data";
 
 function delay<T>(value: T): Promise<T> {
@@ -94,6 +95,12 @@ export async function mockApiFetch<T>(path: string, options?: RequestInit): Prom
     return delay({ success: true, data: [data.REGISTRATION_LOOKUP] } as T);
   }
   {
+    const regRequestMatch = p.match(/^\/api\/auth\/registration-requests\/([^/]+)$/);
+    if (regRequestMatch && method === "GET") {
+      return delay({ success: true, data: { ...data.REGISTRATION_LOOKUP, id: regRequestMatch[1] } } as T);
+    }
+  }
+  {
     const approveMatch = p.match(/^\/api\/auth\/registration-requests\/([^/]+)\/approve$/);
     if (approveMatch && method === "POST") {
       return delay({
@@ -114,15 +121,31 @@ export async function mockApiFetch<T>(path: string, options?: RequestInit): Prom
   if (p === "/api/analysis/status") return delay(data.ANALYSIS_STATUS_EMPTY as T);
   if (p.startsWith("/api/analysis/summary")) return delay(data.DASHBOARD_SUMMARY as T);
 
-  // ── Analysis quick/deep (POST) ──
+  // ── Analysis quick/deep/abort/results (POST/DELETE/GET) ──
   if (p === "/api/analysis/quick" && method === "POST") {
     return delay({ success: true, data: { analysisId: "mock-analysis-1", buildTargetId: "target-1", executionId: "mock-analysis-1", status: "running" } } as T);
   }
   if (p === "/api/analysis/deep" && method === "POST") {
-    return delay({ success: true, data: { analysisId: "mock-deep-1", buildTargetId: "target-1", executionId: "exec-1", status: "running" } } as T);
+    const body = options?.body ? JSON.parse(options.body as string) : {};
+    return delay({ success: true, data: { analysisId: "mock-analysis-deep-1", buildTargetId: body.buildTargetId ?? "target-1", executionId: "mock-exec-1", status: "running" } } as T);
   }
   if (p === "/api/analysis/poc" && method === "POST") {
     return delay({ success: true, data: { findingId: "find-1", poc: { statement: "Mock PoC", detail: "Mock detail" }, audit: { latencyMs: 500, tokenUsage: { prompt: 100, completion: 50 } } } } as T);
+  }
+  {
+    const abortMatch = p.match(/^\/api\/analysis\/abort\/([^/]+)$/);
+    if (abortMatch && method === "POST") {
+      return delay({ success: true, data: {} } as T);
+    }
+  }
+  if (p.startsWith("/api/analysis/results") && method === "GET") {
+    return delay({ success: true, data: [] } as T);
+  }
+  {
+    const deleteResultMatch = p.match(/^\/api\/analysis\/results\/([^/]+)$/);
+    if (deleteResultMatch && method === "DELETE") {
+      return delay({ success: true, data: {} } as T);
+    }
   }
 
   // ── Gate Profiles (global) ──
@@ -131,10 +154,29 @@ export async function mockApiFetch<T>(path: string, options?: RequestInit): Prom
     if (p === `/api/gate-profiles/${gp.id}`) return delay({ success: true, data: gp } as T);
   }
 
+  // ── SDK Profiles (global) ──
+  if (p === "/api/sdk-profiles" && method === "GET") {
+    return delay({ success: true, data: [] } as T);
+  }
+  {
+    const sdkProfileMatch = p.match(/^\/api\/sdk-profiles\/([^/]+)$/);
+    if (sdkProfileMatch && method === "GET") {
+      return delay({ success: true, data: { id: sdkProfileMatch[1], name: "mock" } } as T);
+    }
+  }
+
   // ── Projects list ──
   if (p === "/api/projects" && method === "GET") return delay({ success: true, data: data.PROJECTS } as T);
   if (p === "/api/projects" && method === "POST") {
     return delay({ success: true, data: { ...data.PROJECTS[0], id: "p-new", name: "새 프로젝트" } } as T);
+  }
+  {
+    const projectUpdateMatch = p.match(/^\/api\/projects\/([^/]+)$/);
+    if (projectUpdateMatch && method === "PUT") {
+      const body = options?.body ? JSON.parse(options.body as string) : {};
+      const existing = data.PROJECTS.find((proj) => proj.id === projectUpdateMatch[1]) ?? data.PROJECTS[0];
+      return delay({ success: true, data: { ...existing, ...body, id: projectUpdateMatch[1] } } as T);
+    }
   }
 
   // ── Run Detail (no project prefix) ──
@@ -181,6 +223,21 @@ export async function mockApiFetch<T>(path: string, options?: RequestInit): Prom
   // ── Gate override ──
   if (p.includes("/api/gates/") && p.endsWith("/override") && method === "POST") {
     return delay({ success: true } as T);
+  }
+
+  // ── Approval detail (top-level) ──
+  {
+    const approvalDetailMatch = p.match(/^\/api\/approvals\/([^/]+)$/);
+    if (approvalDetailMatch && method === "GET") {
+      const existing = data.APPROVALS.find((a) => a.id === approvalDetailMatch[1]) ?? data.APPROVALS[0];
+      return delay({ success: true, data: existing } as T);
+    }
+    const approvalDecideMatch = p.match(/^\/api\/approvals\/([^/]+)\/decide$/);
+    if (approvalDecideMatch && method === "POST") {
+      const existing = data.APPROVALS.find((a) => a.id === approvalDecideMatch[1]) ?? data.APPROVALS[0];
+      const body = options?.body ? JSON.parse(options.body as string) : {};
+      return delay({ success: true, data: { ...existing, status: body.decision ?? "approved" } } as T);
+    }
   }
 
   // ── Project-scoped routes ──
@@ -290,11 +347,53 @@ export async function mockApiFetch<T>(path: string, options?: RequestInit): Prom
     if (sub.startsWith("/pipeline/run/") && method === "POST") {
       return delay({ success: true, data: { targetId: sub.slice("/pipeline/run/".length), status: "running" } } as T);
     }
+    if (sub === "/pipeline/prepare" && method === "POST") {
+      return delay({ success: true, data: { preparationId: "mock-prep-1", status: "running" } } as T);
+    }
+    {
+      const prepTargetMatch = sub.match(/^\/pipeline\/prepare\/([^/]+)$/);
+      if (prepTargetMatch && method === "POST") {
+        return delay({ success: true, data: { preparationId: "mock-prep-1", targetId: prepTargetMatch[1], status: "running" } } as T);
+      }
+    }
+
+    // Findings summary
+    if (sub === "/findings/summary" && method === "GET") {
+      return delay({ success: true, data: { total: 0 } } as T);
+    }
+
+    // SDK metrics
+    if (sub === "/sdk/metrics" && method === "GET") {
+      return delay({ success: true, data: {} } as T);
+    }
+
+    // Gates runs
+    {
+      const gateRunMatch = sub.match(/^\/gates\/runs\/([^/]+)$/);
+      if (gateRunMatch && method === "GET") {
+        return delay({ success: true, data: [] } as T);
+      }
+    }
 
     // Notifications
     if (sub === "/notifications" && method === "GET") return delay({ success: true, data: data.NOTIFICATIONS } as T);
     if (sub === "/notifications/count") return delay(data.NOTIFICATION_COUNT as T);
     if (sub === "/notifications/read-all" && method === "PATCH") return delay({ success: true } as T);
+
+    // Source bulk delete — simulate 409 blocker when ?simulateBlocker=1 or pid === "p-blocked"
+    if (sub === "/source" && method === "DELETE") {
+      if (url.searchParams.get("simulateBlocker") === "1" || pid === "p-blocked") {
+        throw new ApiError(
+          "이미 실행 중인 작업이 있습니다.",
+          "CONFLICT",
+          false,
+          "mock-request-id",
+          "다음 항목이 활성 상태이므로 소스를 삭제할 수 없습니다: [활성 분석 1건, 빌드 타겟 2개]",
+          { blockers: ["활성 분석 1건", "빌드 타겟 2개"] },
+        );
+      }
+      return delay({ success: true } as T);
+    }
 
     // Delete operations
     if (method === "DELETE") return delay({ success: true } as T);

@@ -14,6 +14,7 @@ import type {
   SdkRegistryStatus,
   SdkErrorCode,
   SdkPhaseDetail,
+  SdkMetrics,
 } from "@aegis/shared";
 import type { SdkRegistryDAO } from "../dao/sdk-registry.dao";
 import type { BuildAgentClient } from "./build-agent-client";
@@ -241,12 +242,7 @@ export class SdkService {
     };
   }
 
-  getMetrics(projectId: string): {
-    sdkCount: number;
-    readyCount: number;
-    failedCount: number;
-    averagePhaseDurationMs: Record<string, number>;
-  } {
+  getMetrics(projectId: string): SdkMetrics {
     const registered = this.listRegistered(projectId);
     const buckets = new Map<string, number[]>();
     for (const sdk of registered) {
@@ -256,6 +252,7 @@ export class SdkService {
       }
     }
     return {
+      totalRegistered: registered.length,
       sdkCount: registered.length,
       readyCount: registered.filter((sdk) => sdk.status === "ready").length,
       failedCount: registered.filter((sdk) => sdk.status.endsWith("_failed")).length,

@@ -1,17 +1,20 @@
 import React, { useCallback, useEffect, useMemo } from "react";
-import { useParams } from "react-router-dom";
+import { useParams, useSearchParams } from "react-router-dom";
 import { ShieldQuestion, Settings2, Play, BookOpen, GitCommitHorizontal } from "lucide-react";
 import { useToast } from "@/common/contexts/ToastContext";
 import { PageHeader, Spinner } from "@/common/ui/primitives";
 import { QualityGateCard } from "./components/QualityGateCard/QualityGateCard";
 import { QualityGateHeroVerdict } from "./components/QualityGateHeroVerdict/QualityGateHeroVerdict";
 import { QualityGateOverrideModal } from "./components/QualityGateOverrideModal/QualityGateOverrideModal";
+import { QualityGateRunSection } from "./components/QualityGateRunSection/QualityGateRunSection";
 import { QualityGateSidebar } from "./components/QualityGateSidebar/QualityGateSidebar";
 import { useQualityGatePageController } from "./useQualityGatePageController";
 import "./QualityGatePage.css";
 
 export const QualityGatePage: React.FC = () => {
   const { projectId } = useParams<{ projectId: string }>();
+  const [searchParams] = useSearchParams();
+  const runId = searchParams.get("runId") ?? undefined;
   const toast = useToast();
   const {
     gates,
@@ -104,6 +107,15 @@ export const QualityGatePage: React.FC = () => {
       />
 
       {latestGate ? <QualityGateHeroVerdict gate={latestGate} /> : null}
+
+      {projectId && runId ? (
+        <QualityGateRunSection
+          projectId={projectId}
+          runId={runId}
+          gateProfilesById={gateProfilesById}
+          onRequestOverride={handleRequestOverride}
+        />
+      ) : null}
 
       <div className="quality-gate-layout">
         <div className="quality-gate-main">

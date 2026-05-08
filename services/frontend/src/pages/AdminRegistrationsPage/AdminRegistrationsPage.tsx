@@ -6,6 +6,7 @@ import { AdminRegistrationsRefreshButton } from "./components/AdminRegistrations
 import { AdminRegistrationsKpiBar } from "./components/AdminRegistrationsKpiBar/AdminRegistrationsKpiBar";
 import { AdminRegistrationsErrorNotice } from "./components/AdminRegistrationsErrorNotice/AdminRegistrationsErrorNotice";
 import { AdminRegistrationsListPanel } from "./components/AdminRegistrationsListPanel/AdminRegistrationsListPanel";
+import { AdminRegistrationsDetailDialog } from "./components/AdminRegistrationsDetailDialog/AdminRegistrationsDetailDialog";
 
 export const AdminRegistrationsPage: React.FC = () => {
   const {
@@ -21,7 +22,22 @@ export const AdminRegistrationsPage: React.FC = () => {
     filter,
     setFilter,
     displayRequests,
+    detailRequest,
+    detailLoading,
+    detailError,
+    openDetail,
+    closeDetail,
   } = useAdminRegistrationsPageController();
+
+  const [detailOpen, setDetailOpen] = React.useState(false);
+  const handleOpenDetail = React.useCallback((id: string) => {
+    setDetailOpen(true);
+    void openDetail(id);
+  }, [openDetail]);
+  const handleCloseDetail = React.useCallback(() => {
+    setDetailOpen(false);
+    closeDetail();
+  }, [closeDetail]);
 
   return (
     <div className="page-shell admin-reg-page">
@@ -49,6 +65,15 @@ export const AdminRegistrationsPage: React.FC = () => {
         onFilterChange={setFilter}
         onApprove={approve}
         onReject={reject}
+        onOpenDetail={handleOpenDetail}
+      />
+
+      <AdminRegistrationsDetailDialog
+        open={detailOpen}
+        loading={detailLoading}
+        error={detailError}
+        request={detailRequest}
+        onClose={handleCloseDetail}
       />
     </div>
   );

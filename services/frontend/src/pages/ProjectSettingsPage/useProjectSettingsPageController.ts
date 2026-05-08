@@ -2,14 +2,14 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import type { Project } from "@aegis/shared";
 import type { RegisteredSdk, SdkRegistryStatus, SdkQuota } from "@/common/api/sdk";
-import { deleteProject, fetchProject, updateProjectSettings } from "@/common/api/projects";
+import { deleteProject, fetchProject, updateProject, updateProjectSettings } from "@/common/api/projects";
 import {
   deleteSdk,
   fetchProjectSdks,
   fetchSdkQuota,
   retrySdk,
 } from "@/common/api/sdk";
-import { logError } from "@/common/api/core";
+import { ApiError, logError } from "@/common/api/core";
 import {
   useSdkProgress,
   type SdkProgressDetails,
@@ -272,21 +272,52 @@ export function useProjectSettingsPageController(projectId: string | undefined, 
 
   const handleSave = useCallback(async () => {
     if (!projectId || !dirty || saving) return;
+    const trimmedName = name.trim();
+    const trimmedDescription = description.trim();
+
+    // C11 — pre-validate empty name client-side; PUT /api/projects/:id 400s on empty trim.
+    if (trimmedName.length === 0) {
+      toast.error("프로젝트 이름을 입력해 주세요.");
+      return;
+    }
+
     setSaving(true);
+    const nameChanged = trimmedName !== storedName;
+    const descriptionChanged = trimmedDescription !== storedDescription;
+    let nameUpdated = false;
     try {
-      await updateProjectSettings(projectId, { name: name.trim(), description: description.trim() });
-      setStoredName(name.trim());
-      setStoredDescription(description.trim());
-      setName(name.trim());
-      setDescription(description.trim());
-      toast.success("프로젝트 정보를 저장했습니다.");
+      // Canonical rename endpoint — PUT /api/projects/:id (name-only).
+      if (nameChanged) {
+        await updateProject(projectId, { name: trimmedName });
+        setStoredName(trimmedName);
+        setName(trimmedName);
+        nameUpdated = true;
+      }
+      // Description (and other settings) — PUT /api/projects/:pid/settings.
+      if (descriptionChanged) {
+        await updateProjectSettings(projectId, { description: trimmedDescription });
+        setStoredDescription(trimmedDescription);
+        setDescription(trimmedDescription);
+      }
+      if (nameChanged && !descriptionChanged) {
+        toast.success("프로젝트 이름이 변경되었습니다.");
+      } else {
+        toast.success("프로젝트 정보를 저장했습니다.");
+      }
     } catch (error) {
       logError("Save project settings", error);
-      toast.error("프로젝트 정보를 저장하지 못했습니다.");
+      if (nameUpdated) {
+        // Name persisted on server but description update failed — surface unambiguous message.
+        toast.error("이름은 저장됐지만 설명을 저장하지 못했습니다. 다시 시도해주세요.");
+      } else {
+        // Name update failed (or nothing was updated yet).
+        const detail = error instanceof ApiError ? (error.detailMessage ?? error.message) : null;
+        toast.error(detail ?? "프로젝트 정보를 저장하지 못했습니다.");
+      }
     } finally {
       setSaving(false);
     }
-  }, [projectId, dirty, saving, name, description, toast]);
+  }, [projectId, dirty, saving, name, description, storedName, storedDescription, toast]);
 
   const handleConfirmDeleteProject = useCallback(async () => {
     if (!projectId) return;

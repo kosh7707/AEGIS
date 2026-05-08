@@ -52,7 +52,7 @@ export const BuildTargetCreateDialog: React.FC<Props> = ({
   initialIncludedPaths = EMPTY_INCLUDED_PATHS,
   initialRelativePath,
   initialScriptHintPath = null,
-  includedPathsEditable = true,
+  includedPathsEditable = onSubmit ? false : true,
   includedPathsHelpText = !includedPathsEditable ? INCLUDED_PATHS_EDIT_UNSUPPORTED_TEXT : undefined,
 }) => {
   const {

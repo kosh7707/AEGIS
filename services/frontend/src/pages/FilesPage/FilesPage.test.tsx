@@ -9,6 +9,7 @@ const mockFetchSourceFilesWithComposition = vi.fn();
 const mockFetchSourceFileContent = vi.fn();
 const mockFetchProjectFindings = vi.fn();
 const mockUploadSource = vi.fn();
+const mockDeleteSource = vi.fn();
 const mockLogError = vi.fn();
 const mockUseBuildTargets = vi.fn();
 const mockUseUploadProgress = vi.fn();
@@ -33,13 +34,31 @@ vi.mock("react-router-dom", async () => {
   };
 });
 
-vi.mock("@/common/api/client", () => ({
-  fetchSourceFilesWithComposition: (...args: unknown[]) => mockFetchSourceFilesWithComposition(...args),
-  fetchSourceFileContent: (...args: unknown[]) => mockFetchSourceFileContent(...args),
-  fetchProjectFindings: (...args: unknown[]) => mockFetchProjectFindings(...args),
-  uploadSource: (...args: unknown[]) => mockUploadSource(...args),
-  logError: (...args: unknown[]) => mockLogError(...args),
-}));
+vi.mock("@/common/api/client", () => {
+  class ApiError extends Error {
+    code: string;
+    retryable: boolean;
+    requestId: string;
+    detailMessage?: string;
+    constructor(message: string, code = "UNKNOWN", retryable = false, requestId = "rid", detailMessage?: string) {
+      super(message);
+      this.name = "ApiError";
+      this.code = code;
+      this.retryable = retryable;
+      this.requestId = requestId;
+      this.detailMessage = detailMessage;
+    }
+  }
+  return {
+    fetchSourceFilesWithComposition: (...args: unknown[]) => mockFetchSourceFilesWithComposition(...args),
+    fetchSourceFileContent: (...args: unknown[]) => mockFetchSourceFileContent(...args),
+    fetchProjectFindings: (...args: unknown[]) => mockFetchProjectFindings(...args),
+    uploadSource: (...args: unknown[]) => mockUploadSource(...args),
+    deleteSource: (...args: unknown[]) => mockDeleteSource(...args),
+    logError: (...args: unknown[]) => mockLogError(...args),
+    ApiError,
+  };
+});
 
 vi.mock("@/common/hooks/useBuildTargets", () => ({
   useBuildTargets: (...args: unknown[]) => mockUseBuildTargets(...args),
@@ -87,6 +106,7 @@ describe("FilesPage", () => {
     window.localStorage.clear();
     mockFetchSourceFilesWithComposition.mockResolvedValue({ success: true, data: [], targetMapping: {} });
     mockFetchProjectFindings.mockResolvedValue([]);
+    mockDeleteSource.mockResolvedValue(undefined);
     mockFetchSourceFileContent.mockResolvedValue({
       path: "src/main.c",
       content: "int main() {\n  return 0;\n}\n",
@@ -244,5 +264,65 @@ describe("FilesPage", () => {
     await waitFor(() => expect(mockUploadProgressApi.setUploading).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(mockToast.error).toHaveBeenCalledWith("파일 업로드에 실패했습니다."));
     expect(mockUploadProgressApi.startTracking).not.toHaveBeenCalled();
+  });
+
+  it("calls deleteSource (DELETE /api/projects/:pid/source) when bulk delete is confirmed", async () => {
+    mockFetchSourceFilesWithComposition.mockResolvedValue({
+      success: true,
+      data: [{ relativePath: "src/main.c", size: 120, language: "C" }],
+      targetMapping: {},
+    });
+
+    renderPage();
+
+    expect(await screen.findByRole("heading", { name: "파일 탐색기" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /소스 일괄 삭제/ }));
+
+    expect(
+      screen.getByText(/프로젝트의 모든 소스 파일을 삭제합니다\. 이 작업은 되돌릴 수 없습니다\. 정말 삭제하시겠습니까\?/),
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "삭제" }));
+
+    await waitFor(() => expect(mockDeleteSource).toHaveBeenCalledWith("p-1"));
+    await waitFor(() =>
+      expect(mockToast.success).toHaveBeenCalledWith("프로젝트 소스를 모두 삭제했습니다."),
+    );
+  });
+
+  it("surfaces the 409 backend detail message when deleteSource is blocked", async () => {
+    mockFetchSourceFilesWithComposition.mockResolvedValue({
+      success: true,
+      data: [{ relativePath: "src/main.c", size: 120, language: "C" }],
+      targetMapping: {},
+    });
+    const { ApiError } = await import("@/common/api/client");
+    mockDeleteSource.mockRejectedValue(
+      new (ApiError as new (
+        message: string,
+        code: string,
+        retryable: boolean,
+        requestId: string,
+        detailMessage?: string,
+      ) => Error)(
+        "이미 실행 중인 작업이 있습니다.",
+        "CONFLICT",
+        false,
+        "rid-1",
+        "다음 항목이 활성 상태이므로 삭제할 수 없습니다: active analysis, dynamic session",
+      ),
+    );
+
+    renderPage();
+
+    expect(await screen.findByRole("heading", { name: "파일 탐색기" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /소스 일괄 삭제/ }));
+    fireEvent.click(screen.getByRole("button", { name: "삭제" }));
+
+    await waitFor(() =>
+      expect(mockToast.error).toHaveBeenCalledWith(
+        "다음 항목이 활성 상태이므로 삭제할 수 없습니다: active analysis, dynamic session",
+      ),
+    );
   });
 });

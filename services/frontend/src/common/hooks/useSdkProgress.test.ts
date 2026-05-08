@@ -27,7 +27,6 @@ vi.mock("@/common/api/sdk", () => ({
   fetchProjectSdks: vi.fn().mockResolvedValue({ builtIn: [], registered: [] }),
   getSdkWsUrl: vi.fn((pid: string) => `ws://localhost:3000/ws/sdk?projectId=${pid}`),
   deleteSdk: vi.fn(),
-  registerSdkByPath: vi.fn(),
 }));
 
 vi.mock("@/common/api/core", () => ({
@@ -377,6 +376,28 @@ describe("useSdkProgress", () => {
 
     // Should still expose connectionState as disconnected
     expect(result.current.connectionState).toBe("disconnected");
+  });
+
+  it("surfaces giveUpReason and disconnected when onGiveUp fires (close 4000 / retry exhausted)", () => {
+    const { result, rerender } = renderHook(() =>
+      useSdkProgress({
+        projectId: "p-1",
+        onProgress: vi.fn(),
+        onComplete: vi.fn(),
+        onError: vi.fn(),
+      }),
+    );
+
+    expect(result.current.disconnected).toBe(false);
+    expect(result.current.giveUpReason).toBeNull();
+
+    act(() => {
+      (capturedOptions.onGiveUp as () => void)();
+    });
+    rerender();
+
+    expect(result.current.giveUpReason).not.toBeNull();
+    expect(typeof result.current.giveUpReason).toBe("string");
   });
 
   it("does not connect in mock mode", () => {

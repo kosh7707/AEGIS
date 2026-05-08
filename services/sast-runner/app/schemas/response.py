@@ -36,6 +36,10 @@ class SdkResolutionInfo(BaseModel):
     resolved: bool
     sdk_id: str | None = Field(default=None, alias="sdkId")
     include_paths_added: int = Field(default=0, alias="includePathsAdded")
+    resolution_mode: str | None = Field(default=None, alias="resolutionMode")
+    resolved_from: str | None = Field(default=None, alias="resolvedFrom")
+    sdk_root_path: str | None = Field(default=None, alias="sdkRootPath")
+    degrade_reasons: list[str] = Field(default_factory=list, alias="degradeReasons")
 
     model_config = {"populate_by_name": True, "by_alias": True}
 
@@ -199,7 +203,7 @@ class BuildAndAnalyzeResponse(BaseModel):
 class HealthRequestSummary(BaseModel):
     request_id: str | None = Field(default=None, alias="requestId")
     endpoint: str = "scan"
-    state: Literal["idle", "queued", "running", "completed", "failed"]
+    state: Literal["idle", "queued", "running", "completed", "failed", "cancelled"]
     ack_status: Literal["idle", "active", "broken"] = Field(alias="ackStatus")
     local_ack_state: Literal["phase-advancing", "transport-only", "ack-break"] | None = Field(
         default=None,

@@ -25,10 +25,34 @@ class ScanOptions(BaseModel):
     model_config = {"populate_by_name": True}
 
 
-# --- BuildProfile (mirrors docs/api/shared-models.md BuildProfile) ---
+# --- BuildProfile (S4 service-local extension of shared BuildProfile) ---
+
+
+class SdkDescriptor(BaseModel):
+    """Caller-resolved SDK descriptor for non-registered SDK analysis."""
+
+    sdk_root_path: str | None = Field(default=None, alias="sdkRootPath")
+    setup_script: str | None = Field(default=None, alias="setupScript")
+    sysroot: str | None = None
+    toolchain_triplet: str | None = Field(default=None, alias="toolchainTriplet")
+    compiler_path: str | None = Field(default=None, alias="compilerPath")
+    compiler_version: str | None = Field(default=None, alias="compilerVersion")
+    target_arch: str | None = Field(default=None, alias="targetArch")
+    language_standard: str | None = Field(default=None, alias="languageStandard")
+    include_paths: list[str] | None = Field(default=None, alias="includePaths")
+    defines: dict[str, str] | None = None
+    environment: dict[str, str] | None = None
+
+    model_config = {"populate_by_name": True}
+
 
 class BuildProfile(BaseModel):
     sdk_id: str | None = Field(default=None, alias="sdkId")
+    sdk_resolution_mode: Literal["none", "non-registered"] | None = Field(
+        default=None,
+        alias="sdkResolutionMode",
+    )
+    sdk_descriptor: SdkDescriptor | None = Field(default=None, alias="sdkDescriptor")
     compiler: str | None = None
     compiler_version: str | None = Field(default=None, alias="compilerVersion")
     target_arch: str | None = Field(default=None, alias="targetArch")

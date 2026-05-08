@@ -11,6 +11,9 @@ class Phase1Result:
 
     sast_findings: list[dict] = field(default_factory=list)
     sast_stats: dict = field(default_factory=dict)
+    sast_scan_attempted: bool = False
+    sast_scan_completed: bool = False
+    sast_failure_detail: dict = field(default_factory=dict)
     code_functions: list[dict] = field(default_factory=list)
     sca_libraries: list[dict] = field(default_factory=list)
     threat_context: list[dict] = field(default_factory=list)

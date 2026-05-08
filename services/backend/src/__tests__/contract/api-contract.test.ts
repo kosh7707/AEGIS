@@ -1712,6 +1712,7 @@ describe("API Contract Tests", () => {
       const metricsRes = await request(app).get("/api/projects/p-sdk-ops/sdk/metrics");
       expect(metricsRes.status).toBe(200);
       expect(metricsRes.body.data).toMatchObject({
+        totalRegistered: 1,
         sdkCount: 1,
         readyCount: 0,
         failedCount: 0,
@@ -1892,6 +1893,13 @@ describe("API Contract Tests", () => {
       expect(res.body.success).toBe(true);
       expect(Array.isArray(res.body.data)).toBe(true);
       expect(res.body.data.length).toBeGreaterThan(0);
+      expect(res.body.data[0]).toMatchObject({
+        id: expect.any(String),
+        name: expect.any(String),
+        vendor: expect.any(String),
+        description: expect.any(String),
+        defaults: expect.any(Object),
+      });
     });
 
     it("GET /api/sdk-profiles/:id returns detail or 404 for unknown ids", async () => {
@@ -1901,6 +1909,12 @@ describe("API Contract Tests", () => {
       const detailRes = await request(app).get(`/api/sdk-profiles/${profileId}`);
       expect(detailRes.status).toBe(200);
       expect(detailRes.body.data.id).toBe(profileId);
+      expect(detailRes.body.data.defaults).toMatchObject({
+        compiler: expect.any(String),
+        targetArch: expect.any(String),
+        languageStandard: expect.any(String),
+        headerLanguage: expect.any(String),
+      });
 
       const missingRes = await request(app).get("/api/sdk-profiles/nonexistent");
       expect(missingRes.status).toBe(404);
@@ -3125,6 +3139,10 @@ describe("API Contract Tests", () => {
       expect(res.body.success).toBe(true);
       expect(res.body.data).toMatchObject({
         total: 2,
+        byStatus: {
+          open: 1,
+          fixed: 1,
+        },
         bySeverity: {
           critical: 1,
           high: 1,

@@ -6,6 +6,7 @@ import type {
   AuditLogEntry,
   Severity,
   AnalysisModule,
+  FindingsSummary,
 } from "@aegis/shared";
 import type { IFindingDAO, IEvidenceRefDAO, IAuditLogDAO } from "../dao/interfaces";
 import { InvalidInputError, NotFoundError } from "../lib/errors";
@@ -160,10 +161,10 @@ export class FindingService {
     }));
   }
 
-  getSummary(projectId: string): { byStatus: Record<string, number>; bySeverity: Record<string, number>; total: number } {
+  getSummary(projectId: string): FindingsSummary {
     const findings = this.findByProjectId(projectId);
-    const byStatus: Record<string, number> = {};
-    const bySeverity: Record<string, number> = {};
+    const byStatus: Partial<Record<FindingStatus, number>> = {};
+    const bySeverity: Partial<Record<Severity, number>> = {};
 
     for (const finding of findings) {
       byStatus[finding.status] = (byStatus[finding.status] ?? 0) + 1;

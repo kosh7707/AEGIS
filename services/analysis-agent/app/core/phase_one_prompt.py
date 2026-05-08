@@ -256,6 +256,16 @@ def build_phase2_prompt(
                     tool = item.get("toolId", "")
                     rule = item.get("ruleId", "")
                     sections.append(f"- [{tool}:{rule}] {file}:{line} — {msg}")
+    elif phase1.sast_failure_detail:
+        failure = json.dumps(phase1.sast_failure_detail, ensure_ascii=False)
+        sections.append(
+            "## SAST 스캔 결과\n"
+            "SAST 스캔이 실패했습니다. 이를 '취약점 없음'으로 해석하지 말고, "
+            "분석 한계와 필요한 재시도/환경 정비를 caveats와 recommendedNextSteps에 명시하라.\n"
+            f"- failureDetail: {failure}"
+        )
+    elif phase1.sast_scan_completed:
+        sections.append("## SAST 스캔 결과\nSAST 스캔은 완료되었으나 findings가 0개였습니다.")
     else:
         sections.append("## SAST 스캔 결과\nSAST 스캔을 실행하지 못했습니다.")
 

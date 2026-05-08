@@ -16,6 +16,7 @@ import {
   Finding,
   EvidenceRef,
   FindingStatus,
+  Severity,
   AuditLogEntry,
   GateResult,
   ApprovalRequest,
@@ -25,7 +26,9 @@ import {
   SdkAnalyzedProfile,
   SdkErrorCode,
   SdkErrorPhase,
+  SdkPhase,
   SdkPhaseDetail,
+  SdkProfile,
   SdkProgressPhase,
   PocResponseData,
 } from "./models";
@@ -754,13 +757,47 @@ export interface FindingStatusUpdateRequest {
   actor?: string;
 }
 
+export interface FindingsSummary {
+  total: number;
+  bySeverity: Partial<Record<Severity, number>>;
+  byStatus: Partial<Record<FindingStatus, number>>;
+}
+
 export interface FindingSummaryResponse {
   success: boolean;
-  data: {
-    byStatus: Record<string, number>;
-    bySeverity: Record<string, number>;
-    total: number;
-  };
+  data: FindingsSummary;
+}
+
+// ============================================================
+// SDK aggregate / built-in profile API
+// ============================================================
+
+export type SdkMetricsPhaseKey = SdkPhase;
+
+export interface SdkMetrics {
+  /** Canonical count of project-registered SDK records. */
+  totalRegistered: number;
+  /** Compatibility alias for totalRegistered; retained for existing S2/S1 consumers. */
+  sdkCount: number;
+  readyCount: number;
+  failedCount: number;
+  averagePhaseDurationMs: Partial<Record<SdkMetricsPhaseKey, number>>;
+}
+
+export interface SdkMetricsResponse {
+  success: boolean;
+  data: SdkMetrics;
+}
+
+export interface SdkProfileListResponse {
+  success: boolean;
+  data: SdkProfile[];
+}
+
+export interface SdkProfileResponse {
+  success: boolean;
+  data?: SdkProfile;
+  error?: string;
 }
 
 // ============================================================

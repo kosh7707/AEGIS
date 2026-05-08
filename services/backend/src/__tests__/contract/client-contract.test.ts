@@ -662,7 +662,7 @@ describe("SastClient contract", () => {
       .rejects.toThrow(/ownership loss|410|expired/i);
   });
 
-  it("propagates explicit local cancellation while waiting for S4 durable result", async () => {
+  it("propagates explicit local cancellation to S4 durable ownership cancel endpoint", async () => {
     process.env.AEGIS_S4_OWNERSHIP_POLL_MS = "25";
     const controller = new AbortController();
     let ownedRequestId = "";
@@ -673,6 +673,22 @@ describe("SastClient contract", () => {
           ok: true,
           status: 202,
           json: () => Promise.resolve({ requestId: ownedRequestId, endpoint: "scan", state: "queued" }),
+          text: () => Promise.resolve(""),
+        });
+      }
+      if (opts?.method === "DELETE") {
+        expect(url).toBe(`http://localhost:9000/v1/requests/${encodeURIComponent(ownedRequestId)}`);
+        expect(opts.headers["X-Request-Id"]).toBe(ownedRequestId);
+        return Promise.resolve({
+          ok: true,
+          status: 202,
+          json: () => Promise.resolve({
+            requestId: ownedRequestId,
+            endpoint: "scan",
+            state: "cancelled",
+            resultReady: true,
+            result: { success: false, errorDetail: { code: "REQUEST_CANCELLED" } },
+          }),
           text: () => Promise.resolve(""),
         });
       }
@@ -701,6 +717,73 @@ describe("SastClient contract", () => {
       "req-cancel",
       controller.signal,
     )).rejects.toThrow(/cancelled/i);
+
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      `http://localhost:9000/v1/requests/${encodeURIComponent(ownedRequestId)}`,
+      expect.objectContaining({ method: "DELETE" }),
+    );
+  });
+
+  it("propagates explicit local cancellation to S4 build durable ownership cancel endpoint", async () => {
+    process.env.AEGIS_S4_OWNERSHIP_POLL_MS = "25";
+    const controller = new AbortController();
+    let ownedRequestId = "";
+    globalThis.fetch = vi.fn().mockImplementation((url: string, opts?: any) => {
+      if (url === "http://localhost:9000/v1/build") {
+        ownedRequestId = opts.headers["X-Request-Id"];
+        return Promise.resolve({
+          ok: true,
+          status: 202,
+          json: () => Promise.resolve({ requestId: ownedRequestId, endpoint: "build", state: "queued" }),
+          text: () => Promise.resolve(""),
+        });
+      }
+      if (opts?.method === "DELETE") {
+        expect(url).toBe(`http://localhost:9000/v1/requests/${encodeURIComponent(ownedRequestId)}`);
+        expect(opts.headers["X-Request-Id"]).toBe(ownedRequestId);
+        return Promise.resolve({
+          ok: true,
+          status: 202,
+          json: () => Promise.resolve({
+            requestId: ownedRequestId,
+            endpoint: "build",
+            state: "cancelled",
+            resultReady: true,
+            result: { success: false, errorDetail: { code: "REQUEST_CANCELLED" } },
+          }),
+          text: () => Promise.resolve(""),
+        });
+      }
+      setTimeout(() => controller.abort(new Error("user cancelled build")), 0);
+      return Promise.resolve({
+        ok: true,
+        status: 202,
+        json: () => Promise.resolve({
+          requestId: ownedRequestId,
+          endpoint: "build",
+          state: "running",
+          requestSummary: {
+            requestId: ownedRequestId,
+            endpoint: "build",
+            state: "running",
+            localAckState: "transport-only",
+            blockedReason: null,
+          },
+        }),
+        text: () => Promise.resolve(""),
+      });
+    }) as any;
+
+    await expect(client.build(
+      { projectPath: "/tmp/project", buildCommand: "make" },
+      "req-build-cancel",
+      controller.signal,
+    )).rejects.toThrow(/cancelled build/i);
+
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      `http://localhost:9000/v1/requests/${encodeURIComponent(ownedRequestId)}`,
+      expect.objectContaining({ method: "DELETE" }),
+    );
   });
 
   it("parses BuildResponse correctly", async () => {

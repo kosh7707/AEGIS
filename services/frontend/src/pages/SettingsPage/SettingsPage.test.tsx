@@ -65,7 +65,7 @@ describe("SettingsPage", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "테스트" }));
 
-    await waitFor(() => expect(mockHealthFetch).toHaveBeenCalledWith("http://localhost:3000"));
+    await waitFor(() => expect(mockHealthFetch).toHaveBeenCalledWith("http://localhost:3000", expect.any(String)));
     expect(await screen.findByText(/연결 성공/)).toBeInTheDocument();
   });
 
@@ -75,8 +75,19 @@ describe("SettingsPage", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "테스트" }));
 
-    await waitFor(() => expect(mockHealthFetch).toHaveBeenCalledWith("http://localhost:3000"));
+    await waitFor(() => expect(mockHealthFetch).toHaveBeenCalledWith("http://localhost:3000", expect.any(String)));
     expect(await screen.findByText("연결 실패")).toBeInTheDocument();
+  });
+
+  it("forwards a UUID requestId to healthFetch for correlation", async () => {
+    render(<SettingsPage />);
+
+    fireEvent.click(screen.getByRole("button", { name: "테스트" }));
+
+    await waitFor(() => expect(mockHealthFetch).toHaveBeenCalled());
+    const [, requestId] = mockHealthFetch.mock.calls[0] as [string, string];
+    // UUID v4 pattern
+    expect(requestId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
   });
 
   it("resets the backend URL to the stored default and clears prior test feedback", async () => {
@@ -148,7 +159,7 @@ describe("SettingsPage", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "테스트" }));
 
-    await waitFor(() => expect(mockHealthFetch).toHaveBeenCalledWith("http://localhost:3000"));
+    await waitFor(() => expect(mockHealthFetch).toHaveBeenCalledWith("http://localhost:3000", expect.any(String)));
     expect(await screen.findByText("연결 실패")).toBeInTheDocument();
   });
 });

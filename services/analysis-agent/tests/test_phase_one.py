@@ -957,6 +957,57 @@ def test_s4_build_profile_preserves_real_sdkid():
     }
 
 
+def test_s4_build_profile_converts_resolved_sdk_environment_to_non_registered_descriptor():
+    from app.core.phase_one_exec import _s4_build_profile
+
+    assert _s4_build_profile(
+        {
+            "sdkId": "ti-am335x-08.02.00.24",
+            "compiler": "arm-linux-gnueabihf-gcc",
+            "targetArch": "armv7",
+            "includePaths": ["project/include"],
+        },
+        build_environment={
+            "AEGIS_SDK_ROOT": "/uploads/sdk/ti",
+            "AEGIS_SDK_SETUP_SCRIPT": "/uploads/sdk/ti/environment-setup-armv7",
+            "AEGIS_SDK_SYSROOT": "/uploads/sdk/ti/sysroots/armv7",
+            "AEGIS_TOOLCHAIN_TRIPLET": "arm-linux-gnueabihf",
+        },
+    ) == {
+        "sdkResolutionMode": "non-registered",
+        "sdkDescriptor": {
+            "sdkRootPath": "/uploads/sdk/ti",
+            "setupScript": "/uploads/sdk/ti/environment-setup-armv7",
+            "sysroot": "/uploads/sdk/ti/sysroots/armv7",
+            "toolchainTriplet": "arm-linux-gnueabihf",
+        },
+        "compiler": "arm-linux-gnueabihf-gcc",
+        "targetArch": "armv7",
+        "includePaths": ["project/include"],
+    }
+
+
+def test_s4_build_profile_preserves_explicit_non_registered_descriptor():
+    from app.core.phase_one_exec import _s4_build_profile
+
+    assert _s4_build_profile({
+        "sdkId": "legacy-label",
+        "sdkResolutionMode": "non-registered",
+        "sdkDescriptor": {
+            "sdkRootPath": "/uploads/sdk/custom",
+            "sysroot": "/uploads/sdk/custom/sysroot",
+        },
+        "compiler": "clang",
+    }) == {
+        "sdkResolutionMode": "non-registered",
+        "sdkDescriptor": {
+            "sdkRootPath": "/uploads/sdk/custom",
+            "sysroot": "/uploads/sdk/custom/sysroot",
+        },
+        "compiler": "clang",
+    }
+
+
 @pytest.mark.asyncio
 async def test_build_and_analyze_uses_durable_ownership_and_fetches_result(monkeypatch):
     from app.core.phase_one import Phase1Executor
@@ -1021,6 +1072,62 @@ async def test_build_and_analyze_uses_durable_ownership_and_fetches_result(monke
 
 
 @pytest.mark.asyncio
+async def test_build_and_analyze_forwards_non_registered_sdk_descriptor(monkeypatch):
+    from types import SimpleNamespace
+
+    from app.core.phase_one import Phase1Executor
+    from app.core.phase_one_types import Phase1Result
+
+    captured = {}
+
+    async def fake_post_and_wait(*args, **kwargs):
+        captured["payload"] = kwargs["payload"]
+        return SimpleNamespace(payload={
+            "success": True,
+            "build": {"success": True, "buildEvidence": {}},
+            "scan": {
+                "success": True,
+                "findings": [],
+                "stats": {"findingsTotal": 0},
+                "execution": {"toolResults": {}},
+            },
+            "codeGraph": {"functions": []},
+            "libraries": [],
+        })
+
+    monkeypatch.setattr(
+        "app.core.phase_one_exec.post_and_wait_s4_ownership",
+        fake_post_and_wait,
+    )
+    executor = Phase1Executor(sast_endpoint="http://localhost:9000", kb_endpoint="http://localhost:8002")
+
+    result = Phase1Result()
+    actual = await executor._run_build_and_analyze(
+        result,
+        "proj-1",
+        "/uploads/project",
+        "bash scripts/build.sh",
+        {"sdkId": "ti-am335x-08.02.00.24", "compiler": "arm-linux-gnueabihf-gcc"},
+        "req-root",
+        build_environment={
+            "AEGIS_SDK_ROOT": "/uploads/project/.aegis/sdks/ti",
+            "SDKTARGETSYSROOT": "/uploads/project/.aegis/sdks/ti/sysroots/armv7",
+        },
+    )
+
+    assert actual is result
+    scan_profile = captured["payload"]["scanProfile"]
+    assert scan_profile["sdkResolutionMode"] == "non-registered"
+    assert scan_profile["sdkDescriptor"] == {
+        "sdkRootPath": "/uploads/project/.aegis/sdks/ti",
+        "sysroot": "/uploads/project/.aegis/sdks/ti/sysroots/armv7",
+    }
+    assert "sdkId" not in scan_profile
+    assert scan_profile["compiler"] == "arm-linux-gnueabihf-gcc"
+    await executor.aclose()
+
+
+@pytest.mark.asyncio
 async def test_build_and_analyze_durable_ack_break_returns_none(monkeypatch):
     from app.core.phase_one import Phase1Executor
     from app.core.phase_one_types import Phase1Result
@@ -1055,3 +1162,158 @@ async def test_build_and_analyze_durable_ack_break_returns_none(monkeypatch):
 
     assert actual is None
     await executor.aclose()
+
+
+@pytest.mark.asyncio
+async def test_build_and_analyze_records_s4_contract_failure(monkeypatch):
+    from app.clients.s4_ownership import S4OwnershipError
+    from app.core.phase_one import Phase1Executor
+    from app.core.phase_one_types import Phase1Result
+
+    async def fake_post_and_wait(*args, **kwargs):
+        raise S4OwnershipError(
+            "S4 submit failed with HTTP 400",
+            status_code=400,
+            payload={
+                "success": False,
+                "failureDetail": {
+                    "code": "SDK_NOT_FOUND",
+                    "message": "SDK profile not registered",
+                },
+            },
+        )
+
+    monkeypatch.setattr(
+        "app.core.phase_one_exec.post_and_wait_s4_ownership",
+        fake_post_and_wait,
+    )
+    executor = Phase1Executor(sast_endpoint="http://localhost:9000", kb_endpoint="http://localhost:8002")
+
+    result = Phase1Result()
+    actual = await executor._run_build_and_analyze(
+        result,
+        "proj-1",
+        "/uploads/project",
+        "bash build.sh",
+        {"sdkId": "unknown-sdk"},
+        "req-root",
+    )
+
+    assert actual is None
+    assert result.sast_scan_attempted is True
+    assert result.sast_scan_completed is False
+    assert result.sast_failure_detail["code"] == "SDK_NOT_FOUND"
+    assert result.sast_failure_detail["statusCode"] == 400
+    assert result.sast_failure_detail["message"] == "SDK profile not registered"
+    await executor.aclose()
+
+
+@pytest.mark.asyncio
+async def test_run_sast_records_tool_failure_detail():
+    from app.agent_runtime.schemas.agent import ToolResult
+    from app.core.phase_one import Phase1Executor
+    from app.core.phase_one_types import Phase1Result
+
+    class FailingSastTool:
+        async def execute(self, arguments):
+            return ToolResult(
+                tool_call_id="sast-1",
+                name="sast.scan",
+                success=False,
+                content='{"failureDetail":{"code":"SDK_PROFILE_INVALID","message":"invalid profile"}}',
+                error="invalid profile",
+            )
+
+    executor = Phase1Executor(
+        sast_tool=FailingSastTool(),
+        sast_endpoint="http://localhost:9000",
+        kb_endpoint="http://localhost:8002",
+    )
+
+    result = await executor._run_sast(
+        Phase1Result(),
+        [],
+        "proj-1",
+        {"sdkResolutionMode": "none"},
+        "req-root",
+        project_path="/uploads/project",
+    )
+
+    assert result.sast_scan_attempted is True
+    assert result.sast_scan_completed is False
+    assert result.sast_failure_detail["code"] == "SDK_PROFILE_INVALID"
+    assert result.sast_failure_detail["message"] == "invalid profile"
+    await executor.aclose()
+
+
+@pytest.mark.asyncio
+async def test_run_sast_records_success_false_payload_as_failure():
+    from app.agent_runtime.schemas.agent import ToolResult
+    from app.core.evidence_catalog import EvidenceCatalog
+    from app.core.phase_one import Phase1Executor
+    from app.core.phase_one_types import Phase1Result
+
+    class FailedPayloadSastTool:
+        async def execute(self, arguments):
+            return ToolResult(
+                tool_call_id="sast-1",
+                name="sast.scan",
+                success=True,
+                content=json.dumps({
+                    "success": False,
+                    "failureDetail": {
+                        "code": "SDK_NOT_FOUND",
+                        "message": "SDK profile not registered",
+                    },
+                    "findings": [],
+                    "stats": {},
+                }),
+            )
+
+    executor = Phase1Executor(
+        sast_tool=FailedPayloadSastTool(),
+        sast_endpoint="http://localhost:9000",
+        kb_endpoint="http://localhost:8002",
+    )
+
+    result = await executor._run_sast(
+        Phase1Result(),
+        [],
+        "proj-1",
+        {"sdkId": "missing-sdk"},
+        "req-root",
+        project_path="/uploads/project",
+    )
+
+    assert result.sast_scan_attempted is True
+    assert result.sast_scan_completed is False
+    assert result.sast_failure_detail["code"] == "SDK_NOT_FOUND"
+
+    catalog = EvidenceCatalog()
+    catalog.ingest_phase1_result(result)
+    assert catalog.negative_ref_ids() == set()
+    operational = [catalog.get(ref) for ref in catalog.operational_ref_ids()]
+    assert len(operational) == 1
+    assert "sast_scan_failed" in operational[0].roles
+    assert "sast_contract_failure" in operational[0].roles
+    await executor.aclose()
+
+
+def test_sast_failure_detail_unwraps_ownership_error_detail_payload():
+    from app.core.phase_one_exec import _sast_failure_detail
+
+    detail = _sast_failure_detail({
+        "error": "S4 submit failed with HTTP 400",
+        "statusCode": 400,
+        "detail": {
+            "success": False,
+            "failureDetail": {
+                "code": "SDK_NOT_FOUND",
+                "message": "SDK profile not registered",
+            },
+        },
+    })
+
+    assert detail["code"] == "SDK_NOT_FOUND"
+    assert detail["message"] == "SDK profile not registered"
+    assert detail["statusCode"] == 400

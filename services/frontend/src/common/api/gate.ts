@@ -27,13 +27,6 @@ export async function fetchProjectGates(projectId: string): Promise<GateResult[]
   return res.data;
 }
 
-export async function fetchGateDetail(gateId: string): Promise<GateResult> {
-  const res = await apiFetch<{ success: boolean; data: GateResult }>(
-    `/api/gates/${gateId}`,
-  );
-  return res.data;
-}
-
 export async function overrideGate(
   gateId: string,
   reason: string,
@@ -48,16 +41,18 @@ export async function overrideGate(
 
 // ── Gate Profiles ──
 
-export async function fetchGateProfiles(): Promise<GateProfile[]> {
-  const res = await apiFetch<{ success: boolean; data: GateProfile[] }>(
-    "/api/gate-profiles",
+export async function fetchGateProfile(profileId: string): Promise<GateProfile> {
+  const res = await apiFetch<{ success: boolean; data: GateProfile }>(
+    `/api/gate-profiles/${profileId}`,
   );
   return res.data;
 }
 
-export async function fetchGateProfile(profileId: string): Promise<GateProfile> {
-  const res = await apiFetch<{ success: boolean; data: GateProfile }>(
-    `/api/gate-profiles/${profileId}`,
+// ── Run-scoped Gate Results ──
+
+export async function fetchGateRunResults(projectId: string, runId: string): Promise<GateResult[]> {
+  const res = await apiFetch<{ success: boolean; data: GateResult[] }>(
+    `/api/projects/${projectId}/gates/runs/${runId}`,
   );
   return res.data;
 }
