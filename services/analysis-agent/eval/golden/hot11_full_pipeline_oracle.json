@@ -1,0 +1,275 @@
+{
+  "schemaVersion": "hot11-full-pipeline-oracle-v1",
+  "curatedAt": "2026-05-08",
+  "curationScope": "hot11 Build -> Analyze -> Generate-PoC full-pipeline benchmark",
+  "policy": {
+    "passRequiresBuildCompleted": true,
+    "passRequiresAnalysisCompleted": true,
+    "passRequiresAllExpectedFindings": true,
+    "passRequiresDiagnosticPocForMatchedFindings": true,
+    "diagnosticOnly": true,
+    "antiOverfitDirective": "This oracle encodes source-grounded vulnerability classes and locations; do not hard-code case-specific shortcuts in S3 code to satisfy it."
+  },
+  "cases": [
+    {
+      "caseId": "certificate-maker",
+      "title": "certificate-maker / RE100 local seed",
+      "expectedFindings": [
+        {
+          "id": "certificate-maker-popen-openssl-command-injection",
+          "cwe": "CWE-78",
+          "riskClass": "os-command-injection",
+          "severity": "critical",
+          "minMatches": 1,
+          "match": {
+            "allKeywords": ["popen", "openssl"],
+            "anyKeywords": ["CWE-78", "command injection", "shell injection", "RCE", "remote code execution"],
+            "locationRegexes": ["main\\.cpp"]
+          },
+          "sourceEvidence": [
+            {"path": "main.cpp", "lineStart": 35, "lineEnd": 35, "summary": "run() executes caller-built shell strings with popen(cmd.c_str(), \"r\")."},
+            {"path": "main.cpp", "lineStart": 156, "lineEnd": 240, "summary": "OpenSSL command strings interpolate certificate/profile fields before shell execution."}
+          ],
+          "poc": {"required": true, "diagnosticOnly": true, "requiredAnyKeywords": ["popen", "openssl", "command"]}
+        }
+      ],
+      "negativeControls": ["Do not satisfy this case with generic OpenSSL CVEs outside certificate-maker/main.cpp."]
+    },
+    {
+      "caseId": "cjson",
+      "title": "cJSON / CVE-2023-50471",
+      "externalReferences": ["CVE-2023-50471", "https://github.com/DaveGamble/cJSON/issues/802"],
+      "expectedFindings": [
+        {
+          "id": "cjson-insert-item-null-deref",
+          "cwe": "CWE-476",
+          "riskClass": "null-pointer-dereference",
+          "severity": "high",
+          "minMatches": 1,
+          "match": {
+            "allKeywords": ["cJSON_InsertItemInArray"],
+            "anyKeywords": ["CWE-476", "null pointer", "null dereference", "segmentation", "CVE-2023-50471"],
+            "locationRegexes": ["cJSON\\.c"]
+          },
+          "sourceEvidence": [
+            {"path": "cJSON.c", "lineStart": 2263, "lineEnd": 2288, "summary": "cJSON_InsertItemInArray dereferences newitem and newitem->prev without validating the replacement item state."}
+          ],
+          "poc": {"required": true, "diagnosticOnly": true, "requiredAnyKeywords": ["cJSON_InsertItemInArray", "null", "segmentation"]}
+        }
+      ],
+      "negativeControls": ["Do not satisfy this case only with unrelated cJSON_Utils sprintf findings."]
+    },
+    {
+      "caseId": "libexpat",
+      "title": "libexpat / CVE-2018-20843",
+      "externalReferences": ["CVE-2018-20843", "https://github.com/libexpat/libexpat/commit/c20b758c332d9a41577c86f0a6a2f14c67042c06"],
+      "expectedFindings": [
+        {
+          "id": "libexpat-attribute-name-resource-exhaustion",
+          "cwe": "CWE-400",
+          "riskClass": "resource-exhaustion-dos",
+          "severity": "high",
+          "minMatches": 1,
+          "match": {
+            "allKeywords": ["xmlparse.c"],
+            "anyKeywords": ["CWE-400", "resource exhaustion", "denial of service", "CPU", "RAM", "large number of colons", "attribute"]
+          },
+          "sourceEvidence": [
+            {"path": "expat/lib/xmlparse.c", "lineStart": 6377, "lineEnd": 6455, "summary": "Internal entity processing re-enters parser state for attacker-controlled XML entity expansion paths."},
+            {"path": "expat/lib/xmlparse.c", "lineStart": 7291, "lineEnd": 7348, "summary": "Attribute-name/prefix parsing scans colon-separated XML names and is the CVE-2018-20843 localization area."}
+          ],
+          "poc": {"required": true, "diagnosticOnly": true, "requiredAnyKeywords": ["XML", "attribute", "entity", "denial"]}
+        }
+      ],
+      "negativeControls": ["Do not satisfy this case only with xmlwf command-line strcpy warnings."]
+    },
+    {
+      "caseId": "redis",
+      "title": "redis / CVE-2022-24736",
+      "externalReferences": ["CVE-2022-24736", "https://github.com/redis/redis/commit/666ed7facf4524bf6d19b11b20faa2cf93fdf591"],
+      "expectedFindings": [
+        {
+          "id": "redis-lua-debugger-null-deref",
+          "cwe": "CWE-476",
+          "riskClass": "null-pointer-dereference-dos",
+          "severity": "high",
+          "minMatches": 1,
+          "match": {
+            "allKeywords": ["ldbReplParseCommand"],
+            "anyKeywords": ["CWE-476", "null pointer", "Lua debugger", "RESP", "protocol", "CVE-2022-24736"],
+            "locationRegexes": ["src/scripting\\.c"]
+          },
+          "sourceEvidence": [
+            {"path": "src/scripting.c", "lineStart": 2029, "lineEnd": 2079, "summary": "Lua debugger RESP parser returns NULL/error states for malformed attacker-controlled debug protocol input."}
+          ],
+          "poc": {"required": true, "diagnosticOnly": true, "requiredAnyKeywords": ["Lua", "debugger", "RESP", "NULL"]}
+        }
+      ],
+      "negativeControls": ["Do not satisfy this case only with hiredis dependency warnings or weak rand findings outside Redis scripting." ]
+    },
+    {
+      "caseId": "openssl",
+      "title": "OpenSSL / CVE-2022-0778 validation holdout",
+      "externalReferences": ["CVE-2022-0778", "https://mta.openssl.org/pipermail/openssl-announce/2022-March/000219.html"],
+      "expectedFindings": [
+        {
+          "id": "openssl-bn-mod-sqrt-infinite-loop",
+          "cwe": "CWE-835",
+          "riskClass": "infinite-loop-dos",
+          "severity": "high",
+          "minMatches": 1,
+          "match": {
+            "allKeywords": ["BN_mod_sqrt"],
+            "anyKeywords": ["CWE-835", "infinite loop", "denial of service", "certificate", "explicit curve", "CVE-2022-0778"],
+            "locationRegexes": ["crypto/bn/bn_sqrt\\.c"]
+          },
+          "sourceEvidence": [
+            {"path": "crypto/bn/bn_sqrt.c", "lineStart": 13, "lineEnd": 13, "summary": "BN_mod_sqrt is the CVE-2022-0778 vulnerable primitive reached from crafted explicit EC parameters."}
+          ],
+          "poc": {"required": true, "diagnosticOnly": true, "requiredAnyKeywords": ["BN_mod_sqrt", "certificate", "loop"]}
+        }
+      ],
+      "negativeControls": ["Do not satisfy this case only with apps/ command-line utility strcpy/strcat warnings."]
+    },
+    {
+      "caseId": "pjproject",
+      "title": "pjproject / CVE-2022-24786 validation holdout",
+      "externalReferences": ["CVE-2022-24786", "https://github.com/pjsip/pjproject/commit/11559e49e65bdf00922ad5ae28913ec6a198d508"],
+      "expectedFindings": [
+        {
+          "id": "pjproject-sip-transaction-uaf",
+          "cwe": "CWE-416",
+          "riskClass": "use-after-free",
+          "severity": "high",
+          "minMatches": 1,
+          "match": {
+            "allKeywords": ["tsx_on_state_proceeding_uas"],
+            "anyKeywords": ["CWE-416", "use-after-free", "UAF", "INVITE", "transaction", "CVE-2022-24786"],
+            "locationRegexes": ["pjsip/src/pjsip/sip_transaction\\.c"]
+          },
+          "sourceEvidence": [
+            {"path": "pjsip/src/pjsip/sip_transaction.c", "lineStart": 2769, "lineEnd": 2865, "summary": "UAS proceeding-state transaction handler manages retransmission and last_tx references in the CVE-linked state path."}
+          ],
+          "poc": {"required": true, "diagnosticOnly": true, "requiredAnyKeywords": ["INVITE", "transaction", "use-after-free"]}
+        }
+      ],
+      "negativeControls": ["Do not satisfy this case only with pjlib test sprintf or generic weak rand warnings."]
+    },
+    {
+      "caseId": "gateway-webserver",
+      "title": "RE100 gateway-webserver TI SDK build",
+      "expectedFindings": [
+        {
+          "id": "gateway-webserver-curl-popen-command-injection",
+          "cwe": "CWE-78",
+          "riskClass": "os-command-injection",
+          "severity": "critical",
+          "minMatches": 1,
+          "match": {
+            "allKeywords": ["popen", "curl"],
+            "anyKeywords": ["CWE-78", "command injection", "shell injection", "RCE", "remote code execution"],
+            "locationRegexes": ["src/clients/http_client\\.cpp"]
+          },
+          "sourceEvidence": [
+            {"path": "src/clients/http_client.cpp", "lineStart": 62, "lineEnd": 62, "summary": "run_curl executes a composed curl command through popen."},
+            {"path": "src/clients/http_client.cpp", "lineStart": 76, "lineEnd": 161, "summary": "URL, TLS material, headers and POST body options are appended into shell command strings."}
+          ],
+          "poc": {"required": true, "diagnosticOnly": true, "requiredAnyKeywords": ["popen", "curl", "command"]}
+        }
+      ],
+      "negativeControls": ["Do not satisfy this case only with generated build-script or SDK path diagnostics."]
+    },
+    {
+      "caseId": "gateway-central",
+      "title": "RE100 gateway central TI SDK build",
+      "expectedFindings": [
+        {
+          "id": "gateway-central-http-client-popen-command-injection",
+          "cwe": "CWE-78",
+          "riskClass": "os-command-injection",
+          "severity": "critical",
+          "minMatches": 1,
+          "match": {
+            "allKeywords": ["popen", "curl"],
+            "anyKeywords": ["CWE-78", "command injection", "shell injection", "RCE", "remote code execution"],
+            "locationRegexes": ["apps/central/src/http_client\\.cpp", "src/http_client\\.cpp"]
+          },
+          "sourceEvidence": [
+            {"path": "apps/central/src/http_client.cpp", "lineStart": 45, "lineEnd": 118, "summary": "Central service HTTP client composes curl shell strings and executes them with popen."}
+          ],
+          "poc": {"required": true, "diagnosticOnly": true, "requiredAnyKeywords": ["popen", "curl", "command"]}
+        }
+      ],
+      "negativeControls": ["Default PSK or CERT_LOG findings are useful secondary findings but do not replace the primary central HTTP popen finding for this oracle." ]
+    },
+    {
+      "caseId": "gateway-mqtt_broker",
+      "title": "RE100 gateway mqtt_broker TI SDK build",
+      "expectedFindings": [
+        {
+          "id": "gateway-mqtt-broker-default-psk-secrets",
+          "cwe": "CWE-798",
+          "riskClass": "hardcoded-default-credential",
+          "severity": "high",
+          "minMatches": 1,
+          "match": {
+            "allKeywords": ["PSK"],
+            "anyKeywords": ["CWE-798", "hardcoded", "default credential", "coap-psk-key", "lwm2m-psk-key", "pre-shared key", "secret"],
+            "locationRegexes": ["scripts/build/gen_env\\.sh", "README", "mqtt_broker"]
+          },
+          "sourceEvidence": [
+            {"path": "scripts/build/gen_env.sh", "lineStart": 23, "lineEnd": 79, "summary": "Generated environment defaults include reusable COAP/LWM2M PSK identifiers and keys."}
+          ],
+          "poc": {"required": true, "diagnosticOnly": true, "requiredAnyKeywords": ["PSK", "default", "secret"]}
+        }
+      ],
+      "negativeControls": ["Do not treat argv-vector execv/execvp launcher use alone as shell command injection." ]
+    },
+    {
+      "caseId": "gateway-coap_server",
+      "title": "RE100 gateway coap_server TI SDK build",
+      "expectedFindings": [
+        {
+          "id": "gateway-coap-server-default-dtls-psk",
+          "cwe": "CWE-798",
+          "riskClass": "hardcoded-default-credential",
+          "severity": "high",
+          "minMatches": 1,
+          "match": {
+            "allKeywords": ["COAP_PSK_KEY"],
+            "anyKeywords": ["CWE-798", "hardcoded", "default credential", "coap-psk-key", "DTLS", "pre-shared key", "secret"],
+            "locationRegexes": ["apps/coap_server/src/main\\.cpp", "scripts/build/gen_env\\.sh"]
+          },
+          "sourceEvidence": [
+            {"path": "apps/coap_server/src/main.cpp", "lineStart": 286, "lineEnd": 309, "summary": "CoAP DTLS PSK configuration falls back to a default coap-psk-key when environment is absent."}
+          ],
+          "poc": {"required": true, "diagnosticOnly": true, "requiredAnyKeywords": ["COAP_PSK_KEY", "default", "DTLS"]}
+        }
+      ],
+      "negativeControls": ["CERT_LOG payload logging is secondary for this case; the primary oracle is the default DTLS PSK path." ]
+    },
+    {
+      "caseId": "gateway-lwm2m_server",
+      "title": "RE100 gateway lwm2m_server TI SDK build",
+      "expectedFindings": [
+        {
+          "id": "gateway-lwm2m-server-psk-credential-logging",
+          "cwe": "CWE-532",
+          "riskClass": "sensitive-information-in-log",
+          "severity": "high",
+          "minMatches": 1,
+          "match": {
+            "allKeywords": ["PSK"],
+            "anyKeywords": ["CWE-532", "sensitive information", "credential logging", "log", "raw", "LWM2M_PSK_KEY", "secret"],
+            "locationRegexes": ["apps/lwm2m_server/src/psk_utils\\.cpp", "psk_utils\\.cpp"]
+          },
+          "sourceEvidence": [
+            {"path": "apps/lwm2m_server/src/psk_utils.cpp", "lineStart": 103, "lineEnd": 107, "summary": "PSK utility logs raw PSK identifier and key material."}
+          ],
+          "poc": {"required": true, "diagnosticOnly": true, "requiredAnyKeywords": ["PSK", "log", "raw"]}
+        }
+      ],
+      "negativeControls": ["Do not satisfy this case solely with generated env defaults unless the raw credential logging path is also identified." ]
+    }
+  ]
+}
