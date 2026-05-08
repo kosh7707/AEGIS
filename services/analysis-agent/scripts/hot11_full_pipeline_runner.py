@@ -793,7 +793,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--sast-tool", dest="sast_tools", action="append", default=None,
                         help="optional S4 individual-scan tool filter; repeatable, e.g. --sast-tool flawfinder")
     parser.add_argument("--analysis-max-tokens", type=int, default=32768)
-    parser.add_argument("--analysis-timeout-ms", type=int, default=1_800_000)
+    parser.add_argument("--analysis-timeout-ms", type=int, default=900_000)
     parser.add_argument("--poc-max-tokens", type=int, default=8192)
     parser.add_argument("--poc-timeout-ms", type=int, default=900_000)
     parser.add_argument("--max-pocs-per-case", type=int, default=1,

@@ -112,3 +112,11 @@ def test_oracle_evaluation_fails_when_required_finding_missing():
     assert verdict["enabled"] is True
     assert verdict["passed"] is False
     assert verdict["missingFindings"][0]["id"] == "gateway-webserver-curl-popen-command-injection"
+
+
+def test_default_analysis_timeout_respects_s3_http_contract():
+    runner = load_runner()
+    args = runner.parse_args([])
+
+    assert args.analysis_timeout_ms == 900_000
+    assert args.poc_timeout_ms == 900_000
