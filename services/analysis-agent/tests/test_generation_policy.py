@@ -34,6 +34,7 @@ def test_named_presets_capture_intended_sampling_shapes() -> None:
     assert STRICT_JSON_REPAIR.temperature == 0.0
     assert STRICT_JSON_REPAIR.top_p == 1.0
     assert STRICT_JSON_REPAIR.top_k == 1
+    assert STRICT_JSON_REPAIR.enable_thinking is False
 
 
 def test_constraint_overrides_use_public_camel_case_names() -> None:

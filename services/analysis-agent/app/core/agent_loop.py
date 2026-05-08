@@ -64,6 +64,7 @@ _GROUNDING_UNCERTAINTY_MARKERS = (
     "plausible",
     "not fully confirmed",
 )
+_TOOL_INTENT_STALL_SECONDS = 45.0
 
 
 def _budget_snapshot(session: AgentSession) -> dict:
@@ -147,6 +148,13 @@ def _schema_repair_detail(parsed: dict, task_type) -> str | None:
 
 def _has_successful_tool_calls(session: AgentSession) -> bool:
     return any(step.success for step in session.trace)
+
+
+def _has_local_analysis_evidence(session: AgentSession) -> bool:
+    return any(
+        entry.can_support_claim and entry.category in {"sast", "source", "caller", "callee"}
+        for entry in session.evidence_catalog.entries()
+    )
 
 
 def _tool_choice_for_turn(
@@ -344,8 +352,20 @@ class AgentLoop:
                         turn=turn, toolCallsSoFar=session.total_tool_calls(),
                         errorCode=e.code,
                     )
+                    if _has_local_analysis_evidence(session):
+                        return self._result_assembler.build_from_available_evidence(
+                            session,
+                            deficiency_detail=str(e),
+                            termination_reason=f"llm_failure_partial_local_evidence:{e.code}",
+                        )
                     session.set_termination_reason(f"llm_failure_partial:{e.code}")
                     return self._result_assembler.build_from_exhaustion(session)
+                if _has_local_analysis_evidence(session):
+                    return self._result_assembler.build_from_available_evidence(
+                        session,
+                        deficiency_detail=str(e),
+                        termination_reason=f"llm_failure_local_evidence:{e.code}",
+                    )
                 outcome = outcome_for_deficiency(DeficiencyClass.MALFORMED_LLM_OUTPUT)
                 return self._result_assembler.build_completed_outcome(
                     session,
@@ -739,13 +759,22 @@ class AgentLoop:
                 get_request_id() or session.request.taskId,
                 source="tool-intent-inference",
             )
-            planner_response = await self._llm_caller.call(
-                messages,
-                session,
-                tools=None,
-                generation=controls_from_constraints(THINKING_GENERAL, session.request.constraints),
-                prefer_async_ownership=True,
-            )
+            try:
+                planner_response = await asyncio.wait_for(
+                    self._llm_caller.call(
+                        messages,
+                        session,
+                        tools=None,
+                        generation=controls_from_constraints(STRICT_JSON_REPAIR, session.request.constraints),
+                        prefer_async_ownership=True,
+                    ),
+                    timeout=_TOOL_INTENT_STALL_SECONDS,
+                )
+            except asyncio.TimeoutError as exc:
+                raise LlmHttpError(
+                    502,
+                    f"tool_intent_planning_stalled_after_{_TOOL_INTENT_STALL_SECONDS:.0f}s",
+                ) from exc
             # Unit tests and future compatibility shims may still inject already
             # parsed tool calls or final content. Real ToolIntent calls pass
             # tools=None, so live vLLM cannot produce OpenAI tool_calls here, but

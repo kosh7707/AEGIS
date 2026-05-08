@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import asyncio
 import json
 import copy
 import re
@@ -38,6 +39,7 @@ from app.state_machine.types import DependencyState
 from app.types import AnalysisOutcome, ClaimStatus, FailureCode, PocOutcome, QualityOutcome, TaskStatus
 
 logger = logging.getLogger(__name__)
+_GENERATE_POC_LLM_STALL_SECONDS = 45.0
 
 
 def _monotonic() -> float:
@@ -540,11 +542,14 @@ async def handle_generate_poc(request: TaskRequest, model_registry) -> TaskSucce
     ]
     try:
         request_summary_tracker.mark_transport_only(request_id, source="llm-inference")
-        llm_response = await llm.call(
-            messages,
-            max_tokens=request.constraints.maxTokens or 8192,
-            generation=coding_generation,
-            prefer_async_ownership=True,
+        llm_response = await asyncio.wait_for(
+            llm.call(
+                messages,
+                max_tokens=request.constraints.maxTokens or 8192,
+                generation=coding_generation,
+                prefer_async_ownership=True,
+            ),
+            timeout=_GENERATE_POC_LLM_STALL_SECONDS,
         )
         raw = llm_response.content or ""
         prompt_tokens = llm_response.prompt_tokens
@@ -565,11 +570,14 @@ async def handle_generate_poc(request: TaskRequest, model_registry) -> TaskSucce
                 },
             ]
             request_summary_tracker.mark_transport_only(request_id, source="llm-strict-json-retry")
-            llm_response = await llm.call(
-                retry_messages,
-                max_tokens=request.constraints.maxTokens or 8192,
-                generation=strict_generation,
-                prefer_async_ownership=True,
+            llm_response = await asyncio.wait_for(
+                llm.call(
+                    retry_messages,
+                    max_tokens=request.constraints.maxTokens or 8192,
+                    generation=strict_generation,
+                    prefer_async_ownership=True,
+                ),
+                timeout=_GENERATE_POC_LLM_STALL_SECONDS,
             )
             raw = llm_response.content or ""
             prompt_tokens = llm_response.prompt_tokens

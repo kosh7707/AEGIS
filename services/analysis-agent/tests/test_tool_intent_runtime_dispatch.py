@@ -6,6 +6,7 @@ import pytest
 
 from app.agent_runtime.schemas.agent import LlmResponse, ToolCallRequest
 from app.agent_runtime.tools.tool_intent import (
+    build_tool_intent_messages,
     ToolIntentError,
     parse_tool_intent,
     tool_intent_to_request,
@@ -52,6 +53,34 @@ def test_tool_intent_to_request_preserves_dotted_tool_name() -> None:
     assert request.arguments == {"query": "popen callers"}
 
 
+def test_tool_intent_prompt_is_compact_and_does_not_replay_full_phase2_context() -> None:
+    huge_context = "BEGIN " + ("phase2-evidence " * 1000) + " END"
+    messages = [
+        {"role": "system", "content": "You are a security analyst."},
+        {"role": "user", "content": huge_context},
+    ]
+    tool_schema = [{
+        "type": "function",
+        "function": {
+            "name": "knowledge.search",
+            "description": "Search threat knowledge",
+            "parameters": {
+                "type": "object",
+                "required": ["query"],
+                "properties": {"query": {"type": "string"}, "top_k": {"type": "integer"}},
+            },
+        },
+    }]
+
+    compact = build_tool_intent_messages(messages, tool_schema)
+
+    assert len(compact) == 1
+    content = compact[0]["content"]
+    assert len(content) <= 2600
+    assert "knowledge.search(query*:string, top_k:integer)" in content
+    assert huge_context not in content
+
+
 @pytest.mark.asyncio
 async def test_analysis_loop_dispatches_initial_required_acquisition_via_tool_intent() -> None:
     responses = [
@@ -79,7 +108,7 @@ async def test_analysis_loop_dispatches_initial_required_acquisition_via_tool_in
     first_call = loop._llm_caller.call.await_args_list[0]
     assert first_call.kwargs["tools"] is None
     assert "tool_choice" not in first_call.kwargs
-    assert first_call.kwargs["generation"].enable_thinking is True
+    assert first_call.kwargs["generation"].enable_thinking is False
     assert session.trace[0].tool == "knowledge.search"
     assert session.trace[0].success is True
 

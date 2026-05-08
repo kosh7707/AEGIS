@@ -98,8 +98,11 @@ THINKING_CODING = GenerationControls(
     enable_thinking=True,
 )
 
-# Strict JSON repair/finalizer path. If S7/model validation rejects top_k=1 in
-# practice, keep this preset centralized and adjust here rather than per callsite.
+# Strict JSON repair/finalizer path. Thinking is disabled on structured
+# dispatch/finalization turns because Qwen/vLLM can place the requested JSON in
+# the reasoning channel instead of assistant content when thinking is enabled.
+# If S7/model validation rejects top_k=1 in practice, keep this preset
+# centralized and adjust here rather than per callsite.
 STRICT_JSON_REPAIR = GenerationControls(
     temperature=0.0,
     top_p=1.0,
@@ -107,7 +110,7 @@ STRICT_JSON_REPAIR = GenerationControls(
     min_p=0.0,
     presence_penalty=0.0,
     repetition_penalty=1.0,
-    enable_thinking=True,
+    enable_thinking=False,
 )
 
 # Transitional default for legacy call sites during the foundation slice.

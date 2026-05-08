@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from app.agent_runtime.errors import StrictJsonContractError
+from app.agent_runtime.errors import LlmHttpError, StrictJsonContractError
 from app.budget.manager import BudgetManager
 from app.budget.token_counter import TokenCounter
 from app.core.agent_loop import AgentLoop
@@ -254,6 +254,46 @@ def _add_command_injection_supporting_slice(
         sink="popen",
         cwe_id="CWE-78",
     ))
+
+
+@pytest.mark.asyncio
+async def test_llm_failure_before_tool_calls_recovers_from_phase1_local_evidence():
+    responses = [LlmHttpError(502, "internal_error")]
+    loop, session = _build_agent_loop(responses, {"max_steps": 10, "max_cheap_calls": 6})
+    session.evidence_catalog.add(EvidenceCatalogEntry(
+        ref_id="eref-sast-flawfinder-shell-popen",
+        category="sast",
+        source_tool="sast",
+        artifact_type="sast-finding",
+        file="main.cpp",
+        line=35,
+        sink="popen",
+        rule_id="flawfinder:shell/popen",
+        cwe_id="CWE-78",
+        summary="popen executes an OpenSSL command and is difficult to use safely.",
+        evidence_class="local",
+        roles=("sast_finding", "source_location", "sink_or_dangerous_api"),
+    ))
+    session.evidence_catalog.add(EvidenceCatalogEntry(
+        ref_id="eref-caller-run-main-cpp-29",
+        category="caller",
+        source_tool="code_graph.callers",
+        artifact_type="code-graph",
+        file="main.cpp",
+        line=29,
+        function="run",
+        sink="popen",
+        summary="caller chain reaches popen from run().",
+        evidence_class="local",
+        roles=("caller_chain", "function_symbol"),
+    ))
+
+    result = await loop.run(session)
+
+    assert result.status == "completed"
+    assert result.result.analysisOutcome == "accepted_claims"
+    assert result.result.claims
+    assert result.result.recoveryTrace[0].action == "deterministic_local_evidence_fallback"
 
 
 
@@ -627,7 +667,8 @@ async def test_first_tool_turn_uses_toolintent_path_then_relaxes_to_auto_after_s
     assert first_call.kwargs["tools"] is None
     assert "tool_choice" not in first_call.kwargs
     assert second_call.kwargs["tool_choice"] == "auto"
-    assert first_call.kwargs["generation"].temperature == 1.0
+    assert first_call.kwargs["generation"].temperature == 0.0
+    assert first_call.kwargs["generation"].enable_thinking is False
 
 
 @pytest.mark.asyncio

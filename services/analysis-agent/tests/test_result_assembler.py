@@ -450,6 +450,59 @@ def test_recoverable_loop_exhaustion_returns_completed_repair_exhausted():
     assert result.result.recoveryTrace[0].deficiency == "RECOVERY_EXHAUSTED"
 
 
+def test_llm_failure_can_recover_grounded_claim_from_available_local_evidence(tmp_path):
+    assembler = ResultAssembler()
+    session = _make_session()
+    session.request.context.trusted["projectPath"] = str(tmp_path)
+    source_lines = [""] * 40
+    source_lines[28] = "static int run(const std::string &cmd) {"
+    source_lines[34] = 'FILE *p = popen(cmd.c_str(), "r");'
+    source_lines[35] = "}"
+    source_lines[39] = 'int rc = run("openssl req -new -key " + key);'
+    (tmp_path / "main.cpp").write_text("\n".join(source_lines))
+    session.evidence_catalog.add(EvidenceCatalogEntry(
+        ref_id="eref-sast-flawfinder-shell-popen",
+        category="sast",
+        source_tool="sast",
+        artifact_type="sast-finding",
+        file="main.cpp",
+        line=35,
+        sink="popen",
+        rule_id="flawfinder:shell/popen",
+        cwe_id="CWE-78",
+        summary="popen executes an OpenSSL command assembled from input and may allow command injection.",
+        evidence_class="local",
+        roles=("sast_finding", "source_location", "sink_or_dangerous_api"),
+    ))
+    session.evidence_catalog.add(EvidenceCatalogEntry(
+        ref_id="eref-caller-run-main-cpp-29",
+        category="caller",
+        source_tool="code_graph.callers",
+        artifact_type="code-graph",
+        file="main.cpp",
+        line=29,
+        function="run",
+        sink="popen",
+        summary="caller chain reaches popen from run().",
+        evidence_class="local",
+        roles=("caller_chain", "function_symbol"),
+    ))
+
+    result = assembler.build_from_available_evidence(
+        session,
+        deficiency_detail="internal_error",
+    )
+
+    assert result.status == "completed"
+    assert result.result.analysisOutcome == "accepted_claims"
+    assert result.result.claims
+    assert result.result.claims[0].status == "grounded"
+    assert "popen" in result.result.claims[0].detail
+    assert "OpenSSL" in result.result.claims[0].detail
+    assert result.result.recoveryTrace[0].action == "deterministic_local_evidence_fallback"
+    assert "deterministic_local_evidence_fallback" in result.result.policyFlags
+
+
 def test_timeout_exhaustion_remains_task_failure():
     assembler = ResultAssembler()
     session = _make_session()

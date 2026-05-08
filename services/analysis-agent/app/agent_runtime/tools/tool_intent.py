@@ -7,7 +7,6 @@ Qwen tool-call parser path.
 
 from __future__ import annotations
 
-import copy
 import json
 from dataclasses import dataclass
 from typing import Iterable
@@ -81,9 +80,21 @@ def tool_intent_to_request(intent: ToolIntent, *, turn: int) -> ToolCallRequest:
     )
 
 
+_TOOL_INTENT_CONTEXT_LIMIT = 1200
+_TOOL_INTENT_TOTAL_LIMIT = 2600
+
+
 def build_tool_intent_messages(messages: list[dict], tools_schema: list[dict]) -> list[dict]:
-    """Append an ephemeral instruction asking for a single ToolIntent JSON object."""
-    rendered_tools = json.dumps(tools_schema, ensure_ascii=False, indent=2)
+    """Build a compact ToolIntent-only prompt.
+
+    This path intentionally does not append to the full Phase 2 transcript.
+    Live Qwen/vLLM tool-planning calls are latency-sensitive, and the full
+    evidence handoff can be tens of KB.  ToolIntent only needs the immediate
+    acquisition objective plus compact tool signatures; the authoritative
+    evidence remains in S3 state and is used again for final result assembly.
+    """
+    rendered_tools = _render_compact_tool_catalog(tools_schema)
+    context = _compact_context_excerpt(messages)
     instruction = (
         "[S3 ToolIntent runtime-dispatch]\n"
         "You are in an evidence-acquisition turn. Do not write a final report. "
@@ -97,8 +108,58 @@ def build_tool_intent_messages(messages: list[dict], tools_schema: list[dict]) -
         "- arguments must satisfy that tool's schema.\n"
         "- rationale is diagnostic only and is not evidence.\n"
         "- Return no markdown, no prose, and no OpenAI tool_calls.\n\n"
+        f"Current task/context excerpt:\n{context}\n\n"
         f"Registered tools:\n{rendered_tools}"
     )
-    prepared = copy.deepcopy(messages)
-    prepared.append({"role": "user", "content": instruction})
-    return prepared
+    if len(instruction) > _TOOL_INTENT_TOTAL_LIMIT:
+        instruction = instruction[: _TOOL_INTENT_TOTAL_LIMIT - 80] + "\n...[ToolIntent prompt truncated]"
+    return [{"role": "user", "content": instruction}]
+
+
+def _compact_context_excerpt(messages: list[dict]) -> str:
+    chunks: list[str] = []
+    for message in reversed(messages):
+        content = message.get("content") if isinstance(message, dict) else None
+        if not isinstance(content, str) or not content.strip():
+            continue
+        chunks.append(content.strip())
+        if sum(len(chunk) for chunk in chunks) >= _TOOL_INTENT_CONTEXT_LIMIT:
+            break
+    joined = "\n\n".join(reversed(chunks))
+    if not joined:
+        return "(no prior context)"
+    return _head_tail(joined, _TOOL_INTENT_CONTEXT_LIMIT)
+
+
+def _render_compact_tool_catalog(tools_schema: list[dict]) -> str:
+    rendered: list[str] = []
+    for tool in tools_schema or []:
+        function = tool.get("function") if isinstance(tool, dict) else None
+        if not isinstance(function, dict):
+            continue
+        name = function.get("name")
+        if not isinstance(name, str) or not name:
+            continue
+        params = function.get("parameters") if isinstance(function.get("parameters"), dict) else {}
+        properties = params.get("properties") if isinstance(params, dict) else {}
+        required = params.get("required") if isinstance(params, dict) else []
+        arg_bits: list[str] = []
+        if isinstance(properties, dict):
+            for arg_name, arg_schema in properties.items():
+                if not isinstance(arg_name, str):
+                    continue
+                arg_type = "any"
+                if isinstance(arg_schema, dict) and isinstance(arg_schema.get("type"), str):
+                    arg_type = arg_schema["type"]
+                marker = "*" if isinstance(required, list) and arg_name in required else ""
+                arg_bits.append(f"{arg_name}{marker}:{arg_type}")
+        rendered.append(f"- {name}({', '.join(arg_bits)})")
+    return "\n".join(rendered) if rendered else "(no registered tools)"
+
+
+def _head_tail(value: str, limit: int) -> str:
+    if len(value) <= limit:
+        return value
+    head = max(0, limit // 2 - 20)
+    tail = max(0, limit - head - 40)
+    return f"{value[:head]}\n...[truncated]...\n{value[-tail:]}"

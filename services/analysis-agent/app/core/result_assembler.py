@@ -6,6 +6,7 @@ import hashlib
 import json
 import logging
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from app.agent_runtime.observability import agent_log
@@ -376,6 +377,61 @@ class ResultAssembler:
             retryable=retryable,
         )
 
+    def build_from_available_evidence(
+        self,
+        session: AgentSession,
+        *,
+        deficiency_detail: str,
+        termination_reason: str = "llm_failure_local_evidence_recovered",
+    ) -> TaskSuccessResponse | TaskFailureResponse:
+        """Recover an honest Assessment from already-cataloged local evidence.
+
+        This is a deterministic safety net for cases where S7/vLLM fails before
+        S3 receives a usable Assessment, but Phase 1/S4/S5 already supplied
+        claim-supporting local evidence.  It must not invent findings: claims
+        are generated only from catalog entries that can support claims and are
+        still passed through the normal schema, grounding, lifecycle, confidence,
+        and quality gates by delegating back to ``build``.
+        """
+        parsed = _assessment_from_available_evidence(
+            session,
+            deficiency_detail=deficiency_detail,
+        )
+        if not parsed["claims"]:
+            outcome = outcome_for_deficiency(DeficiencyClass.MALFORMED_LLM_OUTPUT)
+            return self.build_completed_outcome(
+                session,
+                summary="S3 검토는 완료되었지만 LLM 호출 실패 후 claim-supporting local evidence를 찾지 못해 inconclusive로 분류했습니다.",
+                analysis_outcome=outcome.analysis_outcome,
+                quality_outcome=outcome.quality_outcome,
+                poc_outcome=outcome.poc_outcome,
+                caveats=[f"LLM output/call deficiency: {deficiency_detail}"],
+                policy_flags=["recovery_classified", "llm_output_deficient", "deterministic_evidence_fallback_empty"],
+                recovery_trace=[recovery_trace(
+                    deficiency="LLM_OUTPUT_DEFICIENT",
+                    action="deterministic_local_evidence_fallback",
+                    outcome="inconclusive",
+                    detail=deficiency_detail,
+                    deficiency_class=DeficiencyClass.MALFORMED_LLM_OUTPUT,
+                    dependency_state=DependencyState.DEGRADED_PARTIAL,
+                )],
+                termination_reason=termination_reason,
+            )
+
+        result = self.build(json.dumps(parsed, ensure_ascii=False), session)
+        if isinstance(result, TaskSuccessResponse):
+            result.result.recoveryTrace = [recovery_trace(
+                deficiency="LLM_OUTPUT_DEFICIENT",
+                action="deterministic_local_evidence_fallback",
+                outcome=result.result.analysisOutcome.value,
+                detail=deficiency_detail,
+                deficiency_class=DeficiencyClass.MALFORMED_LLM_OUTPUT,
+                dependency_state=DependencyState.DEGRADED_PARTIAL,
+            )]
+            result.audit.agentAudit["termination_reason"] = termination_reason  # type: ignore[index]
+            session.set_termination_reason(termination_reason)
+        return result
+
     def build_completed_outcome(
         self,
         session: AgentSession,
@@ -522,6 +578,274 @@ def _all_allowed_ref_ids(session: AgentSession) -> set[str]:
     for step in session.trace:
         refs.update(step.new_evidence_refs)
     return refs
+
+
+def _assessment_from_available_evidence(
+    session: AgentSession,
+    *,
+    deficiency_detail: str,
+) -> dict:
+    local_entries = [
+        entry
+        for entry in session.evidence_catalog.entries()
+        if entry.can_support_claim and _is_fallback_claim_seed(entry)
+    ]
+    claims = [
+        claim
+        for entry in sorted(local_entries, key=_fallback_entry_sort_key)[:8]
+        if (claim := _claim_from_evidence_entry(entry, session)) is not None
+    ]
+    used_refs: list[str] = []
+    for claim in claims:
+        used_refs.extend(claim["supportingEvidenceRefs"])
+    used_refs = list(dict.fromkeys(used_refs))
+    return {
+        "summary": (
+            "LLM/S7 응답 결함으로 모델 Assessment를 확정하지 못했지만, "
+            "Phase 1/S4/S5가 이미 제공한 로컬 증거에서 deterministic fallback claim을 구성했습니다."
+        ),
+        "claims": claims,
+        "caveats": [
+            f"LLM output/call deficiency: {deficiency_detail}",
+            "Fallback claims are generated only from S3 evidence catalog entries and still require human review.",
+        ],
+        "usedEvidenceRefs": used_refs,
+        "suggestedSeverity": _fallback_suggested_severity(local_entries),
+        "needsHumanReview": True,
+        "recommendedNextSteps": [
+            "Review cited local evidence refs and rerun LLM-backed analysis when S7/DGX transport is stable.",
+            "Use generated PoC only after confirming the cited vulnerable path manually.",
+        ],
+        "policyFlags": [
+            "recovery_classified",
+            "llm_output_deficient",
+            "deterministic_local_evidence_fallback",
+        ],
+    }
+
+
+def _is_fallback_claim_seed(entry) -> bool:
+    if entry.category not in {"sast", "source", "caller", "callee"}:
+        return False
+    if entry.sink or entry.cwe_id or entry.rule_id:
+        return True
+    text = " ".join(str(part or "") for part in (entry.summary, entry.function, entry.file)).lower()
+    return any(keyword in text for keyword in (
+        "cwe-",
+        "popen",
+        "system",
+        "exec",
+        "sprintf",
+        "strcpy",
+        "strcat",
+        "memcpy",
+        "overflow",
+        "command injection",
+        "rce",
+    ))
+
+
+def _fallback_entry_sort_key(entry) -> tuple[int, int, str]:
+    severity_rank = {
+        "critical": 0,
+        "high": 1,
+        "medium": 2,
+        "low": 3,
+        "info": 4,
+    }
+    category_rank = {
+        "sast": 0,
+        "source": 1,
+        "caller": 2,
+        "callee": 3,
+    }
+    return (
+        severity_rank.get(_fallback_entry_severity(entry), 5),
+        category_rank.get(entry.category, 9),
+        entry.ref_id,
+    )
+
+
+def _claim_from_evidence_entry(entry, session: AgentSession) -> dict | None:
+    support_entries = _support_entries_for(entry, session)
+    if not support_entries:
+        return None
+    refs = [support.ref_id for support in support_entries]
+    location = _format_entry_location(entry)
+    if not location:
+        return None
+    sink_or_rule = entry.sink or entry.cwe_id or entry.rule_id or "security-sensitive pattern"
+    statement = f"{sink_or_rule} finding is supported by local project evidence at {location}."
+    detail = _fallback_claim_detail(entry, support_entries, session)
+    return {
+        "claimId": f"det-{_stable_suffix(entry.ref_id)}",
+        "statement": statement,
+        "detail": detail,
+        "supportingEvidenceRefs": refs,
+        "location": location,
+    }
+
+
+def _support_entries_for(entry, session: AgentSession) -> list:
+    entries = [candidate for candidate in session.evidence_catalog.entries() if candidate.can_support_claim]
+    primary = [candidate for candidate in entries if candidate.ref_id == entry.ref_id]
+    related = [
+        candidate
+        for candidate in entries
+        if candidate.ref_id != entry.ref_id and _entry_supports_primary(candidate, entry)
+    ]
+    related.sort(key=_support_entry_sort_key)
+    return [*primary, *related[:4]]
+
+
+def _entry_supports_primary(candidate, primary) -> bool:
+    if candidate.sink and primary.sink and candidate.sink == primary.sink:
+        return True
+    if "caller_chain" in candidate.roles and primary.sink and candidate.sink == primary.sink:
+        return True
+    if "source_slice" in candidate.roles and candidate.file and primary.file and candidate.file == primary.file:
+        return True
+    if candidate.cwe_id and primary.cwe_id and candidate.cwe_id == primary.cwe_id:
+        return True
+    return False
+
+
+def _support_entry_sort_key(entry) -> tuple[int, str]:
+    roles = set(entry.roles)
+    if "source_slice" in roles:
+        rank = 0
+    elif "caller_chain" in roles:
+        rank = 1
+    elif "sast_finding" in roles:
+        rank = 2
+    else:
+        rank = 3
+    return (rank, entry.ref_id)
+
+
+def _fallback_claim_detail(entry, support_entries: list, session: AgentSession) -> str:
+    fragments = [
+        f"Deterministic fallback selected ref {entry.ref_id}",
+    ]
+    if entry.cwe_id:
+        fragments.append(f"CWE={entry.cwe_id}")
+    if entry.rule_id:
+        fragments.append(f"rule={entry.rule_id}")
+    if entry.sink:
+        fragments.append(f"sink={entry.sink}")
+    if entry.summary:
+        fragments.append(f"evidence summary: {entry.summary}")
+    source_context = _source_context_for_entry(entry, session)
+    if source_context:
+        fragments.append(f"bounded source context: {source_context}")
+    refs = ", ".join(support.ref_id for support in support_entries)
+    fragments.append(f"supporting refs: {refs}")
+    fragments.append(
+        "Exploitability is plausible but not fully confirmed from the available evidence; "
+        "manual confirmation is required because the LLM-backed reasoning path failed."
+    )
+    return " | ".join(fragments)
+
+
+def _source_context_for_entry(entry, session: AgentSession) -> str:
+    """Return a bounded same-file source excerpt for deterministic fallback.
+
+    The excerpt is diagnostic context only. It is intentionally small and
+    project-local: line window around the finding plus command-construction
+    lines from the same file for command-execution sinks.
+    """
+    project_path = _trusted_project_path(session)
+    if not project_path or not entry.file:
+        return ""
+    try:
+        root = project_path.resolve()
+        target = (root / entry.file).resolve()
+        target.relative_to(root)
+        lines = target.read_text(errors="replace").splitlines()
+    except (OSError, ValueError):
+        return ""
+    excerpts: list[str] = []
+    if entry.line:
+        start = max(1, entry.line - 3)
+        end = min(len(lines), entry.line + 3)
+        excerpts.extend(f"{line_no}:{lines[line_no - 1].strip()}" for line_no in range(start, end + 1))
+    if _is_command_execution_entry(entry):
+        command_lines = [
+            f"{index}:{line.strip()}"
+            for index, line in enumerate(lines, start=1)
+            if _looks_like_command_context(line)
+        ]
+        for line in command_lines[:12]:
+            if line not in excerpts:
+                excerpts.append(line)
+    return _truncate_diagnostic_detail(" || ".join(excerpts), limit=900) or ""
+
+
+def _trusted_project_path(session: AgentSession) -> Path | None:
+    trusted = session.request.context.trusted if session.request.context else {}
+    if not isinstance(trusted, dict):
+        return None
+    value = trusted.get("projectPath") or trusted.get("targetPath")
+    if not isinstance(value, str) or not value:
+        return None
+    return Path(value)
+
+
+def _is_command_execution_entry(entry) -> bool:
+    text = " ".join(str(part or "") for part in (entry.sink, entry.cwe_id, entry.rule_id, entry.summary)).lower()
+    return any(token in text for token in ("popen", "system", "exec", "cwe-78", "command injection"))
+
+
+def _looks_like_command_context(line: str) -> bool:
+    lowered = line.lower()
+    return any(token in lowered for token in (
+        "popen",
+        "system(",
+        "exec",
+        "openssl",
+        "curl",
+        "wget",
+        "bash",
+        "/bin/sh",
+    ))
+
+
+def _format_entry_location(entry) -> str | None:
+    if entry.file and entry.line:
+        return f"{entry.file}:{entry.line}"
+    if entry.file:
+        return entry.file
+    if entry.function:
+        return entry.function
+    return None
+
+
+def _fallback_suggested_severity(entries: list) -> str:
+    severities = [_fallback_entry_severity(entry) for entry in entries]
+    for severity in ("critical", "high", "medium", "low"):
+        if severity in severities:
+            return severity
+    return "info"
+
+
+def _fallback_entry_severity(entry) -> str:
+    text = " ".join(str(part or "") for part in (
+        entry.cwe_id,
+        entry.rule_id,
+        entry.sink,
+        entry.summary,
+    )).lower()
+    if any(token in text for token in ("cwe-78", "command injection", "rce", "popen", "system", "exec")):
+        return "critical"
+    if entry.cwe_id or any(token in text for token in ("strcpy", "strcat", "sprintf", "memcpy", "overflow")):
+        return "high"
+    if entry.sink:
+        return "medium"
+    return "info"
+
+
+def _stable_suffix(value: str) -> str:
+    return hashlib.sha1(value.encode("utf-8")).hexdigest()[:8]
 
 
 def _allowed_claim_ref_ids(session: AgentSession, allowed_refs: set[str]) -> set[str]:
