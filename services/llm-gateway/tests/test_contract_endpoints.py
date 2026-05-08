@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 import pytest
 
+from app.config import settings
 from app.main import app
 from tests.conftest import ALL_TASK_TYPES, make_chat_body
 
@@ -90,6 +91,138 @@ class TestHealthEndpoint:
         assert cb["consecutiveFailures"] == 0
         assert "threshold" in cb
         assert "recoverySeconds" in cb
+
+    def test_health_mock_mode_reports_ready_without_llm_backend(self, client_live):
+        data = client_live.get("/v1/health").json()
+        assert data["status"] == "ok"
+        assert data["ready"] is True
+        assert data["llmReady"] is True
+        assert data["degraded"] is False
+        assert data["degradeReasons"] == []
+        assert data["blockedReason"] is None
+        assert data["dependencyStatus"]["llmBackend"]["status"] == "mock"
+        assert data["dependencyStatus"]["rag"]["status"] == data["rag"]["status"]
+
+    def test_health_real_backend_reachable_reports_llm_ready(self, client_live):
+        original_mode = settings.llm_mode
+        object.__setattr__(settings, "llm_mode", "real")
+        original_get = app.state.proxy_client.get
+        app.state.proxy_client.get = AsyncMock(
+            return_value=httpx.Response(
+                200,
+                request=httpx.Request("GET", "http://llm.test/health"),
+            )
+        )
+        try:
+            data = client_live.get("/v1/health").json()
+        finally:
+            app.state.proxy_client.get = original_get
+            object.__setattr__(settings, "llm_mode", original_mode)
+
+        assert data["status"] == "ok"
+        assert data["llmBackend"]["status"] == "ok"
+        assert data["ready"] is True
+        assert data["llmReady"] is True
+        assert data["degraded"] is False
+        assert data["degradeReasons"] == []
+        assert data["blockedReason"] is None
+        assert data["dependencyStatus"]["llmBackend"]["status"] == "ok"
+
+    def test_health_real_backend_unreachable_reports_not_ready(self, client_live):
+        original_mode = settings.llm_mode
+        object.__setattr__(settings, "llm_mode", "real")
+        original_get = app.state.proxy_client.get
+        app.state.proxy_client.get = AsyncMock(side_effect=httpx.ConnectError("vpn down"))
+        try:
+            data = client_live.get("/v1/health").json()
+        finally:
+            app.state.proxy_client.get = original_get
+            object.__setattr__(settings, "llm_mode", original_mode)
+
+        assert data["status"] == "ok"
+        assert data["llmBackend"]["status"] == "unreachable"
+        assert data["ready"] is False
+        assert data["llmReady"] is False
+        assert data["degraded"] is True
+        assert data["degradeReasons"] == ["llm_backend_unreachable"]
+        assert data["blockedReason"] == "backend_unreachable"
+        assert data["dependencyStatus"]["llmBackend"]["status"] == "unreachable"
+
+    def test_health_real_backend_reachable_but_circuit_open_reports_not_ready(
+        self,
+        client_live,
+    ):
+        original_mode = settings.llm_mode
+        object.__setattr__(settings, "llm_mode", "real")
+        original_get = app.state.proxy_client.get
+        app.state.proxy_client.get = AsyncMock(
+            return_value=httpx.Response(
+                200,
+                request=httpx.Request("GET", "http://llm.test/health"),
+            )
+        )
+        with patch.object(
+            app.state.circuit_breaker,
+            "snapshot",
+            return_value={
+                "state": "open",
+                "consecutiveFailures": 3,
+                "threshold": 3,
+                "recoverySeconds": 30.0,
+            },
+        ):
+            try:
+                data = client_live.get("/v1/health").json()
+            finally:
+                app.state.proxy_client.get = original_get
+                object.__setattr__(settings, "llm_mode", original_mode)
+
+        assert data["status"] == "ok"
+        assert data["llmBackend"]["status"] == "ok"
+        assert data["ready"] is False
+        assert data["llmReady"] is False
+        assert data["degraded"] is True
+        assert data["degradeReasons"] == ["llm_circuit_open"]
+        assert data["blockedReason"] == "circuit_open"
+        assert data["dependencyStatus"]["circuitBreaker"]["state"] == "open"
+
+    def test_health_real_backend_reachable_but_circuit_half_open_reports_not_ready(
+        self,
+        client_live,
+    ):
+        original_mode = settings.llm_mode
+        object.__setattr__(settings, "llm_mode", "real")
+        original_get = app.state.proxy_client.get
+        app.state.proxy_client.get = AsyncMock(
+            return_value=httpx.Response(
+                200,
+                request=httpx.Request("GET", "http://llm.test/health"),
+            )
+        )
+        with patch.object(
+            app.state.circuit_breaker,
+            "snapshot",
+            return_value={
+                "state": "half_open",
+                "consecutiveFailures": 3,
+                "threshold": 3,
+                "recoverySeconds": 30.0,
+            },
+        ):
+            try:
+                data = client_live.get("/v1/health").json()
+            finally:
+                app.state.proxy_client.get = original_get
+                object.__setattr__(settings, "llm_mode", original_mode)
+
+        assert data["status"] == "ok"
+        assert data["llmBackend"]["status"] == "ok"
+        assert data["ready"] is False
+        assert data["llmReady"] is False
+        assert data["degraded"] is True
+        assert data["degradeReasons"] == ["llm_circuit_half_open"]
+        assert data["blockedReason"] == "circuit_half_open"
+        assert data["dependencyStatus"]["circuitBreaker"]["state"] == "half_open"
 
     def test_health_idle_request_summary_shape(self, client_live):
         data = client_live.get("/v1/health").json()

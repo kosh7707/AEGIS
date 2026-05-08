@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from app.agent_runtime.errors import LlmContractViolationError
+from app.agent_runtime.errors import LlmContractViolationError, LlmUnavailableError
 from app.agent_runtime.llm.caller import LlmCaller
 from app.agent_runtime.llm.generation_policy import THINKING_CODING
 
@@ -243,6 +243,14 @@ async def test_build_llm_caller_async_ownership_continues_until_completed(monkey
 
     async def fake_get(url, **kwargs):
         nonlocal status_calls
+        if url.endswith("/v1/health"):
+            return _make_response({
+                "status": "ok",
+                "ready": True,
+                "llmReady": True,
+                "blockedReason": None,
+                "dependencyStatus": {"llmBackend": {"status": "ok"}},
+            })
         if url.endswith("/v1/async-chat-requests/acr_build"):
             status_calls += 1
             if status_calls < 3:
@@ -278,3 +286,34 @@ async def test_build_llm_caller_async_ownership_continues_until_completed(monkey
 
     assert result.content == '{"summary":"build async"}'
     assert status_calls == 3
+
+
+@pytest.mark.asyncio
+async def test_build_llm_caller_async_preflight_rejects_unready_llm_backend():
+    caller = LlmCaller("http://fake:8000", "qwen")
+
+    async def fake_get(url, **kwargs):
+        if url.endswith("/v1/health"):
+            return _make_response({
+                "status": "ok",
+                "ready": False,
+                "llmReady": False,
+                "degraded": True,
+                "degradeReasons": ["llm_backend_unreachable"],
+                "blockedReason": "backend_unreachable",
+                "dependencyStatus": {"llmBackend": {"status": "unreachable"}},
+            })
+        raise AssertionError(f"unexpected GET url: {url}")
+
+    caller._client = MagicMock()
+    caller._client.get = AsyncMock(side_effect=fake_get)
+    caller._client.post = AsyncMock()
+
+    with pytest.raises(LlmUnavailableError) as exc_info:
+        await caller.call(
+            [{"role": "user", "content": "final"}],
+            prefer_async_ownership=True,
+        )
+
+    assert "backend_unreachable" in str(exc_info.value)
+    caller._client.post.assert_not_awaited()

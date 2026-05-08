@@ -285,6 +285,15 @@ async def test_async_ownership_returns_wrapped_result_for_toolless_calls():
         raise AssertionError(f"unexpected POST url: {url}")
 
     async def fake_get(url, **kwargs):
+        if url.endswith("/v1/health"):
+            return _make_httpx_response({
+                "status": "ok",
+                "ready": True,
+                "llmReady": True,
+                "degraded": False,
+                "blockedReason": None,
+                "dependencyStatus": {"llmBackend": {"status": "ok"}},
+            })
         if url.endswith("/v1/async-chat-requests/acr_001"):
             return _make_httpx_response({
                 "requestId": "acr_001",
@@ -319,6 +328,64 @@ async def test_async_ownership_returns_wrapped_result_for_toolless_calls():
 
 
 @pytest.mark.asyncio
+async def test_async_ownership_preflight_rejects_unready_llm_backend_before_submit():
+    caller = LlmCaller("http://fake:8000", "qwen")
+
+    async def fake_get(url, **kwargs):
+        if url.endswith("/v1/health"):
+            return _make_httpx_response({
+                "status": "ok",
+                "ready": False,
+                "llmReady": False,
+                "degraded": True,
+                "degradeReasons": ["llm_backend_unreachable"],
+                "blockedReason": "backend_unreachable",
+                "llmBackend": {"status": "unreachable"},
+                "dependencyStatus": {"llmBackend": {"status": "unreachable"}},
+            })
+        raise AssertionError(f"unexpected GET url: {url}")
+
+    caller._client = MagicMock()
+    caller._client.get = AsyncMock(side_effect=fake_get)
+    caller._client.post = AsyncMock()
+
+    with pytest.raises(LlmUnavailableError) as exc_info:
+        await caller.call(
+            [{"role": "user", "content": "hi"}],
+            prefer_async_ownership=True,
+        )
+
+    assert "backend_unreachable" in str(exc_info.value)
+    caller._client.post.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_async_ownership_preflight_rejects_legacy_unreachable_backend_shape():
+    caller = LlmCaller("http://fake:8000", "qwen")
+
+    async def fake_get(url, **kwargs):
+        if url.endswith("/v1/health"):
+            return _make_httpx_response({
+                "status": "ok",
+                "llmBackend": {"status": "unreachable"},
+            })
+        raise AssertionError(f"unexpected GET url: {url}")
+
+    caller._client = MagicMock()
+    caller._client.get = AsyncMock(side_effect=fake_get)
+    caller._client.post = AsyncMock()
+
+    with pytest.raises(LlmUnavailableError) as exc_info:
+        await caller.call(
+            [{"role": "user", "content": "hi"}],
+            prefer_async_ownership=True,
+        )
+
+    assert "llm_backend_unreachable" in str(exc_info.value)
+    caller._client.post.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_async_ownership_strict_json_violation_raises_enriched_error():
     caller = LlmCaller("http://fake:8000", "qwen")
 
@@ -334,6 +401,14 @@ async def test_async_ownership_strict_json_violation_raises_enriched_error():
         raise AssertionError(f"unexpected POST url: {url}")
 
     async def fake_get(url, **kwargs):
+        if url.endswith("/v1/health"):
+            return _make_httpx_response({
+                "status": "ok",
+                "ready": True,
+                "llmReady": True,
+                "blockedReason": None,
+                "dependencyStatus": {"llmBackend": {"status": "ok"}},
+            })
         if url.endswith("/v1/async-chat-requests/acr_strict"):
             return _make_httpx_response({
                 "requestId": "acr_strict",
@@ -370,8 +445,20 @@ async def test_async_ownership_falls_back_to_sync_when_endpoint_unavailable():
             return _make_httpx_response(_content_response('{"summary":"sync fallback"}'))
         raise AssertionError(f"unexpected POST url: {url}")
 
+    async def fake_get(url, **kwargs):
+        if url.endswith("/v1/health"):
+            return _make_httpx_response({
+                "status": "ok",
+                "ready": True,
+                "llmReady": True,
+                "blockedReason": None,
+                "dependencyStatus": {"llmBackend": {"status": "ok"}},
+            })
+        raise AssertionError(f"unexpected GET url: {url}")
+
     caller._client = MagicMock()
     caller._client.post = AsyncMock(side_effect=fake_post)
+    caller._client.get = AsyncMock(side_effect=fake_get)
 
     result = await caller.call(
         [{"role": "user", "content": "hi"}],
@@ -393,8 +480,20 @@ async def test_async_ownership_unsupported_surface_is_temporarily_cached():
             return _make_httpx_response(_content_response('{"summary":"sync fallback"}'))
         raise AssertionError(f"unexpected POST url: {url}")
 
+    async def fake_get(url, **kwargs):
+        if url.endswith("/v1/health"):
+            return _make_httpx_response({
+                "status": "ok",
+                "ready": True,
+                "llmReady": True,
+                "blockedReason": None,
+                "dependencyStatus": {"llmBackend": {"status": "ok"}},
+            })
+        raise AssertionError(f"unexpected GET url: {url}")
+
     caller._client = MagicMock()
     caller._client.post = AsyncMock(side_effect=fake_post)
+    caller._client.get = AsyncMock(side_effect=fake_get)
 
     await caller.call(
         [{"role": "user", "content": "hi"}],
@@ -435,6 +534,14 @@ async def test_async_ownership_continues_running_until_completed_without_age_abo
 
     async def fake_get(url, **kwargs):
         nonlocal status_calls
+        if url.endswith("/v1/health"):
+            return _make_httpx_response({
+                "status": "ok",
+                "ready": True,
+                "llmReady": True,
+                "blockedReason": None,
+                "dependencyStatus": {"llmBackend": {"status": "ok"}},
+            })
         if url.endswith("/v1/async-chat-requests/acr_slow"):
             status_calls += 1
             if status_calls < 4:

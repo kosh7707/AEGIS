@@ -45,6 +45,7 @@ class LlmCaller:
     _MIN_TIMEOUT = TimeoutDefaults.TOOL_EXECUTION_SECONDS
     _MAX_TIMEOUT = TimeoutDefaults.CHAT_MAX_SECONDS
     _ASYNC_SUBMIT_TIMEOUT = 30.0
+    _ASYNC_HEALTH_TIMEOUT = 5.0
     _ASYNC_POLL_INTERVAL = 1.0
     _ASYNC_UNSUPPORTED_RETRY_SECONDS = 60.0
 
@@ -333,6 +334,7 @@ class LlmCaller:
         # leaves long finalizers at the gateway default even when the caller's local
         # budget is larger, which can strand the caller polling an already-expired request.
         submit_headers = dict(headers)
+        await self._ensure_async_gateway_ready(submit_headers, request_id=request_id, turn=turn)
         submit_url = f"{self._endpoint}/v1/async-chat-requests"
         start = time.monotonic()
 
@@ -513,6 +515,120 @@ class LlmCaller:
                 raise LlmHttpError(409, blocked_reason or f"Async chat request ended with state={state}")
 
             raise LlmHttpError(502, f"Unknown async chat state: {state}")
+
+    async def _ensure_async_gateway_ready(
+        self,
+        headers: dict[str, str],
+        *,
+        request_id: str | None,
+        turn: int | None,
+    ) -> None:
+        """Consume S7 /v1/health readiness before async ownership submit.
+
+        S7's top-level ``status`` is process liveness only.  The LLM dependency
+        readiness contract lives in ``ready`` / ``llmReady`` / ``blockedReason``
+        and the backend dependency snapshot.  Failing fast here prevents S3 from
+        treating "Gateway process is alive" as "DGX/vLLM is usable".
+        """
+        url = f"{self._endpoint}/v1/health"
+        health_headers = {k: v for k, v in headers.items() if k != "Content-Type"}
+        try:
+            resp = await self._client.get(
+                url,
+                headers=health_headers,
+                timeout=httpx.Timeout(
+                    connect=self._ASYNC_HEALTH_TIMEOUT,
+                    read=self._ASYNC_HEALTH_TIMEOUT,
+                    write=self._ASYNC_HEALTH_TIMEOUT,
+                    pool=self._ASYNC_HEALTH_TIMEOUT,
+                ),
+            )
+        except httpx.TimeoutException:
+            raise LlmTimeoutError("LLM Gateway health check 시간 초과")
+        except httpx.ConnectError:
+            raise LlmUnavailableError("LLM Gateway health check 연결 불가")
+
+        if resp.status_code == 404:
+            # Compatibility for older local S7 builds: absence of the health
+            # readiness surface should not disable the async endpoint probe.
+            return
+        if resp.status_code != 200:
+            raise LlmHttpError(resp.status_code, resp.text[:500] or "LLM Gateway health check failed")
+
+        try:
+            data = resp.json()
+        except Exception:
+            raise LlmHttpError(502, "Malformed LLM Gateway health response")
+
+        blocked_reason = self._health_blocked_reason(data)
+        if not blocked_reason:
+            return
+
+        agent_log(
+            logger, "LLM Gateway readiness 차단",
+            component="llm_caller", phase="llm_health_blocked",
+            turn=turn, requestId=request_id,
+            blockedReason=blocked_reason,
+            level=logging.WARNING,
+        )
+        raise LlmUnavailableError(f"LLM Gateway dependency not ready: {blocked_reason}")
+
+    @classmethod
+    def _health_blocked_reason(cls, data: Any) -> str | None:
+        if not isinstance(data, dict):
+            return None
+
+        blocked = data.get("blockedReason")
+        if isinstance(blocked, str) and blocked.strip():
+            return blocked.strip()
+
+        degrade_reasons = data.get("degradeReasons")
+        first_degrade_reason = cls._first_string(degrade_reasons)
+
+        ready = data.get("ready")
+        llm_ready = data.get("llmReady")
+        if ready is False or llm_ready is False:
+            return first_degrade_reason or "llm_not_ready"
+
+        dependency_status = data.get("dependencyStatus")
+        if not isinstance(dependency_status, dict):
+            dependency_status = {}
+
+        llm_backend = dependency_status.get("llmBackend")
+        if not isinstance(llm_backend, dict):
+            llm_backend = data.get("llmBackend")
+        backend_status = cls._status_value(llm_backend)
+        if backend_status and backend_status != "ok":
+            if backend_status == "unreachable":
+                return first_degrade_reason or "llm_backend_unreachable"
+            return first_degrade_reason or f"llm_backend_{backend_status}"
+
+        circuit_breaker = dependency_status.get("circuitBreaker")
+        if not isinstance(circuit_breaker, dict):
+            circuit_breaker = data.get("circuitBreaker")
+        circuit_state = cls._status_value(circuit_breaker, key="state")
+        if circuit_state == "open":
+            return first_degrade_reason or "circuit_open"
+        if circuit_state == "half_open":
+            return first_degrade_reason or "circuit_half_open"
+
+        return None
+
+    @staticmethod
+    def _first_string(value: Any) -> str | None:
+        if isinstance(value, list):
+            for item in value:
+                if isinstance(item, str) and item.strip():
+                    return item.strip()
+        return None
+
+    @staticmethod
+    def _status_value(value: Any, *, key: str = "status") -> str | None:
+        if isinstance(value, dict):
+            raw = value.get(key)
+            if isinstance(raw, str) and raw.strip():
+                return raw.strip().lower()
+        return None
 
     async def _cancel_async_request(
         self,

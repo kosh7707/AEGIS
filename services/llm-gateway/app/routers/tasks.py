@@ -49,6 +49,67 @@ _CHAT_GENERATION_FIELD_RANGES: dict[str, tuple[type, float, float | None]] = {
 }
 
 
+def _health_readiness(
+    *,
+    llm_mode: str,
+    llm_backend: dict[str, Any] | None,
+    circuit_breaker: dict[str, Any] | None,
+    rag: dict[str, Any],
+) -> dict[str, Any]:
+    """Expose process liveness separately from LLM dependency readiness.
+
+    `/v1/health.status` intentionally remains process-liveness (`ok` when the
+    gateway process can serve the health route).  Callers that need to know
+    whether LLM work can proceed must use these readiness fields instead.
+    """
+
+    dependency_status: dict[str, Any] = {
+        "llmBackend": llm_backend or {"status": "mock", "endpoint": None},
+        "rag": {
+            "status": rag["status"],
+            "enabled": rag["enabled"],
+            "kbEndpoint": rag["kbEndpoint"],
+        },
+    }
+    if circuit_breaker is not None:
+        dependency_status["circuitBreaker"] = circuit_breaker
+
+    degrade_reasons: list[str] = []
+    blocked_reason: str | None = None
+
+    backend_ready = True
+    if llm_mode == "real":
+        backend_ready = bool(llm_backend and llm_backend.get("status") == "ok")
+        if not backend_ready:
+            degrade_reasons.append("llm_backend_unreachable")
+            blocked_reason = "backend_unreachable"
+
+    cb_state = circuit_breaker.get("state") if circuit_breaker else None
+    circuit_ready = cb_state not in {"open", "half_open"}
+    if not circuit_ready:
+        reason = (
+            "llm_circuit_half_open"
+            if cb_state == "half_open"
+            else "llm_circuit_open"
+        )
+        degrade_reasons.append(reason)
+        blocked_reason = blocked_reason or (
+            "circuit_half_open"
+            if cb_state == "half_open"
+            else "circuit_open"
+        )
+
+    llm_ready = backend_ready and circuit_ready
+    return {
+        "ready": llm_ready,
+        "llmReady": llm_ready,
+        "degraded": not llm_ready,
+        "degradeReasons": degrade_reasons,
+        "blockedReason": blocked_reason,
+        "dependencyStatus": dependency_status,
+    }
+
+
 def _ensure_request_id(req: Request) -> str:
     request_id = req.headers.get("x-request-id") or get_request_id() or f"gw-{uuid4().hex[:12]}"
     set_request_id(request_id)
@@ -986,18 +1047,22 @@ async def health(req: Request) -> JSONResponse:
             for p in prompt_registry.list_all()
         },
     }
+    llm_backend = None
     if settings.llm_mode == "real":
-        result["llmBackend"] = await _check_llm_backend(model_registry, req.app.state.proxy_client)
+        llm_backend = await _check_llm_backend(model_registry, req.app.state.proxy_client)
+        result["llmBackend"] = llm_backend
         result["llmConcurrency"] = settings.llm_concurrency
 
     # Circuit Breaker 상태
+    circuit_breaker_snapshot = None
     cb = getattr(req.app.state, "circuit_breaker", None)
     if cb:
-        result["circuitBreaker"] = cb.snapshot()
+        circuit_breaker_snapshot = cb.snapshot()
+        result["circuitBreaker"] = circuit_breaker_snapshot
 
     # RAG 상태
     threat_search = getattr(req.app.state, "threat_search", None)
-    result["rag"] = {
+    rag = {
         "enabled": settings.rag_enabled,
         "kbEndpoint": settings.kb_endpoint,
         "topK": settings.rag_top_k,
@@ -1005,6 +1070,13 @@ async def health(req: Request) -> JSONResponse:
         "policy": "task-pipeline-context-enrichment",
         "status": "ok" if threat_search else "disabled",
     }
+    result["rag"] = rag
+    result.update(_health_readiness(
+        llm_mode=settings.llm_mode,
+        llm_backend=llm_backend,
+        circuit_breaker=circuit_breaker_snapshot,
+        rag=rag,
+    ))
 
     request_tracker = getattr(req.app.state, "request_tracker", None)
     if request_tracker:
