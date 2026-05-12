@@ -1,0 +1,92 @@
+{
+  "schemaVersion": "s4-static-evidence-contract-v1",
+  "analysisProfile": "c-cpp-core",
+  "artifactKind": "s4-static-evidence-artifact",
+  "requiredTopLevelKeys": [
+    "schemaVersion",
+    "analysisProfile",
+    "artifactKind",
+    "producer",
+    "provenance",
+    "gates",
+    "coverage",
+    "claimBoundaries",
+    "toolEvidenceMatrix",
+    "followUpHints"
+  ],
+  "optionalTopLevelKeys": ["missingEvidence"],
+  "requiredGateKeys": ["systemStability", "evidenceReadiness", "qualityEvaluation"],
+  "qualityEvaluationDefault": {
+    "status": "not_evaluated",
+    "reasonCode": "NO_VALIDATION_PROFILE_RAN",
+    "consumerPolicy": "do_not_treat_as_quality_score"
+  },
+  "allowedCoverageStatuses": [
+    "provided",
+    "partial",
+    "not_provided",
+    "not_computed",
+    "not_applicable",
+    "unavailable",
+    "failed",
+    "unknown"
+  ],
+  "requiredCoverageSurfaces": [
+    "staticToolExecution",
+    "sastFindings",
+    "findingLocations",
+    "findingCweMapping",
+    "findingDataflow",
+    "originClassification",
+    "structuralCodeGraph",
+    "includeGraph",
+    "targetMetadata",
+    "scaIdentity",
+    "scaVersionEvidence",
+    "scaDiffEvidence",
+    "externalVulnerabilityKnowledge",
+    "semanticGraphRetrieval",
+    "runtimeBehavior",
+    "exploitabilityJudgment",
+    "finalSecurityVerdict"
+  ],
+  "requiredNotProvidedSurfaces": {
+    "externalVulnerabilityKnowledge": "EXTERNAL_KNOWLEDGE_NOT_QUERIED",
+    "semanticGraphRetrieval": "SEMANTIC_RETRIEVAL_NOT_PERFORMED",
+    "runtimeBehavior": "RUNTIME_NOT_ANALYZED",
+    "exploitabilityJudgment": "EXPLOITABILITY_NOT_JUDGED",
+    "finalSecurityVerdict": "FINAL_VERDICT_NOT_PROVIDED"
+  },
+  "nonProvidedConsumerPolicy": "do_not_use_as_negative_evidence",
+  "structuralCodeGraphProvided": {
+    "graphKind": "structural-callgraph",
+    "semanticRetrieval": "not_provided",
+    "graphRag": "not_provided",
+    "consumerPolicy": "structural_positive_evidence_only"
+  },
+  "negativeEvidencePolicy": "empty-or-missing-s4-evidence-is-not-negative-security-evidence",
+  "requiredToolEvidenceOrder": [
+    "semgrep",
+    "cppcheck",
+    "flawfinder",
+    "clang-tidy",
+    "scan-build",
+    "gcc-fanalyzer"
+  ],
+  "allowedToolExecutionConsumerPolicies": [
+    "local_tool_execution_state_only_not_vulnerability_verdict",
+    "local_tool_partial_use_with_degradation_metadata",
+    "local_tool_failed_do_not_use_as_negative_evidence",
+    "not_requested_or_not_applicable",
+    "blocks_successful_artifact",
+    "metadata_absent_do_not_infer"
+  ],
+  "forbiddenVerdictKeys": [
+    "vulnerable",
+    "safe",
+    "affected",
+    "clean",
+    "riskScore",
+    "securityVerdict"
+  ]
+}

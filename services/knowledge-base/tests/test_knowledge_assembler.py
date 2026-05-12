@@ -19,6 +19,7 @@ class FakeHit:
     related_cve: list = None
     related_attack: list = None
     score: float = 0.85
+    corpus_partition: str = ""
 
     def __post_init__(self):
         self.attack_surfaces = self.attack_surfaces or []
@@ -84,6 +85,8 @@ def test_assemble_no_hits():
     result = assembler.assemble("unknown query")
     assert result["total"] == 0
     assert result["hits"] == []
+    assert result["retrievalTrace"]["methodsSucceeded"] == []
+    assert result["retrievalTrace"]["methodsAttempted"] == ["constrained_embedding_rerank"]
 
 
 def test_assemble_collects_cross_references():
@@ -268,7 +271,7 @@ def test_rrf_single_list():
     assert merged[0]["score"] > merged[1]["score"]
 
 
-def test_assemble_caps_total_hits_to_double_top_k():
+def test_assemble_caps_total_hits_to_final_top_k_and_exposes_candidate_pool():
     mock_search = MagicMock()
     mock_search.search.return_value = [
         FakeHit(id=f"CWE-{i + 100}", source="CWE", title=f"hit-{i}")
@@ -286,4 +289,87 @@ def test_assemble_caps_total_hits_to_double_top_k():
     assembler = KnowledgeAssembler(vs, graph, rrf_k=60)
     result = assembler.assemble("CWE-1 CWE-2 CWE-3", top_k=2)
 
-    assert result["total"] <= 4
+    assert result["total"] <= 2
+    assert result["retrievalTrace"]["topK"] == 2
+    assert result["retrievalTrace"]["candidatePoolSize"] > 2
+    assert result["retrievalTrace"]["topKPolicy"]["topKMeans"] == "final_returned_count"
+
+
+def test_typed_threat_search_returns_constrained_retrieval_trace_and_rank_metadata():
+    hit = FakeHit(
+        id="CVE-2026-0001",
+        source="OSV",
+        title="fixture CVE",
+        corpus_partition="public_vulnerability",
+    )
+    assembler = _make_assembler(hits=[hit])
+
+    result = assembler.assemble(
+        "OpenSSL CVE candidates",
+        query_intent="cve_discovery",
+        corpus_partitions=["public_vulnerability_knowledge"],
+        top_k=3,
+        min_score=0.2,
+    )
+
+    trace = result["retrievalTrace"]
+    assert trace["queryIntent"] == "cve_discovery"
+    assert trace["corpusPartitionsSearched"] == ["public_vulnerability"]
+    assert trace["embeddingScope"] == "constrained"
+    assert trace["topK"] == 3
+    assert trace["minScore"] == 0.2
+    assert trace["methodsAttempted"] == ["keyword_match", "constrained_embedding_rerank"]
+    assert trace["keywordUsed"] is True
+    assert trace["lexicalSignals"]
+    assert trace["candidatePoolSize"] > trace["topK"]
+    assert trace["modelPolicy"]["mandatoryNewDependency"] is False
+    assert trace["methodsSucceeded"] == ["constrained_embedding_rerank"]
+    assert result["hits"][0]["corpusPartition"] == "public_vulnerability"
+    assert result["hits"][0]["relationMethods"] == ["constrained_embedding_rerank"]
+    assert result["hits"][0]["methodTrust"] == "medium"
+    assert "ranking" in result["hits"][0]
+    assert "scoreBreakdown" in result["hits"][0]["ranking"]
+
+
+def test_typed_threat_search_records_corpus_partition_to_source_fallback():
+    mock_search = MagicMock()
+    mock_search.search.side_effect = [
+        [],
+        [FakeHit(id="CWE-79", source="CWE", title="XSS")],
+    ]
+    vs = VectorSearch.__new__(VectorSearch)
+    vs._search = mock_search
+    graph = FakeGraph([
+        {"id": "CWE-79", "source": "CWE", "title": "XSS", "related_capec": [], "related_cwe": [], "related_cve": [], "related_attack": []},
+    ])
+    assembler = KnowledgeAssembler(vs, graph, rrf_k=0)
+
+    result = assembler.assemble("cross-site scripting", query_intent="weakness_context")
+
+    first_filter = mock_search.search.call_args_list[0].kwargs["query_filter"]
+    second_filter = mock_search.search.call_args_list[1].kwargs["query_filter"]
+    assert first_filter.must[0].key == "corpusPartition"
+    assert first_filter.must[0].match.any == ["weakness_taxonomy"]
+    assert second_filter.must[0].key == "source"
+    assert second_filter.must[0].match.any == ["CWE"]
+    fallback_trace = result["retrievalTrace"]["fallbackTrace"]
+    assert any(item["reason"] == "legacy_payload_may_lack_corpusPartition" for item in fallback_trace)
+    assert any(item["reason"] == "no_vector_hits_with_corpus_partition_filter" for item in fallback_trace)
+
+
+def test_global_embedding_search_is_visible_and_low_trust():
+    assembler = _make_assembler(hits=[FakeHit(id="DOC-1", source="misc", title="broad hit")])
+
+    result = assembler.assemble(
+        "broad unconstrained query",
+        query_intent="project_memory_context",
+        allow_global_embedding=True,
+    )
+
+    trace = result["retrievalTrace"]
+    assert trace["embeddingScope"] == "global"
+    assert trace["methodsAttempted"] == ["global_embedding_search"]
+    assert trace["globalEmbeddingPolicy"]["trust"] == "low"
+    assert trace["globalEmbeddingPolicy"]["negativeEvidenceAllowed"] is False
+    assert result["hits"][0]["relationMethods"] == ["global_embedding_search"]
+    assert result["hits"][0]["methodTrust"] == "low"

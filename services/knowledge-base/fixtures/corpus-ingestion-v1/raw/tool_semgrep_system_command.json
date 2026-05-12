@@ -1,0 +1,9 @@
+{
+  "mapsTo": [
+    "CWE-78"
+  ],
+  "name": "system command",
+  "ruleId": "c.lang.security.audit.system-command",
+  "taxonomyFamily": "command_execution",
+  "tool": "semgrep"
+}

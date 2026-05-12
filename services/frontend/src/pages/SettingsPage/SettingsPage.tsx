@@ -4,6 +4,7 @@ import { BackButton, PageHeader } from "@/common/ui/primitives";
 import { useProjects } from "@/common/contexts/ProjectContext";
 import { SettingsApiAccessSection } from "./components/SettingsApiAccessSection/SettingsApiAccessSection";
 import { SettingsBackendSection } from "./components/SettingsBackendSection/SettingsBackendSection";
+import { SettingsLlmGatewaySection } from "./components/SettingsLlmGatewaySection/SettingsLlmGatewaySection";
 import { SettingsPlatformSection } from "./components/SettingsPlatformSection/SettingsPlatformSection";
 import { SettingsThemeSection } from "./components/SettingsThemeSection/SettingsThemeSection";
 import { useSettingsPageController } from "./useSettingsPageController";
@@ -43,6 +44,7 @@ export const SettingsPage: React.FC = () => {
     testDetail,
     theme,
     dirty,
+    llmGateway,
     handleUrlChange,
     handleThemeChange,
     handleSave,
@@ -93,6 +95,14 @@ export const SettingsPage: React.FC = () => {
       </section>
 
       <section className="settings-section settings-section--4">
+        <header className="settings-section__head">
+          <span className="settings-section__label">Services</span>
+          <span className="settings-section__meta">live readiness</span>
+        </header>
+        <SettingsLlmGatewaySection llmGateway={llmGateway} />
+      </section>
+
+      <section className="settings-section settings-section--5">
         <header className="settings-section__head">
           <span className="settings-section__label">Platform</span>
           <span className="settings-section__meta">runtime</span>

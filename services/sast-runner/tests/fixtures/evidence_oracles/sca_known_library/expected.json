@@ -1,0 +1,34 @@
+{
+  "library": {
+    "name": "civetweb",
+    "version": "1.16.0",
+    "path": "libraries/civetweb",
+    "repoUrl": "https://github.com/civetweb/civetweb.git",
+    "source": "CMakeLists.txt:project()",
+    "commit": null,
+    "branch": null,
+    "tag": null,
+    "nearestTag": null,
+    "identificationConfidence": "high",
+    "versionStatus": "known",
+    "versionConfidence": "high",
+    "cveLookupEligible": true,
+    "versionEvidence": {
+      "status": "observed",
+      "source": "CMakeLists.txt:project()",
+      "value": "1.16.0"
+    },
+    "diagnostics": [
+      "DIFF_NOT_COMPUTED"
+    ],
+    "diffAvailable": false,
+    "modificationStatus": "unknown",
+    "diffSummary": null,
+    "provenance": {
+      "buildSnapshotId": "bsnap-oracle",
+      "buildUnitId": "bunit-oracle",
+      "snapshotSchemaVersion": "build-snapshot-v1",
+      "libraryPath": "libraries/civetweb"
+    }
+  }
+}

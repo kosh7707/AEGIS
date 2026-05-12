@@ -1,0 +1,2 @@
+File,Line,Column,Context,Level,Category,Name,Warning,Suggestion,Note,CWEs,Other
+/tmp/scan/src/main.c,8,5,"  gets(buf);",5,buffer,gets,"Does not check for buffer overflows (CWE-120, CWE-20).",Consider using fgets().,,"CWE-120, CWE-20",

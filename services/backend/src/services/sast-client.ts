@@ -8,6 +8,7 @@
 import crypto from "crypto";
 import { createLogger } from "../lib/logger";
 import {
+  InvalidInputError,
   SastUnavailableError,
   SastTimeoutError,
 } from "../lib/errors";
@@ -25,7 +26,7 @@ export interface SastScanRequest {
   files?: Array<{ path: string; content: string }>;
   projectPath?: string;
   compileCommands?: string;
-  buildProfile?: BuildProfile;
+  buildProfile?: SastAnalysisBuildProfile;
   rulesets?: string[];
   /** 포함된 서드파티 라이브러리 경로 (S4가 cross-boundary 필터링에 사용) */
   thirdPartyPaths?: string[];
@@ -36,15 +37,48 @@ export interface SastScanRequest {
   };
 }
 
+export interface SastSdkDescriptor {
+  sdkRootPath: string;
+  sysroot?: string;
+  setupScript?: string;
+  toolchainTriplet?: string;
+  compilerPath?: string;
+  compilerVersion?: string;
+  targetArch?: string;
+  languageStandard?: string;
+  includePaths?: string[];
+  defines?: Record<string, string>;
+  environment?: Record<string, string>;
+}
+
+export type SastAnalysisBuildProfile = Omit<Partial<BuildProfile>, "sdkId"> & {
+  sdkId?: string;
+  sdkResolutionMode?: "none" | "non-registered";
+  sdkDescriptor?: SastSdkDescriptor;
+};
+
 function normalizeScanRequestForS4(request: SastScanRequest): SastScanRequest {
-  if (request.buildProfile?.sdkId !== "custom") {
+  const buildProfile = request.buildProfile;
+  if (!buildProfile) {
+    return request;
+  }
+  const sdkId = buildProfile?.sdkId;
+  if (sdkId?.startsWith("sdk-")) {
+    throw new InvalidInputError(
+      "S4 scan buildProfile must use sdkResolutionMode non-registered with sdkDescriptor for uploaded SDKs",
+    );
+  }
+  if (sdkId !== "custom" && sdkId !== "none") {
     return request;
   }
 
-  const { sdkId: _sdkId, ...nativeBuildProfile } = request.buildProfile;
+  const { sdkId: _sdkId, ...nativeBuildProfile } = buildProfile;
   return {
     ...request,
-    buildProfile: nativeBuildProfile as BuildProfile,
+    buildProfile: {
+      ...nativeBuildProfile,
+      ...(sdkId === "none" ? { sdkResolutionMode: "none" as const } : {}),
+    } as SastAnalysisBuildProfile,
   };
 }
 
@@ -66,8 +100,8 @@ export interface SastScanErrorDetail {
 }
 
 export interface SastCodeGraph {
-  functions: Array<{ name: string; file: string; line: number; complexity?: number }>;
-  callEdges: Array<{ caller: string; callee: string; file: string; line: number }>;
+  functions: Array<{ name: string; file: string; line: number; complexity?: number; calls?: string[] }>;
+  callEdges?: Array<{ caller: string; callee: string; file: string; line: number }>;
   complexity?: Record<string, number>;
 }
 

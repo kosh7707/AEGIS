@@ -1,0 +1,34 @@
+{
+  "id": "scan-static-contract-bundle-v1",
+  "kind": "evidence-bundle-oracle",
+  "description": "Synthetic /v1/scan success payload must preserve finding evidenceResolution and add staticEvidenceContract gates/coverage/boundaries/tool matrix.",
+  "contractInput": {
+    "success": true,
+    "execution": "clean",
+    "cweId": "CWE-120",
+    "dataFlow": true
+  },
+  "requiredResponseSurfaces": [
+    "findings[].metadata.evidenceResolution",
+    "staticEvidenceContract.gates.systemStability",
+    "staticEvidenceContract.gates.evidenceReadiness",
+    "staticEvidenceContract.gates.qualityEvaluation",
+    "staticEvidenceContract.coverage",
+    "staticEvidenceContract.claimBoundaries",
+    "staticEvidenceContract.toolEvidenceMatrix"
+  ],
+  "expectedContractPaths": {
+    "staticEvidenceContract.gates.systemStability.status": "pass",
+    "staticEvidenceContract.gates.evidenceReadiness.status": "ready",
+    "staticEvidenceContract.gates.qualityEvaluation.status": "not_evaluated",
+    "staticEvidenceContract.toolEvidenceMatrix.semgrep.consumerPolicy": "local_tool_execution_state_only_not_vulnerability_verdict"
+  },
+  "forbiddenVerdictKeys": [
+    "vulnerable",
+    "safe",
+    "affected",
+    "clean",
+    "riskScore",
+    "securityVerdict"
+  ]
+}

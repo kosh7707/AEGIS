@@ -19,6 +19,14 @@ class Phase1Result:
     threat_context: list[dict] = field(default_factory=list)
     dangerous_callers: list[dict] = field(default_factory=list)
     cve_lookup: list[dict] = field(default_factory=list)
+    cve_lookup_attempted: bool = False
+    cve_lookup_completed: bool = False
+    cve_lookup_eligible_count: int = 0
+    cve_lookup_attempted_libraries: list[dict] = field(default_factory=list)
+    cve_lookup_skipped_libraries: list[dict] = field(default_factory=list)
+    cve_lookup_truncated: bool = False
+    cve_lookup_unqueried_eligible_count: int = 0
+    cve_lookup_error: str | None = None
     project_memory: list[dict] = field(default_factory=list)
     kb_degraded: bool = False
     kb_not_ready: bool = False

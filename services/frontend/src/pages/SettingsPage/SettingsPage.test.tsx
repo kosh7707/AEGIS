@@ -7,6 +7,7 @@ import { SettingsPage } from "./SettingsPage";
 const mockGetBackendUrl = vi.fn();
 const mockSetBackendUrl = vi.fn();
 const mockHealthFetch = vi.fn();
+const mockHealthCheck = vi.fn();
 const mockGetThemePreference = vi.fn();
 const mockSetThemePreference = vi.fn();
 
@@ -14,6 +15,7 @@ vi.mock("@/common/api/client", () => ({
   getBackendUrl: () => mockGetBackendUrl(),
   setBackendUrl: (...args: unknown[]) => mockSetBackendUrl(...args),
   healthFetch: (...args: unknown[]) => mockHealthFetch(...args),
+  healthCheck: (...args: unknown[]) => mockHealthCheck(...args),
 }));
 
 const mockApplyTheme = vi.fn();
@@ -45,6 +47,7 @@ describe("SettingsPage", () => {
     mockGetBackendUrl.mockReturnValue("http://localhost:3000");
     mockGetThemePreference.mockReturnValue("system");
     mockHealthFetch.mockResolvedValue({ ok: true, data: { service: "backend", version: "1.0.0" } });
+    mockHealthCheck.mockResolvedValue({ status: "ok" });
   });
 
   it("saves a changed backend URL", () => {
@@ -161,5 +164,42 @@ describe("SettingsPage", () => {
 
     await waitFor(() => expect(mockHealthFetch).toHaveBeenCalledWith("http://localhost:3000", expect.any(String)));
     expect(await screen.findByText("연결 실패")).toBeInTheDocument();
+  });
+
+  it("renders LLM Gateway row with degraded sub-caption from S2 /health forwarding", async () => {
+    // S2 /health forwards S7 readiness fields under llmGateway.detail.* per WR
+    // s2-to-s1-reply-s2-health-forwards-s7-readiness-fields-under-llmgateway.detail
+    mockHealthCheck.mockResolvedValue({
+      status: "degraded",
+      llmGateway: {
+        status: "degraded",
+        detail: {
+          degraded: true,
+          llmReady: false,
+          blockedReason: "circuit_open",
+        },
+      },
+    });
+
+    render(<SettingsPage />);
+
+    expect(await screen.findByText("LLM Gateway")).toBeInTheDocument();
+    const sub = await screen.findByTestId("settings-llm-gateway-sub");
+    expect(sub.textContent).toBe("LLM 회로 차단");
+  });
+
+  it("LLM Gateway row shows OK without sub-caption when health is clean", async () => {
+    mockHealthCheck.mockResolvedValue({
+      status: "ok",
+      llmGateway: {
+        status: "ok",
+        detail: { degraded: false, llmReady: true, blockedReason: null },
+      },
+    });
+
+    render(<SettingsPage />);
+
+    expect(await screen.findByText("OK")).toBeInTheDocument();
+    expect(screen.queryByTestId("settings-llm-gateway-sub")).toBeNull();
   });
 });

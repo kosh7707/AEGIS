@@ -1,0 +1,22 @@
+{
+  "aliases": [
+    "CVE-2026-0001"
+  ],
+  "cweIds": [
+    "CWE-78"
+  ],
+  "id": "GHSA-aaaa-bbbb-cccc",
+  "package": {
+    "ecosystem": "generic",
+    "name": "curl"
+  },
+  "publishedAt": "2026-01-02T00:00:00Z",
+  "updatedAt": "2026-01-05T00:00:00Z",
+  "vulnerabilities": [
+    {
+      "firstPatchedVersion": "8.1.0",
+      "packageIdentityId": "pkg:generic/curl",
+      "vulnerableVersionRange": "< 8.1.0"
+    }
+  ]
+}

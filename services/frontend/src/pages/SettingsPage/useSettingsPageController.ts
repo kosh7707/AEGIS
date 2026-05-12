@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { getBackendUrl, healthFetch, setBackendUrl } from "@/common/api/client";
+import { getBackendUrl, healthCheck, healthFetch, setBackendUrl, type LlmGatewayHealthEntry } from "@/common/api/client";
 import { applyTheme, getThemePreference, setThemePreference, type ThemePreference } from "@/common/utils/theme";
 
 export type TestStatus = "idle" | "testing" | "ok" | "error";
@@ -12,9 +12,27 @@ export function useSettingsPageController() {
   const [testDetail, setTestDetail] = useState("");
   const [theme, setTheme] = useState<ThemePreference>(getThemePreference);
   const [storedTheme, setStoredTheme] = useState<ThemePreference>(getThemePreference);
+  const [llmGateway, setLlmGateway] = useState<LlmGatewayHealthEntry | null>(null);
 
   useEffect(() => {
     document.title = "AEGIS — Settings";
+  }, []);
+
+  // Fetch S2 /health on mount to populate the LLM Gateway readiness row.
+  // Caller-owned, single-shot; per-row refresh ties into the existing test
+  // action so users don't pay polling cost on Settings.
+  useEffect(() => {
+    let cancelled = false;
+    healthCheck()
+      .then((resp) => {
+        if (!cancelled) setLlmGateway(resp.llmGateway ?? null);
+      })
+      .catch(() => {
+        // Soft-fail; row falls back to Idle state
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const handleThemeChange = useCallback((preference: ThemePreference) => {
@@ -86,6 +104,7 @@ export function useSettingsPageController() {
     urlDirty,
     themeDirty,
     dirty,
+    llmGateway,
     handleUrlChange,
     handleThemeChange,
     handleSave,

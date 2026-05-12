@@ -16,11 +16,16 @@ const logger = createLogger("kb-client");
 const DEFAULT_CODE_GRAPH_INGEST_TIMEOUT_MS = "15000";
 
 export interface CodeGraphIngestResponse {
-  success: boolean;
+  success?: boolean;
   project_id: string;
-  nodes_created: number;
-  edges_created: number;
-  elapsed_ms: number;
+  nodeCount?: number;
+  edgeCount?: number;
+  vectorCount?: number;
+  files?: string[];
+  latency_ms?: number;
+  nodes_created?: number;
+  edges_created?: number;
+  elapsed_ms?: number;
   status?: "ready" | "partial" | "empty";
   readiness?: {
     neo4jGraph?: boolean;
@@ -37,9 +42,12 @@ export interface CodeGraphIngestResponse {
 }
 
 export interface CodeGraphStatsResponse {
-  project_id: string;
-  function_count: number;
-  call_edge_count: number;
+  project_id?: string;
+  nodeCount?: number;
+  edgeCount?: number;
+  files?: string[];
+  function_count?: number;
+  call_edge_count?: number;
 }
 
 interface KbErrorPayload {
@@ -70,9 +78,9 @@ export class KbClient {
 
     const callsByFunction = new Map<string, Set<string>>();
     for (const fn of codeGraph.functions) {
-      callsByFunction.set(fn.name, new Set());
+      callsByFunction.set(fn.name, new Set(fn.calls ?? []));
     }
-    for (const edge of codeGraph.callEdges) {
+    for (const edge of codeGraph.callEdges ?? []) {
       const calls = callsByFunction.get(edge.caller) ?? new Set<string>();
       calls.add(edge.callee);
       callsByFunction.set(edge.caller, calls);
@@ -86,7 +94,6 @@ export class KbClient {
           ...fn,
           calls: [...(callsByFunction.get(fn.name) ?? new Set<string>())],
         })),
-        call_edges: codeGraph.callEdges,
       },
       requestId,
       signal,
@@ -104,7 +111,23 @@ export class KbClient {
       return result.status === "ready" && result.readiness?.graphRag === true;
     }
 
-    return (result.nodes_created ?? 0) > 0;
+    return this.getIngestNodeCount(result) > 0;
+  }
+
+  getIngestNodeCount(result: CodeGraphIngestResponse): number {
+    return result.nodeCount ?? result.nodes_created ?? 0;
+  }
+
+  getIngestEdgeCount(result: CodeGraphIngestResponse): number {
+    return result.edgeCount ?? result.edges_created ?? 0;
+  }
+
+  getStatsFunctionCount(result: CodeGraphStatsResponse): number {
+    return result.nodeCount ?? result.function_count ?? 0;
+  }
+
+  getStatsCallEdgeCount(result: CodeGraphStatsResponse): number {
+    return result.edgeCount ?? result.call_edge_count ?? 0;
   }
 
   async getCodeGraphStats(

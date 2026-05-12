@@ -31,6 +31,13 @@ const ALL_MODULES: AnalysisModule[] = [
   "dynamic_testing",
 ];
 
+interface ReportLookupContext {
+  project: NonNullable<ReturnType<ProjectService["findById"]>>;
+  allRuns: ReturnType<RunService["findByProjectId"]>;
+  gateResults: ReturnType<QualityGateService["getByProjectId"]>;
+  gateByRunId: Map<string, ReturnType<QualityGateService["getByRunId"]>>;
+}
+
 export interface ReportFilters {
   severity?: Severity[];
   status?: FindingStatus[];
@@ -57,8 +64,16 @@ export class ReportService {
   ): ModuleReport | undefined {
     const project = this.projectService.findById(projectId);
     if (!project) return undefined;
+    return this.buildModuleReport(module, filters, this.createLookupContext(project));
+  }
 
-    const findings = this.findingService.findByProjectId(projectId, {
+  private buildModuleReport(
+    module: AnalysisModule,
+    filters: ReportFilters | undefined,
+    context: ReportLookupContext,
+  ): ModuleReport {
+    const { project } = context;
+    const findings = this.findingService.findByProjectId(project.id, {
       module,
       ...filters,
     }).filter((finding) => this.isAggregateVisibleFinding(finding));
@@ -70,26 +85,24 @@ export class ReportService {
 
     // Collect unique runIds from findings
     const runIdSet = new Set(findings.map((f) => f.runId));
-    const allRuns = this.runService.findByProjectId(projectId);
-    const moduleRuns = allRuns.filter(
+    const moduleRuns = context.allRuns.filter(
       (r) => r.module === module && runIdSet.has(r.id) && this.isAggregateVisibleRun(r),
     );
+    const moduleRunIds = new Set(moduleRuns.map((r) => r.id));
 
     const runEntries: RunReportEntry[] = moduleRuns.map((run) => ({
       run,
-      gate: this.gateService.getByRunId(run.id),
+      gate: context.gateByRunId.get(run.id),
     }));
 
-    const gateResults = this.gateService
-      .getByProjectId(projectId)
-      .filter((g) => moduleRuns.some((r) => r.id === g.runId));
+    const gateResults = context.gateResults.filter((g) => moduleRunIds.has(g.runId));
 
     const summary = this.buildSummary(findings);
 
     return {
       meta: {
         generatedAt: new Date().toISOString(),
-        projectId,
+        projectId: project.id,
         projectName: project.name,
         module,
       },
@@ -103,12 +116,13 @@ export class ReportService {
   generateProjectReport(projectId: string, filters?: ReportFilters): ProjectReport | undefined {
     const project = this.projectService.findById(projectId);
     if (!project) return undefined;
+    const context = this.createLookupContext(project);
 
     const modules: ProjectReport["modules"] = {};
     const allSummaries: ReportSummary[] = [];
 
     for (const mod of ALL_MODULES) {
-      const report = this.generateModuleReport(projectId, mod, filters);
+      const report = this.buildModuleReport(mod, filters, context);
       if (report && report.findings.length > 0) {
         modules[MODULE_KEY_MAP[mod]] = report;
         allSummaries.push(report.summary);
@@ -167,6 +181,7 @@ export class ReportService {
   ): ProjectReport | undefined {
     const project = this.projectService.findById(projectId);
     if (!project) return undefined;
+    const context = this.createLookupContext(project);
 
     const { filters, findingIds, includeSections, customization } = options;
     const include = includeSections ?? {};
@@ -182,7 +197,7 @@ export class ReportService {
 
     for (const { key, mod } of moduleEntries) {
       if (include[key] === false) continue;
-      const report = this.generateModuleReport(projectId, mod, filters);
+      const report = this.buildModuleReport(mod, filters, context);
       if (!report) continue;
 
       // findingIds 필터링
@@ -220,6 +235,17 @@ export class ReportService {
       approvals,
       auditTrail,
       customization,
+    };
+  }
+
+  private createLookupContext(project: NonNullable<ReturnType<ProjectService["findById"]>>): ReportLookupContext {
+    const allRuns = this.runService.findByProjectId(project.id);
+    const gateResults = this.gateService.getByProjectId(project.id);
+    return {
+      project,
+      allRuns,
+      gateResults,
+      gateByRunId: new Map(gateResults.map((gate) => [gate.runId, gate])),
     };
   }
 

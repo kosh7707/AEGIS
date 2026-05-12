@@ -18,10 +18,20 @@ from app.graphrag.code_vector_search import CodeVectorSearch
 from app.graphrag.knowledge_assembler import KnowledgeAssembler
 from app.graphrag.neo4j_graph import Neo4jGraph
 from app.graphrag.vector_search import VectorSearch
+from app.ledger.repository import SQLiteLedgerRepository
 from app.observability import setup_logging
 from app.rag.threat_search import COLLECTION as THREAT_COLLECTION, ThreatSearch
 from app.graphrag.project_memory_service import ProjectMemoryService
-from app.routers import api, code_graph_api, cve_api, project_memory_api
+from app.routers import (
+    analyst_api,
+    api,
+    code_graph_api,
+    contracts_api,
+    cve_api,
+    project_memory_api,
+    target_context_api,
+)
+from app.target_context_service import TargetContextService
 
 setup_logging("s5-kb", log_file_name="aegis-knowledge-base")
 logger = logging.getLogger(__name__)
@@ -33,6 +43,8 @@ async def lifespan(_app: FastAPI):
     assembler = None
     driver = None
     nvd_client = None
+    target_context_svc = None
+    ledger_repository = None
 
     # Qdrant 벡터 검색 초기화
     try:
@@ -116,6 +128,21 @@ async def lifespan(_app: FastAPI):
         except Exception as e:
             logger.warning("소스코드 GraphRAG 초기화 실패: %s", e)
 
+    # S3 target-aware acquisition context ledger
+    try:
+        ledger_repository = SQLiteLedgerRepository(settings.ledger_url)
+        target_context_svc = TargetContextService(
+            settings.target_context_store_file,
+            ledger_repository=ledger_repository,
+        )
+        logger.info(
+            "Target context SQLite ledger 초기화 완료: ledger=%s mirror=%s",
+            settings.ledger_url,
+            settings.target_context_store_file,
+        )
+    except Exception as e:
+        logger.warning("Target context ledger 초기화 실패: %s", e)
+
     api.set_assembler(assembler)
     api.set_neo4j_graph(neo4j_graph)
     api.set_qdrant_ready(bool(vector_search))
@@ -124,6 +151,13 @@ async def lifespan(_app: FastAPI):
     code_graph_api.set_code_assembler(code_assembler)
     cve_api.set_nvd_client(nvd_client)
     project_memory_api.set_service(memory_svc if neo4j_graph else None)
+    target_context_api.set_target_context_service(target_context_svc)
+    target_context_api.set_ledger_repository(ledger_repository)
+    target_context_api.set_code_graph_service(code_graph_svc)
+    target_context_api.set_code_vector_search(code_vector_search)
+    target_context_api.set_code_assembler(code_assembler)
+    target_context_api.set_knowledge_assembler(assembler)
+    target_context_api.set_nvd_client(nvd_client)
 
     logger.info("Knowledge Base 초기화 완료")
 
@@ -197,9 +231,12 @@ app.add_middleware(
 )
 
 app.include_router(api.router)
+app.include_router(analyst_api.router)
 app.include_router(code_graph_api.router)
+app.include_router(contracts_api.router)
 app.include_router(cve_api.router)
 app.include_router(project_memory_api.router)
+app.include_router(target_context_api.router)
 
 
 if __name__ == "__main__":

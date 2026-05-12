@@ -1,0 +1,9 @@
+{
+  "mapsTo": [
+    "CWE-134"
+  ],
+  "name": "invalid printf argument type",
+  "ruleId": "invalidPrintfArgType_s",
+  "taxonomyFamily": "input_validation",
+  "tool": "cppcheck"
+}

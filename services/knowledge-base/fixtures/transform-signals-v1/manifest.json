@@ -1,0 +1,327 @@
+{
+  "schemaVersion": "s5-transform-signal-model-v1",
+  "signalModelVersion": "transform-signals-v1",
+  "title": "S5 Transform Decision and Taxonomy Signal Model v1",
+  "runtimeLanguageOnly": true,
+  "offlineQualityMetricLanguageForbidden": true,
+  "principles": [
+    "Keyword and embedding hits are candidate or context signals only.",
+    "Keyword and embedding misses cannot become no-hit, clean pass, vulnerability truth, or negative evidence.",
+    "Graph-derived relations must stay distinguishable from direct source, curated, and provider relations.",
+    "Specialization profile signals are additive context only."
+  ],
+  "signalExamples": [
+    {
+      "signalId": "signal:direct-source:osv-cve-2026-0001-affects-curl",
+      "observationKind": "hit",
+      "inputId": "raw-osv-curl-advisory",
+      "outputId": "relation:advisory:OSV:CVE-2026-0001:affects:pkg:generic/curl",
+      "method": "direct_source_relation",
+      "confidence": 0.99,
+      "consumerPolicy": "contextual_only",
+      "sourceRefs": [
+        {
+          "sourceKind": "OSV",
+          "sourceId": "src-osv",
+          "sourceVersion": "fixture-2026-05-11",
+          "sourceUrl": "https://osv.dev",
+          "rawArtifactId": "raw-osv-curl-advisory"
+        }
+      ],
+      "taxonomyFamily": "third_party_component",
+      "specializationProfiles": [],
+      "matchedTerms": ["pkg:generic/curl", "CVE-2026-0001"],
+      "evidenceSpans": [
+        {"field": "affected[].package.purl", "value": "pkg:generic/curl"}
+      ],
+      "score": 0.99,
+      "allowedEffects": ["candidate_returned", "contextual_relation"],
+      "forbiddenEffects": ["clean_pass", "final_security_verdict", "complete_project_safety"],
+      "runtimeObservation": {
+        "candidate_returned": true,
+        "candidate_count": 1,
+        "methodsUsed": ["direct_source_relation"]
+      },
+      "diagnostics": [{"code": "DIRECT_SOURCE_RELATION_FROM_OSV_FIXTURE"}],
+      "relation": {
+        "subjectId": "advisory:OSV:CVE-2026-0001",
+        "predicate": "affects_package",
+        "objectId": "pkg:generic/curl"
+      }
+    },
+    {
+      "signalId": "signal:provider-range:candidate-range-out-only",
+      "observationKind": "hit",
+      "inputId": "affected:advisory:OSV:CVE-2026-0001:0",
+      "outputId": "candidate:CVE-2026-0001:pkg:generic/curl@8.1.0",
+      "method": "provider_range_eval",
+      "confidence": 0.96,
+      "consumerPolicy": "scoped_no_hit_record_only",
+      "sourceRefs": [
+        {
+          "sourceKind": "OSV",
+          "sourceId": "src-osv",
+          "sourceVersion": "fixture-2026-05-11",
+          "sourceUrl": "https://osv.dev",
+          "rawArtifactId": "raw-osv-curl-advisory"
+        }
+      ],
+      "taxonomyFamily": "third_party_component",
+      "specializationProfiles": [],
+      "matchedTerms": ["fixed:8.1.0", "candidate-version:8.1.0"],
+      "evidenceSpans": [{"field": "affected[].fixed", "value": "8.1.0"}],
+      "score": 0.96,
+      "allowedEffects": ["scoped_candidate_range_out_record"],
+      "forbiddenEffects": ["library_safe", "no_other_cves", "clean_pass", "complete_project_safety"],
+      "runtimeObservation": {
+        "candidate_returned": true,
+        "candidate_count": 1,
+        "methodsUsed": ["provider_range_eval"]
+      },
+      "diagnostics": [{"code": "CANDIDATE_RANGE_OUT_ONLY_NOT_LIBRARY_SAFE"}]
+    },
+    {
+      "signalId": "signal:exact-id:cwe-78",
+      "observationKind": "hit",
+      "inputId": "raw-cwe-78-sample",
+      "outputId": "CWE-78",
+      "method": "exact_id_match",
+      "confidence": 1.0,
+      "consumerPolicy": "contextual_only",
+      "sourceRefs": [
+        {
+          "sourceKind": "CWE",
+          "sourceId": "src-cwe",
+          "sourceVersion": "4.19-fixture",
+          "sourceUrl": "https://cwe.mitre.org",
+          "rawArtifactId": "raw-cwe-78-sample"
+        }
+      ],
+      "taxonomyFamily": "command_execution",
+      "specializationProfiles": [],
+      "matchedTerms": ["CWE-78"],
+      "evidenceSpans": [{"field": "id", "value": "CWE-78"}],
+      "score": 1.0,
+      "allowedEffects": ["candidate_returned", "taxonomy_context"],
+      "forbiddenEffects": ["final_security_verdict", "local_claim_support_without_s3_refs"],
+      "runtimeObservation": {"candidate_returned": true, "candidate_count": 1, "methodsUsed": ["exact_id_match"]},
+      "diagnostics": [{"code": "EXACT_ID_MATCH"}]
+    },
+    {
+      "signalId": "signal:curated-tool-rule:semgrep-system-command-cwe-78",
+      "observationKind": "hit",
+      "inputId": "raw-tool-semgrep-system-command",
+      "outputId": "relation:tool-rule:semgrep:cpp.lang.security.system-command:maps_to:CWE-78",
+      "method": "curated_mapping",
+      "confidence": 0.9,
+      "consumerPolicy": "contextual_only",
+      "sourceRefs": [
+        {
+          "sourceKind": "semgrep",
+          "sourceId": "src-semgrep",
+          "sourceVersion": "fixture-2026-05-11",
+          "sourceUrl": "https://semgrep.dev",
+          "rawArtifactId": "raw-tool-semgrep-system-command"
+        }
+      ],
+      "taxonomyFamily": "command_execution",
+      "specializationProfiles": [],
+      "matchedTerms": ["system", "popen", "CWE-78"],
+      "evidenceSpans": [{"field": "mapsTo[]", "value": "CWE-78"}],
+      "score": 0.9,
+      "allowedEffects": ["candidate_returned", "tool_rule_context"],
+      "forbiddenEffects": ["local_claim_support_without_s3_refs", "clean_pass"],
+      "runtimeObservation": {"candidate_returned": true, "candidate_count": 1, "methodsUsed": ["curated_mapping"]},
+      "diagnostics": [{"code": "CURATED_TOOL_RULE_MAPPING"}],
+      "relation": {
+        "subjectId": "tool-rule:semgrep:cpp.lang.security.system-command",
+        "predicate": "maps_to_weakness",
+        "objectId": "CWE-78"
+      }
+    },
+    {
+      "signalId": "signal:graph-expansion:cwe-78-capec-88",
+      "observationKind": "hit",
+      "inputId": "relation:source:CWE-78:related:CAPEC-88",
+      "outputId": "relation:graph:CWE-78:related:CAPEC-88",
+      "method": "graph_expansion",
+      "confidence": 0.72,
+      "consumerPolicy": "contextual_only",
+      "sourceRefs": [
+        {
+          "sourceKind": "projection_graph",
+          "sourceId": "ledger-derived-neo4j-projection-fixture",
+          "sourceVersion": "projection-fixture-v1",
+          "sourceUrl": "ledger://relation_record",
+          "rawArtifactId": "raw-cwe-78-sample"
+        }
+      ],
+      "taxonomyFamily": "command_execution",
+      "specializationProfiles": [],
+      "matchedTerms": ["CWE-78", "CAPEC-88"],
+      "evidenceSpans": [{"field": "graph.neighbor", "value": "CAPEC-88"}],
+      "score": 0.72,
+      "allowedEffects": ["candidate_returned", "contextual_relation"],
+      "forbiddenEffects": ["source_truth", "scoped_no_hit", "clean_pass"],
+      "runtimeObservation": {"candidate_returned": true, "candidate_count": 1, "methodsUsed": ["graph_expansion"]},
+      "diagnostics": [{"code": "GRAPH_EXPANSION_CONTEXT_ONLY"}],
+      "relation": {
+        "subjectId": "CWE-78",
+        "predicate": "graph_related_to",
+        "objectId": "CAPEC-88"
+      }
+    },
+    {
+      "signalId": "signal:keyword-hit:can-bus-command-execution",
+      "observationKind": "hit",
+      "inputId": "query:can-bus-system-command",
+      "outputId": "candidate:command_execution:automotive-can-bus",
+      "method": "keyword_match",
+      "confidence": 0.42,
+      "consumerPolicy": "contextual_only",
+      "sourceRefs": [
+        {"sourceKind": "runtime_query", "sourceId": "query-fixture", "sourceVersion": "v1", "sourceUrl": "target-context://fixture", "rawArtifactId": "target-context-fixture"}
+      ],
+      "taxonomyFamily": "command_execution",
+      "specializationProfiles": ["automotive-specialization:can_bus"],
+      "matchedTerms": ["can", "system"],
+      "evidenceSpans": [{"field": "query", "value": "CAN bus system command"}],
+      "score": 0.42,
+      "allowedEffects": ["candidate_returned", "contextual_tag"],
+      "forbiddenEffects": ["completed_no_hit", "clean_pass", "negative_evidence", "vulnerability_truth"],
+      "runtimeObservation": {"candidate_returned": true, "candidate_count": 1, "methodsUsed": ["keyword_match"]},
+      "diagnostics": [{"code": "KEYWORD_HIT_WEAK_CONTEXT_ONLY"}]
+    },
+    {
+      "signalId": "signal:keyword-miss:not-no-hit",
+      "observationKind": "miss",
+      "inputId": "query:no-automotive-keyword",
+      "outputId": null,
+      "method": "keyword_match",
+      "confidence": 0.0,
+      "consumerPolicy": "do_not_use_as_negative_evidence",
+      "sourceRefs": [
+        {"sourceKind": "runtime_query", "sourceId": "query-fixture", "sourceVersion": "v1", "sourceUrl": "target-context://fixture", "rawArtifactId": "target-context-fixture"}
+      ],
+      "taxonomyFamily": "command_execution",
+      "specializationProfiles": [],
+      "matchedTerms": [],
+      "evidenceSpans": [],
+      "score": 0.0,
+      "allowedEffects": ["no_candidate_returned"],
+      "forbiddenEffects": ["completed_no_hit", "clean_pass", "negative_evidence", "vulnerability_truth"],
+      "runtimeObservation": {"no_candidate_returned": true, "candidate_count": 0, "methodsAttempted": ["keyword_match"]},
+      "diagnostics": [{"code": "KEYWORD_MISS_NOT_NO_HIT"}]
+    },
+    {
+      "signalId": "signal:embedding-hit:command-execution",
+      "observationKind": "hit",
+      "inputId": "query:spawn-process-from-user-input",
+      "outputId": "candidate:CWE-78",
+      "method": "embedding_similarity",
+      "confidence": 0.58,
+      "consumerPolicy": "contextual_only",
+      "sourceRefs": [
+        {"sourceKind": "vector_projection", "sourceId": "qdrant-threat-fixture", "sourceVersion": "projection-fixture-v1", "sourceUrl": "qdrant://threat_knowledge", "rawArtifactId": "raw-cwe-78-sample"}
+      ],
+      "taxonomyFamily": "command_execution",
+      "specializationProfiles": [],
+      "matchedTerms": [],
+      "evidenceSpans": [{"field": "embeddingScope", "value": "constrained"}],
+      "score": 0.58,
+      "allowedEffects": ["candidate_returned", "retrieval_candidate"],
+      "forbiddenEffects": ["completed_no_hit", "clean_pass", "negative_evidence", "vulnerability_truth"],
+      "runtimeObservation": {"candidate_returned": true, "candidate_count": 1, "methodsUsed": ["embedding_similarity"]},
+      "diagnostics": [{"code": "EMBEDDING_HIT_WEAK_RETRIEVAL_CANDIDATE"}]
+    },
+    {
+      "signalId": "signal:embedding-miss:not-no-hit",
+      "observationKind": "miss",
+      "inputId": "query:low-similarity",
+      "outputId": null,
+      "method": "embedding_similarity",
+      "confidence": 0.0,
+      "consumerPolicy": "do_not_use_as_negative_evidence",
+      "sourceRefs": [
+        {"sourceKind": "vector_projection", "sourceId": "qdrant-threat-fixture", "sourceVersion": "projection-fixture-v1", "sourceUrl": "qdrant://threat_knowledge", "rawArtifactId": "raw-cwe-78-sample"}
+      ],
+      "taxonomyFamily": "command_execution",
+      "specializationProfiles": [],
+      "matchedTerms": [],
+      "evidenceSpans": [],
+      "score": 0.0,
+      "allowedEffects": ["no_candidate_returned"],
+      "forbiddenEffects": ["completed_no_hit", "clean_pass", "negative_evidence", "vulnerability_truth"],
+      "runtimeObservation": {"no_candidate_returned": true, "candidate_count": 0, "methodsAttempted": ["embedding_similarity"]},
+      "diagnostics": [{"code": "EMBEDDING_MISS_NOT_NO_HIT"}]
+    },
+    {
+      "signalId": "signal:constrained-rerank:tool-rule-ordering",
+      "observationKind": "hit",
+      "inputId": "candidate-set:tool-rules:command-execution",
+      "outputId": "candidate:tool-rule:semgrep:cpp.lang.security.system-command",
+      "method": "constrained_embedding_rerank",
+      "confidence": 0.63,
+      "consumerPolicy": "contextual_only",
+      "sourceRefs": [
+        {"sourceKind": "reranker", "sourceId": "constrained-fixture", "sourceVersion": "v1", "sourceUrl": "model://fixture", "rawArtifactId": "raw-tool-semgrep-system-command"}
+      ],
+      "taxonomyFamily": "command_execution",
+      "specializationProfiles": [],
+      "matchedTerms": [],
+      "evidenceSpans": [{"field": "embeddingScope", "value": "constrained"}],
+      "score": 0.63,
+      "allowedEffects": ["candidate_returned", "ranking_hint"],
+      "forbiddenEffects": ["completed_no_hit", "clean_pass", "negative_evidence", "vulnerability_truth"],
+      "runtimeObservation": {"candidate_returned": true, "candidate_count": 1, "methodsUsed": ["constrained_embedding_rerank"]},
+      "diagnostics": [{"code": "CONSTRAINED_RERANK_ORDERING_ONLY"}]
+    },
+    {
+      "signalId": "signal:global-embedding:low-trust-noise",
+      "observationKind": "hit",
+      "inputId": "query:gateway-timeout",
+      "outputId": "candidate:global:CWE-400",
+      "method": "global_embedding_search",
+      "confidence": 0.31,
+      "consumerPolicy": "diagnostic_only",
+      "sourceRefs": [
+        {"sourceKind": "vector_projection", "sourceId": "global-qdrant-fixture", "sourceVersion": "projection-fixture-v1", "sourceUrl": "qdrant://threat_knowledge", "rawArtifactId": "global-query-fixture"}
+      ],
+      "taxonomyFamily": "resource_lifecycle",
+      "specializationProfiles": [],
+      "matchedTerms": [],
+      "evidenceSpans": [{"field": "embeddingScope", "value": "global"}],
+      "score": 0.31,
+      "allowedEffects": ["candidate_returned", "diagnostic_trace"],
+      "forbiddenEffects": ["completed_no_hit", "clean_pass", "negative_evidence", "vulnerability_truth"],
+      "runtimeObservation": {"candidate_returned": true, "candidate_count": 1, "methodsUsed": ["global_embedding_search"]},
+      "diagnostics": [{"code": "GLOBAL_EMBEDDING_LOW_TRUST_VISIBLE"}]
+    },
+    {
+      "signalId": "signal:profile:automotive-can-bus",
+      "observationKind": "hit",
+      "inputId": "target-context:profile-hints",
+      "outputId": "profile:automotive-specialization:can_bus",
+      "method": "profile_signal",
+      "confidence": 0.78,
+      "consumerPolicy": "contextual_only",
+      "sourceRefs": [
+        {"sourceKind": "target_context", "sourceId": "target-profile-fixture", "sourceVersion": "target-context-v1", "sourceUrl": "target-context://fixture", "rawArtifactId": "target-context-fixture"}
+      ],
+      "taxonomyFamily": "network_protocol",
+      "specializationProfiles": ["automotive-specialization:can_bus"],
+      "matchedTerms": ["CAN", "gateway"],
+      "evidenceSpans": [{"field": "buildProfile.domain", "value": "automotive"}],
+      "score": 0.78,
+      "allowedEffects": ["candidate_returned", "contextual_tag", "profile_boost"],
+      "forbiddenEffects": ["completed_no_hit", "clean_pass", "negative_evidence", "vulnerability_truth"],
+      "runtimeObservation": {"candidate_returned": true, "candidate_count": 1, "methodsUsed": ["profile_signal"]},
+      "diagnostics": [{"code": "PROFILE_SIGNAL_CONTEXT_ONLY"}],
+      "relation": {
+        "subjectId": "target-context:profile-hints",
+        "predicate": "has_profile_context",
+        "objectId": "profile:automotive-specialization:can_bus"
+      }
+    }
+  ]
+}

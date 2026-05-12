@@ -1,0 +1,22 @@
+{
+  "affected": [
+    {
+      "fixed": "8.1.0",
+      "introduced": "0"
+    }
+  ],
+  "aliases": [
+    "CVE-2026-0001"
+  ],
+  "cweIds": [
+    "CWE-78"
+  ],
+  "id": "OSV-2026-CURL-0001",
+  "modified": "2026-01-03T00:00:00Z",
+  "package": {
+    "ecosystem": "Generic",
+    "name": "curl",
+    "purl": "pkg:generic/curl@8.0.0"
+  },
+  "published": "2026-01-02T00:00:00Z"
+}

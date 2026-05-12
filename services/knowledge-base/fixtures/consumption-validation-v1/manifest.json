@@ -1,0 +1,476 @@
+{
+  "schemaVersion": "s5-consumption-validation-v1",
+  "validationVersion": "consumption-validation-v1",
+  "generatedAt": "2026-05-11T10:30:00Z",
+  "scope": "S5-owned offline S3/S4 consumption validation; not runtime claim support",
+  "scenarioCases": [
+    {
+      "caseId": "s4-external-vuln-not-provided-plans-s5-discovery",
+      "description": "S4 explicitly lacks external vulnerability knowledge; S3 should plan S5 cveDiscovery instead of treating S4 omission as evidence.",
+      "s4Premise": {
+        "coverage": {
+          "externalVulnerabilityKnowledge": "not_provided"
+        },
+        "localEvidenceRefs": [
+          "eref-local-library:curl:8.4.0"
+        ]
+      },
+      "s5Surface": "cveDiscovery",
+      "s5Envelope": {
+        "surface": "cveDiscovery",
+        "acquisitionStatus": "not_ready",
+        "consumerPolicy": "do_not_use_as_negative_evidence",
+        "providerState": {
+          "state": "not_evaluated"
+        },
+        "projectionState": {
+          "state": "not_applicable"
+        },
+        "scope": {
+          "library": {
+            "name": "curl",
+            "version": "8.4.0"
+          }
+        }
+      },
+      "expectedS3": {
+        "evidenceClass": "operational",
+        "placement": [
+          "evidenceDiagnostics",
+          "recoveryTrace"
+        ],
+        "maySupportClaim": false,
+        "mayBeNegativeEvidence": false,
+        "nextAction": "plan_s5_cveDiscovery"
+      },
+      "forbiddenUses": [
+        "claim_support",
+        "clean_pass",
+        "negative_evidence"
+      ],
+      "sourceRefs": [
+        "s3-to-s5 conditional-pass WR",
+        "knowledge-base-api",
+        "s5-etl-target-context spec"
+      ]
+    },
+    {
+      "caseId": "version-known-cve-discovery-hit-contextual-only",
+      "description": "Version-bound CVE discovery can return public vulnerability context, but S3 must keep it contextual unless local refs validate a derived path.",
+      "s4Premise": {
+        "library": {
+          "name": "curl",
+          "version": "8.4.0",
+          "repoUrl": "https://github.com/curl/curl.git"
+        },
+        "localEvidenceRefs": [
+          "eref-local-library:third_party/curl:curl:8.4.0"
+        ]
+      },
+      "s5Surface": "cveDiscovery",
+      "s5Envelope": {
+        "surface": "cveDiscovery",
+        "acquisitionStatus": "completed_hit",
+        "consumerPolicy": "contextual_only",
+        "methodsAttempted": [
+          "nvd_cpe",
+          "nvd_keyword"
+        ],
+        "methodsSucceeded": [
+          "nvd_cpe"
+        ],
+        "providerState": {
+          "state": "fresh"
+        },
+        "projectionState": {
+          "state": "not_applicable"
+        },
+        "results": {
+          "candidateIds": [
+            "CVE-2026-0001"
+          ]
+        }
+      },
+      "expectedS3": {
+        "evidenceClass": "knowledge",
+        "placement": [
+          "contextualEvidenceRefs",
+          "caveats"
+        ],
+        "maySupportClaim": false,
+        "mayBeNegativeEvidence": false
+      },
+      "forbiddenUses": [
+        "supportingEvidenceRefs",
+        "usedEvidenceRefs_without_local_derivation",
+        "true_positive",
+        "accepted_claim"
+      ],
+      "sourceRefs": [
+        "test_cve_acquisition_split_v1.py",
+        "test_target_context_api.py"
+      ]
+    },
+    {
+      "caseId": "version-unknown-input-insufficient-diagnostic-only",
+      "description": "Unknown/ambiguous version is input-insufficient and cannot be negative evidence.",
+      "s4Premise": {
+        "library": {
+          "name": "curl",
+          "versionStatus": "unknown"
+        }
+      },
+      "s5Surface": "cveCandidateEvaluation",
+      "s5Envelope": {
+        "surface": "cveCandidateEvaluation",
+        "acquisitionStatus": "input_insufficient",
+        "consumerPolicy": "do_not_use",
+        "diagnostics": [
+          {
+            "code": "VERSION_REQUIRED"
+          }
+        ],
+        "scope": {
+          "noHitBasis": "input_insufficient"
+        }
+      },
+      "expectedS3": {
+        "evidenceClass": "operational",
+        "placement": [
+          "claimDiagnostics",
+          "evidenceDiagnostics"
+        ],
+        "maySupportClaim": false,
+        "mayBeNegativeEvidence": false
+      },
+      "forbiddenUses": [
+        "candidate_exclusion",
+        "not_affected",
+        "clean_pass",
+        "completed_no_hit"
+      ],
+      "sourceRefs": [
+        "test_target_context_api.py::test_cve_candidate_evaluation"
+      ]
+    },
+    {
+      "caseId": "candidate-range-out-excludes-only-specific-cve",
+      "description": "Candidate version range-out can exclude only that specific candidate CVE under scoped method completeness.",
+      "s4Premise": {
+        "candidateCveId": "CVE-2026-0001",
+        "library": {
+          "name": "libfoo",
+          "version": "2.0.0"
+        }
+      },
+      "s5Surface": "cveCandidateEvaluation",
+      "s5Envelope": {
+        "surface": "cveCandidateEvaluation",
+        "acquisitionStatus": "completed_no_hit",
+        "consumerPolicy": "scoped_no_hit_record_only",
+        "methodsRequiredForNoHit": [
+          "exact_id_match",
+          "provider_range_eval",
+          "nvd_cpe"
+        ],
+        "methodsAttempted": [
+          "exact_id_match",
+          "provider_range_eval",
+          "nvd_cpe",
+          "nvd_keyword"
+        ],
+        "methodsSucceeded": [
+          "exact_id_match",
+          "provider_range_eval",
+          "nvd_cpe"
+        ],
+        "providerState": {
+          "state": "fresh"
+        },
+        "projectionState": {
+          "state": "not_applicable"
+        },
+        "scope": {
+          "candidateCveId": "CVE-2026-0001",
+          "noHitBasis": "candidate_version_range_evaluated"
+        }
+      },
+      "expectedS3": {
+        "evidenceClass": "negative",
+        "placement": [
+          "candidateExclusionDiagnostics"
+        ],
+        "maySupportClaim": false,
+        "mayBeNegativeEvidence": true,
+        "negativeScope": "specific_candidate_only"
+      },
+      "forbiddenUses": [
+        "library_safe",
+        "no_other_cves",
+        "target_clean",
+        "complete_project_safety"
+      ],
+      "sourceRefs": [
+        "test_cve_acquisition_split_v1.py",
+        "s3-to-s5 conditional-pass WR"
+      ]
+    },
+    {
+      "caseId": "candidate-range-out-other-discovery-hit-coexists",
+      "description": "A scoped candidate range-out can coexist with a different public vulnerability discovery hit.",
+      "s4Premise": {
+        "candidateCveId": "CVE-2026-0001",
+        "library": {
+          "name": "libfoo",
+          "version": "2.0.0"
+        }
+      },
+      "s5Surface": "cveDiscovery",
+      "s5Envelope": {
+        "surface": "cveDiscovery",
+        "acquisitionStatus": "completed_hit",
+        "consumerPolicy": "contextual_only",
+        "results": {
+          "candidateIds": [
+            "CVE-2026-0002"
+          ],
+          "rangeOutCandidateIds": [
+            "CVE-2026-0001"
+          ]
+        }
+      },
+      "expectedS3": {
+        "evidenceClass": "knowledge",
+        "placement": [
+          "contextualEvidenceRefs"
+        ],
+        "maySupportClaim": false,
+        "mayBeNegativeEvidence": false
+      },
+      "forbiddenUses": [
+        "reject_all_public_vulnerability_context",
+        "clean_pass",
+        "accepted_claim",
+        "supportingEvidenceRefs_without_local_derivation"
+      ],
+      "sourceRefs": [
+        "test_golden_set_v1.py::test_cve_cases_separate_candidate_evaluation_from_discovery"
+      ]
+    },
+    {
+      "caseId": "code-graph-projection-debt-empty-not-no-caller",
+      "description": "Projection debt invalidates an empty code search/caller result as negative evidence.",
+      "s4Premise": {
+        "dangerousFunction": "popen",
+        "localEvidenceRefs": [
+          "eref-local-sast:flawfinder:1"
+        ]
+      },
+      "s5Surface": "code-search",
+      "s5Envelope": {
+        "surface": "code-search",
+        "acquisitionStatus": "incomplete_acquisition",
+        "consumerPolicy": "do_not_use_as_negative_evidence",
+        "projectionState": {
+          "state": "debt"
+        },
+        "scope": {
+          "noHitBasis": "completed_required_methods"
+        },
+        "diagnostics": [
+          {
+            "code": "UNSAFE_COMPLETED_NO_HIT_DOWNGRADED",
+            "reasons": [
+              "NO_HIT_PROJECTION_STATE_UNSAFE:debt"
+            ]
+          }
+        ]
+      },
+      "expectedS3": {
+        "evidenceClass": "operational",
+        "placement": [
+          "evidenceDiagnostics",
+          "recoveryTrace"
+        ],
+        "maySupportClaim": false,
+        "mayBeNegativeEvidence": false
+      },
+      "forbiddenUses": [
+        "no_dangerous_caller",
+        "no_call_path",
+        "clean_pass"
+      ],
+      "sourceRefs": [
+        "test_target_context_api.py::test_target_scoped_code_no_hit_is_downgraded_when_ledger_projection_is_debt"
+      ]
+    },
+    {
+      "caseId": "keyword-only-fallback-no-result-not-no-hit",
+      "description": "Keyword-only public-vulnerability fallback miss remains incomplete/diagnostic.",
+      "s4Premise": {
+        "library": {
+          "name": "libfoo",
+          "version": "1.0.0"
+        }
+      },
+      "s5Surface": "cveDiscovery",
+      "s5Envelope": {
+        "surface": "cveDiscovery",
+        "acquisitionStatus": "incomplete_acquisition",
+        "consumerPolicy": "do_not_use_as_negative_evidence",
+        "methodsAttempted": [
+          "nvd_keyword"
+        ],
+        "methodsSucceeded": [
+          "nvd_keyword"
+        ],
+        "scope": {
+          "methodsRequiredForNoHit": [
+            "nvd_keyword"
+          ],
+          "noHitBasis": "keyword_only_no_result"
+        }
+      },
+      "expectedS3": {
+        "evidenceClass": "operational",
+        "placement": [
+          "claimDiagnostics",
+          "evidenceDiagnostics"
+        ],
+        "maySupportClaim": false,
+        "mayBeNegativeEvidence": false
+      },
+      "forbiddenUses": [
+        "completed_no_hit",
+        "negative_evidence",
+        "library_safe"
+      ],
+      "sourceRefs": [
+        "test_golden_set_v1.py::test_cve_cases_separate_candidate_evaluation_from_discovery"
+      ]
+    },
+    {
+      "caseId": "s5-completed-hit-knowledge-not-tp-or-claim-support",
+      "description": "S5 knowledge/threat `completed_hit` is a runtime candidate/context hit, not offline TP or final claim support.",
+      "s4Premise": {
+        "localEvidenceRefs": [
+          "eref-local-source:src/http.cpp:8-12"
+        ],
+        "claimFamily": "command_execution"
+      },
+      "s5Surface": "semanticThreatRetrieval",
+      "s5Envelope": {
+        "surface": "threat-search",
+        "acquisitionStatus": "completed_hit",
+        "consumerPolicy": "contextual_only",
+        "results": {
+          "hits": [
+            {
+              "id": "CWE-78",
+              "relationMethods": [
+                "constrained_embedding_rerank"
+              ],
+              "methodTrust": "medium"
+            }
+          ]
+        },
+        "scope": {
+          "retrievalTrace": {
+            "queryIntent": "weakness_context",
+            "methodsSucceeded": [
+              "constrained_embedding_rerank"
+            ]
+          }
+        }
+      },
+      "expectedS3": {
+        "evidenceClass": "knowledge",
+        "placement": [
+          "contextualEvidenceRefs",
+          "caveats"
+        ],
+        "maySupportClaim": false,
+        "mayBeNegativeEvidence": false
+      },
+      "forbiddenUses": [
+        "true_positive",
+        "accepted_claim",
+        "supportingEvidenceRefs_without_local_derivation",
+        "final_security_verdict"
+      ],
+      "sourceRefs": [
+        "test_retrieval_planner_v1.py",
+        "S3 EvidenceRef and EvidenceSlot Contract"
+      ]
+    }
+  ],
+  "offlineQualityGateRefs": [
+    "services/knowledge-base/fixtures/golden-set-v1/manifest.json"
+  ],
+  "sourceFamilyAuditExpectations": [
+    "attack-capec",
+    "attack-enterprise-subset",
+    "attack-ics",
+    "consumer-policy-mapping",
+    "graphrag-retrieval-quality-oracle",
+    "package-cpe-dictionary",
+    "package-native-library-aliases",
+    "package-osv-ecosystem-metadata",
+    "package-purl-mapping",
+    "package-repo-to-cpe-candidate-map",
+    "package-vendor-project-repo-alias",
+    "profile-automotive-specialization",
+    "profile-embedded-system-specialization",
+    "profile-ics-ot-specialization",
+    "relation-method-enum",
+    "relation-provenance-schema",
+    "retrieval-fp-fn-golden-set",
+    "schema-golden-set-v1",
+    "schema-knowledge-corpus-v1",
+    "specialization-profile-enum",
+    "taxonomy-enum",
+    "tool-rule-clang-tidy",
+    "tool-rule-cppcheck",
+    "tool-rule-curated-cwe-mapping",
+    "tool-rule-flawfinder",
+    "tool-rule-gcc-fanalyzer",
+    "tool-rule-scan-build",
+    "tool-rule-semgrep",
+    "vuln-cisa-kev",
+    "vuln-first-epss",
+    "vuln-ghsa",
+    "vuln-nvd-cve",
+    "vuln-osv",
+    "weakness-cwe"
+  ],
+  "s3ConditionalPassRequirementIds": [
+    "acquisition-readiness-v1-machine-readable",
+    "automotive-primary-profile-not-core-truth",
+    "candidate-cve-vs-discovery-split",
+    "candidate-range-out-specific-only",
+    "completed-no-hit-guard",
+    "coverage-contract-v1-machine-readable",
+    "discovery-hit-coexists-with-range-out",
+    "embedded-and-ics-profiles",
+    "evidence-catalog-mapping-safe",
+    "global-embedding-low-trust-visible",
+    "keyword-embedding-miss-not-no-hit",
+    "keyword-fallback-non-negative",
+    "knowledge-hit-not-claim-support",
+    "metrics-breakdown-method-query-partition-profile",
+    "native-system-core-taxonomy",
+    "package-identity-not-keyword-only",
+    "projection-debt-non-negative",
+    "provider-timeout-error-envelope",
+    "retrieval-signal-hierarchy",
+    "retrieval-trace-minimum-fields",
+    "runtime-offline-s3-vocabulary-split",
+    "s4-external-knowledge-gap-plans-s5",
+    "sql-ledger-authoritative",
+    "stale-cache-non-negative",
+    "static-tool-rule-coverage",
+    "target-scoped-readiness",
+    "typed-corpus-partitioning",
+    "typed-query-intent-input"
+  ]
+}

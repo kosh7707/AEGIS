@@ -1,0 +1,13 @@
+{
+  "id": "T1059",
+  "name": "Command and Scripting Interpreter",
+  "description": "Adversaries may abuse command and script interpreters to execute commands, scripts, or binaries.",
+  "sourceKind": "ATTACK_ENTERPRISE",
+  "taxonomyFamily": "command_execution",
+  "cweIds": ["CWE-78"],
+  "relatedCapec": ["CAPEC-88"],
+  "relatedTechniques": ["T0807"],
+  "platforms": ["Linux", "Windows", "macOS", "Network"],
+  "profiles": ["embedded-system-specialization", "ics-ot-specialization"],
+  "sourceRefs": ["https://attack.mitre.org/techniques/T1059/"]
+}

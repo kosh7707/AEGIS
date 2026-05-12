@@ -24,6 +24,8 @@ class Settings(BaseSettings):
 
     rrf_k: int = 60
     memory_limit_per_project: int = 1000
+    ledger_url: str = "sqlite:///data/s5-ledger.sqlite"
+    target_context_store_file: str = "data/target-contexts.json"
 
     model_config = {"env_prefix": "AEGIS_KB_", "env_file": ".env"}
 

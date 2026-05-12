@@ -1,0 +1,2 @@
+/tmp/scan/src/main.c:12:5: warning: leak of 'p' [CWE-401] [-Wanalyzer-malloc-leak]
+/tmp/scan/src/main.c:8:5: note: allocated here [-Wanalyzer-malloc-leak]

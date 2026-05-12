@@ -1,0 +1,93 @@
+{
+  "version": "2.1.0",
+  "runs": [
+    {
+      "tool": {
+        "driver": {
+          "name": "Semgrep",
+          "rules": [
+            {
+              "id": "c.security.strcpy",
+              "shortDescription": {
+                "text": "strcpy can overflow"
+              },
+              "properties": {
+                "tags": [
+                  "CWE-120",
+                  "security"
+                ],
+                "references": [
+                  "https://cwe.mitre.org/data/definitions/120.html"
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "results": [
+        {
+          "ruleId": "c.security.strcpy",
+          "level": "error",
+          "message": {
+            "text": "strcpy can overflow destination buffer"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "/tmp/scan/src/main.c"
+                },
+                "region": {
+                  "startLine": 12,
+                  "startColumn": 3,
+                  "endLine": 12,
+                  "endColumn": 18
+                }
+              }
+            }
+          ],
+          "codeFlows": [
+            {
+              "threadFlows": [
+                {
+                  "locations": [
+                    {
+                      "location": {
+                        "physicalLocation": {
+                          "artifactLocation": {
+                            "uri": "/tmp/scan/src/main.c"
+                          },
+                          "region": {
+                            "startLine": 10,
+                            "snippet": {
+                              "text": "char src[32];"
+                            }
+                          }
+                        }
+                      }
+                    },
+                    {
+                      "location": {
+                        "physicalLocation": {
+                          "artifactLocation": {
+                            "uri": "/tmp/scan/src/main.c"
+                          },
+                          "region": {
+                            "startLine": 12,
+                            "snippet": {
+                              "text": "strcpy(dst, src);"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

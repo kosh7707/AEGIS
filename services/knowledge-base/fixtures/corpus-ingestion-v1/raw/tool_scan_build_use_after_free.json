@@ -1,0 +1,9 @@
+{
+  "mapsTo": [
+    "CWE-416"
+  ],
+  "name": "use after free",
+  "ruleId": "unix.Malloc",
+  "taxonomyFamily": "memory_safety",
+  "tool": "scan-build"
+}

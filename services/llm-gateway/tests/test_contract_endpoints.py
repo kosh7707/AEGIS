@@ -39,6 +39,11 @@ def _release_exchange_logs(logger, handler):
 # ---------------------------------------------------------------------------
 
 class TestHealthEndpoint:
+    def _clear_llm_backend_cache(self):
+        for attr in ("llm_backend_health_cache", "llm_backend_health_cache_lock"):
+            if hasattr(app.state, attr):
+                delattr(app.state, attr)
+
     def test_health_required_fields(self, client_live):
         resp = client_live.get("/v1/health")
         assert resp.status_code == 200
@@ -105,7 +110,10 @@ class TestHealthEndpoint:
 
     def test_health_real_backend_reachable_reports_llm_ready(self, client_live):
         original_mode = settings.llm_mode
+        original_ttl = settings.llm_health_cache_ttl_seconds
         object.__setattr__(settings, "llm_mode", "real")
+        object.__setattr__(settings, "llm_health_cache_ttl_seconds", 0.0)
+        self._clear_llm_backend_cache()
         original_get = app.state.proxy_client.get
         app.state.proxy_client.get = AsyncMock(
             return_value=httpx.Response(
@@ -118,6 +126,8 @@ class TestHealthEndpoint:
         finally:
             app.state.proxy_client.get = original_get
             object.__setattr__(settings, "llm_mode", original_mode)
+            object.__setattr__(settings, "llm_health_cache_ttl_seconds", original_ttl)
+            self._clear_llm_backend_cache()
 
         assert data["status"] == "ok"
         assert data["llmBackend"]["status"] == "ok"
@@ -130,7 +140,10 @@ class TestHealthEndpoint:
 
     def test_health_real_backend_unreachable_reports_not_ready(self, client_live):
         original_mode = settings.llm_mode
+        original_ttl = settings.llm_health_cache_ttl_seconds
         object.__setattr__(settings, "llm_mode", "real")
+        object.__setattr__(settings, "llm_health_cache_ttl_seconds", 0.0)
+        self._clear_llm_backend_cache()
         original_get = app.state.proxy_client.get
         app.state.proxy_client.get = AsyncMock(side_effect=httpx.ConnectError("vpn down"))
         try:
@@ -138,6 +151,8 @@ class TestHealthEndpoint:
         finally:
             app.state.proxy_client.get = original_get
             object.__setattr__(settings, "llm_mode", original_mode)
+            object.__setattr__(settings, "llm_health_cache_ttl_seconds", original_ttl)
+            self._clear_llm_backend_cache()
 
         assert data["status"] == "ok"
         assert data["llmBackend"]["status"] == "unreachable"
@@ -153,7 +168,10 @@ class TestHealthEndpoint:
         client_live,
     ):
         original_mode = settings.llm_mode
+        original_ttl = settings.llm_health_cache_ttl_seconds
         object.__setattr__(settings, "llm_mode", "real")
+        object.__setattr__(settings, "llm_health_cache_ttl_seconds", 0.0)
+        self._clear_llm_backend_cache()
         original_get = app.state.proxy_client.get
         app.state.proxy_client.get = AsyncMock(
             return_value=httpx.Response(
@@ -176,6 +194,8 @@ class TestHealthEndpoint:
             finally:
                 app.state.proxy_client.get = original_get
                 object.__setattr__(settings, "llm_mode", original_mode)
+                object.__setattr__(settings, "llm_health_cache_ttl_seconds", original_ttl)
+                self._clear_llm_backend_cache()
 
         assert data["status"] == "ok"
         assert data["llmBackend"]["status"] == "ok"
@@ -191,7 +211,10 @@ class TestHealthEndpoint:
         client_live,
     ):
         original_mode = settings.llm_mode
+        original_ttl = settings.llm_health_cache_ttl_seconds
         object.__setattr__(settings, "llm_mode", "real")
+        object.__setattr__(settings, "llm_health_cache_ttl_seconds", 0.0)
+        self._clear_llm_backend_cache()
         original_get = app.state.proxy_client.get
         app.state.proxy_client.get = AsyncMock(
             return_value=httpx.Response(
@@ -214,6 +237,8 @@ class TestHealthEndpoint:
             finally:
                 app.state.proxy_client.get = original_get
                 object.__setattr__(settings, "llm_mode", original_mode)
+                object.__setattr__(settings, "llm_health_cache_ttl_seconds", original_ttl)
+                self._clear_llm_backend_cache()
 
         assert data["status"] == "ok"
         assert data["llmBackend"]["status"] == "ok"
@@ -223,6 +248,101 @@ class TestHealthEndpoint:
         assert data["degradeReasons"] == ["llm_circuit_half_open"]
         assert data["blockedReason"] == "circuit_half_open"
         assert data["dependencyStatus"]["circuitBreaker"]["state"] == "half_open"
+
+    def test_health_real_backend_probe_uses_short_ttl_cache(self, client_live):
+        original_mode = settings.llm_mode
+        original_ttl = settings.llm_health_cache_ttl_seconds
+        object.__setattr__(settings, "llm_mode", "real")
+        object.__setattr__(settings, "llm_health_cache_ttl_seconds", 10.0)
+        self._clear_llm_backend_cache()
+        original_get = app.state.proxy_client.get
+        mock_get = AsyncMock(
+            return_value=httpx.Response(
+                200,
+                request=httpx.Request("GET", "http://llm.test/health"),
+            )
+        )
+        app.state.proxy_client.get = mock_get
+        try:
+            first = client_live.get("/v1/health").json()
+            second = client_live.get("/v1/health").json()
+        finally:
+            app.state.proxy_client.get = original_get
+            object.__setattr__(settings, "llm_mode", original_mode)
+            object.__setattr__(settings, "llm_health_cache_ttl_seconds", original_ttl)
+            self._clear_llm_backend_cache()
+
+        assert mock_get.await_count == 1
+        assert first["llmBackend"]["cached"] is False
+        assert second["llmBackend"]["cached"] is True
+        assert second["ready"] is True
+        assert second["llmReady"] is True
+
+    def test_health_real_backend_cache_expires_and_refreshes(self, client_live):
+        original_mode = settings.llm_mode
+        original_ttl = settings.llm_health_cache_ttl_seconds
+        object.__setattr__(settings, "llm_mode", "real")
+        object.__setattr__(settings, "llm_health_cache_ttl_seconds", 0.01)
+        self._clear_llm_backend_cache()
+        original_get = app.state.proxy_client.get
+        mock_get = AsyncMock(
+            return_value=httpx.Response(
+                200,
+                request=httpx.Request("GET", "http://llm.test/health"),
+            )
+        )
+        app.state.proxy_client.get = mock_get
+        try:
+            first = client_live.get("/v1/health").json()
+            time.sleep(0.02)
+            second = client_live.get("/v1/health").json()
+        finally:
+            app.state.proxy_client.get = original_get
+            object.__setattr__(settings, "llm_mode", original_mode)
+            object.__setattr__(settings, "llm_health_cache_ttl_seconds", original_ttl)
+            self._clear_llm_backend_cache()
+
+        assert mock_get.await_count == 2
+        assert first["llmBackend"]["cached"] is False
+        assert second["llmBackend"]["cached"] is False
+        assert second["ready"] is True
+
+    def test_health_real_backend_cache_does_not_hide_unreachable_after_ttl(
+        self,
+        client_live,
+    ):
+        original_mode = settings.llm_mode
+        original_ttl = settings.llm_health_cache_ttl_seconds
+        object.__setattr__(settings, "llm_mode", "real")
+        object.__setattr__(settings, "llm_health_cache_ttl_seconds", 0.01)
+        self._clear_llm_backend_cache()
+        original_get = app.state.proxy_client.get
+        mock_get = AsyncMock(
+            side_effect=[
+                httpx.Response(
+                    200,
+                    request=httpx.Request("GET", "http://llm.test/health"),
+                ),
+                httpx.ConnectError("vpn down"),
+            ]
+        )
+        app.state.proxy_client.get = mock_get
+        try:
+            first = client_live.get("/v1/health").json()
+            time.sleep(0.02)
+            second = client_live.get("/v1/health").json()
+        finally:
+            app.state.proxy_client.get = original_get
+            object.__setattr__(settings, "llm_mode", original_mode)
+            object.__setattr__(settings, "llm_health_cache_ttl_seconds", original_ttl)
+            self._clear_llm_backend_cache()
+
+        assert mock_get.await_count == 2
+        assert first["llmBackend"]["status"] == "ok"
+        assert second["llmBackend"]["status"] == "unreachable"
+        assert second["ready"] is False
+        assert second["llmReady"] is False
+        assert second["blockedReason"] == "backend_unreachable"
 
     def test_health_idle_request_summary_shape(self, client_live):
         data = client_live.get("/v1/health").json()

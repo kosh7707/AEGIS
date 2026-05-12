@@ -1,0 +1,14 @@
+{
+  "id": "CAPEC-88",
+  "name": "OS Command Injection",
+  "description": "An adversary injects operating system commands through an application-controlled command invocation boundary.",
+  "sourceKind": "CAPEC",
+  "taxonomyFamily": "command_execution",
+  "cweIds": ["CWE-78"],
+  "relatedAttackPatterns": ["T1059", "T0807"],
+  "abstraction": "Standard",
+  "likelihoodOfAttack": "High",
+  "typicalSeverity": "Very High",
+  "profiles": ["embedded-system-specialization", "ics-ot-specialization"],
+  "sourceRefs": ["https://capec.mitre.org/data/definitions/88.html"]
+}

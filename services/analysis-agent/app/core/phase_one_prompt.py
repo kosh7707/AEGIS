@@ -54,6 +54,78 @@ def _format_cve_line(cve: dict) -> str:
     return line
 
 
+def _diagnostic_codes(value) -> list[str]:
+    codes: list[str] = []
+    if isinstance(value, list):
+        for item in value:
+            if isinstance(item, dict):
+                code = item.get("code")
+            else:
+                code = item
+            if isinstance(code, str) and code:
+                codes.append(code)
+    return codes
+
+
+def _format_diff_status(lib: dict) -> str:
+    diff = lib.get("diff") if isinstance(lib.get("diff"), dict) else {}
+    diff_summary = lib.get("diffSummary") if isinstance(lib.get("diffSummary"), dict) else {}
+    modification_status = lib.get("modificationStatus")
+    diff_available = lib.get("diffAvailable")
+    mods = diff.get("modifications", []) if isinstance(diff, dict) else []
+
+    if isinstance(mods, list) and mods:
+        mod_summary = "; ".join(
+            f"{m.get('file','?')} (+{m.get('insertions',0)}/-{m.get('deletions',0)})"
+            for m in mods if isinstance(m, dict)
+        )
+        return f"수정 {len(mods)}파일: {mod_summary}"
+
+    modified_files = diff_summary.get("modifiedFiles") if isinstance(diff_summary, dict) else None
+    if modification_status == "modified" or (isinstance(modified_files, int) and modified_files > 0):
+        return f"수정됨(diff summary modifiedFiles={modified_files if modified_files is not None else '?'})"
+
+    if modification_status in {"unmodified", "original"} or (
+        diff_available is True and isinstance(diff, dict) and diff
+    ):
+        return "원본과 차이 없음(diff 확인됨)"
+
+    return "수정 여부 미확인(diff not computed/unknown)"
+
+
+def _format_sca_library_line(lib: dict) -> str:
+    name = lib.get("name", "?")
+    version = lib.get("version")
+    version_status = lib.get("versionStatus")
+    version_confidence = lib.get("versionConfidence")
+    diagnostics = _diagnostic_codes(lib.get("diagnostics"))
+    cve_eligible = lib.get("cveLookupEligible")
+    path = lib.get("path")
+    cves = lib.get("cves", [])
+    cve_count = lib.get("cveCount", len(cves) if isinstance(cves, list) else 0)
+
+    ver_str = f" v{version}" if version else " (version unknown)"
+    line = f"- **{name}{ver_str}**"
+    if path:
+        line += f" [{path}]"
+    if version_status or version_confidence:
+        line += f" | versionStatus={version_status or 'legacy'}, confidence={version_confidence or 'unknown'}"
+    if diagnostics:
+        line += f" | diagnostics={', '.join(diagnostics)}"
+    if cve_eligible is False:
+        line += " | CVE lookup skipped/not eligible"
+    line += f" — {_format_diff_status(lib)}"
+
+    if isinstance(cves, list) and cves:
+        high_cves = [c for c in cves if isinstance(c, dict) and c.get("severity", "").upper() in ("CRITICAL", "HIGH")]
+        if high_cves:
+            cve_ids = ", ".join(c.get("id", "?") for c in high_cves[:3])
+            line += f" | 알려진 CVE {cve_count}건 (CRITICAL/HIGH: {cve_ids})"
+        else:
+            line += f" | 알려진 CVE {cve_count}건"
+    return line
+
+
 def build_phase2_prompt(
     phase1: Phase1Result,
     trusted_context: dict,
@@ -307,35 +379,23 @@ def build_phase2_prompt(
             "",
         ]
         for lib in phase1.sca_libraries:
-            name = lib.get("name", "?")
-            version = lib.get("version")
-            diff = lib.get("diff", {})
-            match_ratio = diff.get("matchRatio", 0)
-            mods = diff.get("modifications", [])
-            cves = lib.get("cves", [])
-            cve_count = lib.get("cveCount", len(cves))
+            if isinstance(lib, dict):
+                sca_lines.append(_format_sca_library_line(lib))
 
-            ver_str = f" v{version}" if version else ""
-            lib_line = f"- **{name}{ver_str}**"
-
-            if mods:
-                mod_summary = "; ".join(
-                    f"{m.get('file','?')} (+{m.get('insertions',0)}/-{m.get('deletions',0)})"
-                    for m in mods
+        if phase1.cve_lookup_skipped_libraries:
+            sca_lines.extend([
+                "",
+                "**CVE lookup skipped libraries**: 아래 항목은 S5 CVE 조회에서 제외되었지만, 이는 취약점 없음의 증거가 아닙니다.",
+            ])
+            for skipped in phase1.cve_lookup_skipped_libraries:
+                if not isinstance(skipped, dict):
+                    continue
+                diagnostics = _diagnostic_codes(skipped.get("diagnostics"))
+                diag_text = f" diagnostics={', '.join(diagnostics)}" if diagnostics else ""
+                sca_lines.append(
+                    f"- {skipped.get('name', '?')} reason={skipped.get('reason', '?')}"
+                    f" versionStatus={skipped.get('versionStatus') or 'unknown'}{diag_text}"
                 )
-                lib_line += f" — 수정 {len(mods)}파일: {mod_summary}"
-            else:
-                lib_line += " — 원본 그대로"
-
-            if cves:
-                high_cves = [c for c in cves if c.get("severity", "").upper() in ("CRITICAL", "HIGH")]
-                if high_cves:
-                    cve_ids = ", ".join(c.get("id", "?") for c in high_cves[:3])
-                    lib_line += f" | 알려진 CVE {cve_count}건 (CRITICAL/HIGH: {cve_ids})"
-                else:
-                    lib_line += f" | 알려진 CVE {cve_count}건"
-
-            sca_lines.append(lib_line)
 
         sections.append("\n".join(sca_lines))
 
@@ -383,11 +443,31 @@ def build_phase2_prompt(
             sections.append(
                 f"참고: 버전 미매칭 CVE {len(unmatched_cves)}건은 현재 프로젝트 버전에 해당하지 않아 제외되었습니다."
             )
+        if phase1.cve_lookup_truncated:
+            sections.append(
+                f"참고: CVE lookup truncated — eligible 라이브러리 {phase1.cve_lookup_eligible_count}개 중 "
+                f"{len(phase1.cve_lookup_attempted_libraries)}개만 조회했고 "
+                f"{phase1.cve_lookup_unqueried_eligible_count}개는 조회하지 못했습니다."
+            )
     elif phase1.cve_lookup_timed_out:
         sections.append(
             "## 라이브러리 CVE (실시간 조회 결과)\n"
             "**⚠ CVE lookup timeout**: S5 실시간 CVE 조회가 호출자 예산 내에 완료되지 않았습니다. "
             "이번 분석에서 라이브러리 CVE가 보이지 않더라도 곧바로 '없음'으로 단정하지 말고 caveats에 이 한계를 반영하라."
+        )
+    elif phase1.cve_lookup_error:
+        sections.append(
+            "## 라이브러리 CVE (실시간 조회 결과)\n"
+            "**⚠ CVE lookup failed**: S5 실시간 CVE 조회가 실패했습니다. "
+            "이번 분석에서 라이브러리 CVE가 보이지 않더라도 곧바로 '없음'으로 단정하지 말고 caveats에 이 한계를 반영하라."
+        )
+    elif phase1.cve_lookup_truncated:
+        sections.append(
+            "## 라이브러리 CVE (실시간 조회 결과)\n"
+            f"**⚠ CVE lookup truncated**: eligible 라이브러리 {phase1.cve_lookup_eligible_count}개 중 "
+            f"{len(phase1.cve_lookup_attempted_libraries)}개만 조회했고 "
+            f"{phase1.cve_lookup_unqueried_eligible_count}개는 조회하지 못했습니다. "
+            "조회 결과가 비어 있어도 전체 라이브러리에 CVE가 없다고 단정하지 마라."
         )
 
     # KB 위협 지식 (Phase 1에서 결정론적 조회)

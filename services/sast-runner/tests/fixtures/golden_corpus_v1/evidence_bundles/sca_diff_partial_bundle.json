@@ -1,0 +1,27 @@
+{
+  "id": "sca-diff-partial-contract-bundle-v1",
+  "kind": "evidence-bundle-oracle",
+  "description": "Mixed SCA diff availability is partial optional local evidence and must not become negative vulnerability evidence.",
+  "contractInput": {
+    "success": true,
+    "execution": "clean",
+    "cweId": "CWE-120",
+    "dataFlow": true,
+    "sca": {
+      "libraries": [
+        {"name": "lib-a", "versionEvidence": {"status": "observed"}, "diffAvailable": true},
+        {"name": "lib-b", "versionEvidence": {"status": "observed"}, "diffAvailable": false}
+      ]
+    }
+  },
+  "requiredResponseSurfaces": [
+    "findings[].metadata.evidenceResolution",
+    "staticEvidenceContract.coverage.scaDiffEvidence",
+    "staticEvidenceContract.gates.evidenceReadiness",
+    "staticEvidenceContract.toolEvidenceMatrix"
+  ],
+  "expectedContractPaths": {
+    "staticEvidenceContract.coverage.scaDiffEvidence.status": "partial",
+    "staticEvidenceContract.gates.evidenceReadiness.status": "partial"
+  }
+}

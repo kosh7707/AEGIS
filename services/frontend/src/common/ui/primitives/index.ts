@@ -25,7 +25,7 @@ export type { FileTreeNodeProps } from "./FileTreeNode";
 export { TargetStatusBadge } from "./TargetStatusBadge";
 export { TargetProgressStepper } from "./TargetProgressStepper";
 export { ComingSoonPlaceholder } from "./ComingSoonPlaceholder";
-export { ConnectionStatusBanner } from "./ConnectionStatusBanner";
+export { ConnectionStatusBanner, describeLlmBlockedReason } from "./ConnectionStatusBanner";
 export { Modal } from "./Modal";
 export { InputField } from "./InputField";
 export type { InputFieldProps } from "./InputField";

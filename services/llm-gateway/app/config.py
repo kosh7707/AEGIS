@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     llm_concurrency: int = 4
     llm_connect_timeout: float = 10.0  # LLM Engine 연결 타임아웃 (초). 장애 감지용
     llm_read_timeout: float = TimeoutDefaults.TASK_CLIENT_READ_SECONDS  # LLM Engine 응답 대기 타임아웃 (초). 대형 생성 대비
+    llm_health_cache_ttl_seconds: float = 1.0  # /v1/health LLM backend readiness probe freshness window
     llm_max_input_chars: int = 800_000  # 프롬프트 문자 수 상한 (~200K 토큰 추정)
     llm_max_retries: int = 2  # LLM 출력 품질 재시도 (총 시도 = 1 + max_retries)
 

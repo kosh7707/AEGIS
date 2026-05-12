@@ -11,11 +11,43 @@ export interface HealthServiceControl {
   decisionReasons?: string[];
 }
 
-export interface HealthServiceEntry {
+export interface HealthServiceEntry<TDetail = unknown> {
   status: "ok" | "degraded" | "unreachable";
-  detail?: unknown;
+  detail?: TDetail;
   control?: HealthServiceControl;
 }
+
+/**
+ * LLM Gateway readiness detail forwarded by S2 `/health` aggregator from S7
+ * `/v1/health`. Contract source: WR
+ * `s2-to-s1-reply-s2-health-forwards-s7-readiness-fields-under-llmgateway.detail`.
+ *
+ * S2 forwards these S7 fields under `llmGateway.detail.*` and does NOT
+ * duplicate them at top-level. Use `detail.degraded || !detail.llmReady` for
+ * LLM-readiness UX gates. `llmGateway.status` ("ok"|"degraded"|"unreachable")
+ * is S2 coarse aggregate classification.
+ */
+export interface LlmGatewayHealthDetail {
+  ready?: boolean;
+  llmReady?: boolean;
+  degraded?: boolean;
+  degradeReasons?: string[];
+  blockedReason?: string | null;
+  dependencyStatus?: {
+    llmBackend?: { status: "ok" | "degraded" | "unreachable" | string; endpoint?: string };
+    circuitBreaker?: {
+      state: "closed" | "open" | "half_open" | string;
+      consecutiveFailures?: number;
+      threshold?: number;
+      recoverySeconds?: number;
+    };
+    rag?: { enabled?: boolean; status?: "ok" | "disabled" | "degraded" | string; kbEndpoint?: string };
+  };
+  // Extensibility — allow additional passthrough fields without forcing widening
+  [key: string]: unknown;
+}
+
+export type LlmGatewayHealthEntry = HealthServiceEntry<LlmGatewayHealthDetail>;
 
 export interface HealthCheckResponse {
   status: "ok" | "degraded" | "unhealthy" | "disconnected" | "checking" | string;
@@ -27,7 +59,7 @@ export interface HealthCheckResponse {
   };
   controlPolicyVersion?: string;
   requestIdQueried?: string;
-  llmGateway?: HealthServiceEntry;
+  llmGateway?: LlmGatewayHealthEntry;
   analysisAgent?: HealthServiceEntry;
   sastRunner?: HealthServiceEntry;
   knowledgeBase?: HealthServiceEntry;

@@ -76,7 +76,7 @@ class Neo4jGraph:
             return result.single()["cnt"]
 
     def load_from_records(self, records: list[dict]) -> None:
-        """Qdrant 메타데이터(UnifiedThreatRecord) → Neo4j 노드/관계 배치 생성."""
+        """Ledger-derived threat projection records → Neo4j 노드/관계 배치 생성."""
         # 레이블별 분류
         by_label: dict[str, list[dict]] = defaultdict(list)
         for rec in records:

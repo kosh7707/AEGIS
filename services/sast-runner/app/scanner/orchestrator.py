@@ -18,6 +18,7 @@ RuntimeStateCallback = Callable[[str, dict[str, Any]], Awaitable[None]]
 
 from app.scanner.clangtidy_runner import ClangTidyRunner
 from app.scanner.cppcheck_runner import CppcheckRunner
+from app.scanner.evidence import enrich_findings_evidence
 from app.scanner.flawfinder_runner import FlawfinderRunner
 from app.scanner.gcc_analyzer_runner import GccAnalyzerRunner
 from app.scanner.ruleset_selector import detect_language_family, semgrep_include_extensions
@@ -352,6 +353,7 @@ class ScanOrchestrator:
         all_findings, filter_stats = _filter_user_code_findings(
             all_findings, tp_paths,
         )
+        all_findings = enrich_findings_evidence(all_findings)
         logger.info(
             "Findings filter: sdk=%d, thirdParty=%d removed, %d cross-boundary kept (before=%d, after=%d)",
             filter_stats["sdk_removed"], filter_stats["third_party_removed"],

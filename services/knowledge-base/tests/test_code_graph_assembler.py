@@ -21,12 +21,30 @@ def test_search_empty_query():
     result = asm.search("proj-1", "")
     assert result["total"] == 0
     assert result["hits"] == []
+    assert result["retrievalTrace"]["queryIntent"] == "code_context"
+    assert result["retrievalTrace"]["corpusPartitionsSearched"] == ["code_graph"]
 
 
 def test_search_whitespace_query():
     asm, _, _ = _make_assembler()
     result = asm.search("proj-1", "   ")
     assert result["total"] == 0
+
+
+def test_search_no_hits_does_not_mark_methods_succeeded():
+    asm, graph_svc, vector_search = _make_assembler()
+    graph_svc.get_function.return_value = None
+    vector_search.search.return_value = []
+
+    result = asm.search("proj-1", "missing_function", include_call_chain=True)
+
+    assert result["total"] == 0
+    assert result["retrievalTrace"]["methodsAttempted"] == [
+        "exact_id_match",
+        "constrained_embedding_rerank",
+        "graph_expansion",
+    ]
+    assert result["retrievalTrace"]["methodsSucceeded"] == []
 
 
 # ── 함수명 정확 매칭 ──
@@ -190,3 +208,45 @@ def test_search_passes_build_snapshot_filter():
 
     assert graph_svc.get_function.call_args.kwargs["build_snapshot_id"] == "snap-1"
     assert vector_search.search.call_args.kwargs["build_snapshot_id"] == "snap-1"
+
+
+def test_code_graph_search_returns_target_scoped_retrieval_trace_and_rank_metadata():
+    asm, graph_svc, vector_search = _make_assembler()
+    graph_svc.get_function.return_value = None
+    graph_svc.get_callers.return_value = []
+    graph_svc.get_callees.return_value = []
+    vector_search.search.return_value = [
+        CodeFunctionHit(
+            name="postJson",
+            file="src/http_client.cpp",
+            line=8,
+            calls=["popen"],
+            score=0.75,
+            build_snapshot_id="snap-1",
+        ),
+    ]
+
+    result = asm.search(
+        "proj-1",
+        "network command execution",
+        query_intent="code_context",
+        corpus_partitions=["structural_code_projection"],
+        include_call_chain=False,
+        build_snapshot_id="snap-1",
+    )
+
+    trace = result["retrievalTrace"]
+    assert trace["queryIntent"] == "code_context"
+    assert trace["corpusPartitionsSearched"] == ["code_graph"]
+    assert trace["embeddingScope"] == "constrained"
+    assert trace["projectionState"]["projectId"] == "proj-1"
+    assert trace["projectionState"]["buildSnapshotId"] == "snap-1"
+    assert trace["methodsAttempted"] == ["exact_id_match", "keyword_match", "constrained_embedding_rerank"]
+    assert trace["keywordUsed"] is True
+    assert trace["lexicalSignals"]
+    assert trace["candidatePoolSize"] > trace["topK"]
+    assert trace["methodsSucceeded"] == ["constrained_embedding_rerank"]
+    assert result["hits"][0]["relationMethods"] == ["constrained_embedding_rerank"]
+    assert result["hits"][0]["methodTrust"] == "medium"
+    assert "ranking" in result["hits"][0]
+    assert "scoreBreakdown" in result["hits"][0]["ranking"]

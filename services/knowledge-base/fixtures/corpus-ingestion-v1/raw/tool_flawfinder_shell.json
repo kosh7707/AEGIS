@@ -1,0 +1,9 @@
+{
+  "mapsTo": [
+    "CWE-78"
+  ],
+  "name": "shell command execution",
+  "ruleId": "shell-command",
+  "taxonomyFamily": "command_execution",
+  "tool": "flawfinder"
+}

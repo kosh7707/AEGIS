@@ -5,6 +5,14 @@ import { createTestDb } from "../../test/test-db";
 import { AnalysisExecutionDAO } from "../../dao/analysis-execution.dao";
 
 describe("AnalysisOrchestrator", () => {
+  const withKbContractCounters = <T extends Record<string, unknown>>(client: T) => ({
+    getIngestNodeCount: vi.fn((response: any) => response?.nodeCount ?? response?.nodes_created ?? 0),
+    getIngestEdgeCount: vi.fn((response: any) => response?.edgeCount ?? response?.edges_created ?? 0),
+    getStatsFunctionCount: vi.fn((response: any) => response?.nodeCount ?? response?.function_count ?? 0),
+    getStatsCallEdgeCount: vi.fn((response: any) => response?.edgeCount ?? response?.call_edge_count ?? 0),
+    ...client,
+  });
+
   it("quick execution keeps root executionId in WS while target-scoped result ids stay distinct", async () => {
     const sourceService = {
       getProjectPath: vi.fn(() => "/tmp/project"),
@@ -22,7 +30,7 @@ describe("AnalysisOrchestrator", () => {
         sca: null,
       })),
     };
-    const kbClient = {
+    const kbClient = withKbContractCounters({
       ingestCodeGraph: vi.fn(async () => ({
         success: true,
         project_id: "project-1:gateway",
@@ -33,7 +41,7 @@ describe("AnalysisOrchestrator", () => {
         readiness: { graphRag: true },
       })),
       isGraphReady: vi.fn(() => true),
-    };
+    });
     const agentClient = {
       submitTask: vi.fn(async () => ({
         result: {
@@ -120,6 +128,87 @@ describe("AnalysisOrchestrator", () => {
     );
   });
 
+  it("quick execution uses S4 non-registered SDK descriptor from pipeline profile builder", async () => {
+    const sourceService = {
+      getProjectPath: vi.fn(() => "/tmp/project"),
+      listFiles: vi.fn(() => [{ relativePath: "gateway/main.c" }]),
+    };
+    const sastClient = {
+      scan: vi.fn(async () => ({
+        success: true,
+        scanId: "scan-1",
+        status: "completed",
+        findings: [],
+        stats: { filesScanned: 1, rulesRun: 0, findingsTotal: 0, elapsedMs: 1 },
+        execution: { toolsRun: [], toolResults: {} },
+        codeGraph: { functions: [{ name: "main", file: "gateway/main.c", line: 1, calls: [] }], callEdges: [] },
+        sca: null,
+      })),
+    };
+    const kbClient = withKbContractCounters({
+      ingestCodeGraph: vi.fn(async () => ({
+        project_id: "project-1:gateway",
+        nodeCount: 1,
+        edgeCount: 0,
+        status: "ready",
+        readiness: { graphRag: true },
+      })),
+      isGraphReady: vi.fn(() => true),
+    });
+    const target = {
+      id: "target-1",
+      projectId: "project-1",
+      name: "gateway",
+      relativePath: "gateway/",
+      compileCommandsPath: "/tmp/project/gateway/compile_commands.json",
+      buildProfile: { sdkId: "sdk-uploaded", compiler: "gcc", targetArch: "arm", languageStandard: "c11", headerLanguage: "c" },
+      sdkChoiceState: "sdk-selected",
+    };
+    const pipelineOrchestrator = {
+      preparePipeline: vi.fn(async () => undefined),
+      buildSastScanProfile: vi.fn(() => ({
+        compiler: "gcc",
+        targetArch: "arm",
+        languageStandard: "c11",
+        headerLanguage: "c",
+        sdkResolutionMode: "non-registered",
+        sdkDescriptor: { sdkRootPath: "/tmp/project/sdk/sdk-uploaded/content" },
+      })),
+    };
+
+    const orchestrator = new AnalysisOrchestrator(
+      sourceService as any,
+      sastClient as any,
+      kbClient as any,
+      { submitTask: vi.fn(), isSuccess: vi.fn(() => true) } as any,
+      { save: vi.fn() } as any,
+      { getAll: vi.fn(() => ({})) } as any,
+      { normalizeAnalysisResult: vi.fn(), normalizeAgentResult: vi.fn() } as any,
+      undefined,
+      { findByProjectId: vi.fn(() => [target]) } as any,
+      { getIncludedPaths: vi.fn(() => []) } as any,
+      undefined,
+      undefined,
+      pipelineOrchestrator as any,
+    );
+
+    await orchestrator.runQuickAnalysis("project-1", "analysis-1", ["target-1"], "req-1");
+
+    expect(pipelineOrchestrator.buildSastScanProfile).toHaveBeenCalledWith("project-1", target);
+    expect(sastClient.scan).toHaveBeenCalledWith(
+      expect.objectContaining({
+        buildProfile: expect.objectContaining({
+          sdkResolutionMode: "non-registered",
+          sdkDescriptor: expect.objectContaining({ sdkRootPath: "/tmp/project/sdk/sdk-uploaded/content" }),
+        }),
+      }),
+      "req-1",
+      undefined,
+    );
+    const scanRequest = (sastClient.scan as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as any;
+    expect(scanRequest.buildProfile).not.toHaveProperty("sdkId");
+  });
+
   it("stops after quick phase when S4 returns failed scan response", async () => {
     const sourceService = {
       getProjectPath: vi.fn(() => "/tmp/project"),
@@ -137,10 +226,10 @@ describe("AnalysisOrchestrator", () => {
         errorDetail: { code: "DISALLOWED_TOOL_OMISSION", retryable: false },
       })),
     };
-    const kbClient = {
+    const kbClient = withKbContractCounters({
       ingestCodeGraph: vi.fn(),
       isGraphReady: vi.fn(() => true),
-    };
+    });
     const agentClient = {
       submitTask: vi.fn(),
       isSuccess: vi.fn(() => true),
@@ -220,7 +309,7 @@ describe("AnalysisOrchestrator", () => {
         sca: { libraries: [{ name: "openssl", version: "1.1.1", path: "vendor/openssl" }] },
       })),
     };
-    const kbClient = {
+    const kbClient = withKbContractCounters({
       ingestCodeGraph: vi.fn(async () => ({
         success: true,
         project_id: "project-1",
@@ -231,7 +320,7 @@ describe("AnalysisOrchestrator", () => {
         readiness: { graphRag: true, neo4jGraph: true, vectorIndex: true },
       })),
       isGraphReady: vi.fn(() => true),
-    };
+    });
     const agentClient = {
       submitTask: vi.fn(async () => ({
         status: "completed",
@@ -312,7 +401,7 @@ describe("AnalysisOrchestrator", () => {
         sca: null,
       })),
     };
-    const kbClient = {
+    const kbClient = withKbContractCounters({
       ingestCodeGraph: vi.fn(async () => ({
         success: true,
         project_id: "project-1",
@@ -324,7 +413,7 @@ describe("AnalysisOrchestrator", () => {
         warnings: ["VECTOR_INDEX_INCOMPLETE"],
       })),
       isGraphReady: vi.fn(() => false),
-    };
+    });
     const agentClient = {
       submitTask: vi.fn(),
       isSuccess: vi.fn(() => true),
@@ -390,7 +479,7 @@ describe("AnalysisOrchestrator", () => {
         sca: null,
       })),
     };
-    const kbClient = {
+    const kbClient = withKbContractCounters({
       ingestCodeGraph: vi.fn(async () => ({
         success: true,
         project_id: "project-1:gateway",
@@ -402,7 +491,7 @@ describe("AnalysisOrchestrator", () => {
       })),
       isGraphReady: vi.fn(() => true),
       getCodeGraphStats: vi.fn(),
-    };
+    });
     const agentClient = {
       submitTask: vi.fn(),
       isSuccess: vi.fn(() => true),
@@ -454,11 +543,11 @@ describe("AnalysisOrchestrator", () => {
     const sastClient = {
       scan: vi.fn(),
     };
-    const kbClient = {
+    const kbClient = withKbContractCounters({
       ingestCodeGraph: vi.fn(),
       isGraphReady: vi.fn(() => true),
       getCodeGraphStats: vi.fn(),
-    };
+    });
     const agentClient = {
       submitTask: vi.fn(),
       isSuccess: vi.fn(() => true),
@@ -505,11 +594,11 @@ describe("AnalysisOrchestrator", () => {
     const sastClient = {
       scan: vi.fn(),
     };
-    const kbClient = {
+    const kbClient = withKbContractCounters({
       ingestCodeGraph: vi.fn(),
       isGraphReady: vi.fn(() => true),
       getCodeGraphStats: vi.fn(async () => ({ project_id: "project-1", function_count: 3, call_edge_count: 2 })),
-    };
+    });
     const agentClient = {
       submitTask: vi.fn(async () => ({
         status: "completed",
@@ -616,11 +705,11 @@ describe("AnalysisOrchestrator", () => {
     const sastClient = {
       scan: vi.fn(),
     };
-    const kbClient = {
+    const kbClient = withKbContractCounters({
       ingestCodeGraph: vi.fn(),
       isGraphReady: vi.fn(() => true),
       getCodeGraphStats: vi.fn(async () => ({ project_id: "project-1:gateway", function_count: 7, call_edge_count: 9 })),
-    };
+    });
     const agentClient = {
       submitTask: vi.fn(async () => ({
         status: "completed",
@@ -754,9 +843,9 @@ describe("AnalysisOrchestrator", () => {
       getProjectPath: vi.fn(() => "/tmp/project"),
       listFiles: vi.fn(() => [{ relativePath: "gateway/main.c" }]),
     };
-    const kbClient = {
+    const kbClient = withKbContractCounters({
       getCodeGraphStats: vi.fn(async () => ({ project_id: "project-1:gateway", function_count: 7, call_edge_count: 9 })),
-    };
+    });
     const agentClient = {
       submitTask: vi.fn(),
       isSuccess: vi.fn(() => true),
@@ -857,7 +946,7 @@ describe("AnalysisOrchestrator", () => {
       const orchestrator = new AnalysisOrchestrator(
         sourceService as any,
         sastClient as any,
-        { ingestCodeGraph: vi.fn(async () => ({ status: "ready", readiness: { graphRag: true } })), isGraphReady: vi.fn(() => true) } as any,
+        withKbContractCounters({ ingestCodeGraph: vi.fn(async () => ({ status: "ready", readiness: { graphRag: true } })), isGraphReady: vi.fn(() => true) }) as any,
         { submitTask: vi.fn(), isSuccess: vi.fn(() => true) } as any,
         { save: vi.fn() } as any,
         { getAll: vi.fn(() => ({ buildProfile: target.buildProfile })) } as any,

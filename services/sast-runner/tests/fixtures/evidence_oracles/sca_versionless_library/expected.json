@@ -1,0 +1,30 @@
+{
+  "library": {
+    "name": "civetweb",
+    "version": null,
+    "path": "libraries/civetweb",
+    "repoUrl": "https://github.com/civetweb/civetweb.git",
+    "source": "directory_name",
+    "commit": null,
+    "branch": null,
+    "tag": null,
+    "nearestTag": null,
+    "identificationConfidence": "low",
+    "versionStatus": "unknown",
+    "versionConfidence": "none",
+    "cveLookupEligible": false,
+    "versionEvidence": {
+      "status": "missing",
+      "source": "directory_name",
+      "value": null
+    },
+    "diagnostics": [
+      "VERSION_UNKNOWN",
+      "DIFF_NOT_COMPUTED"
+    ],
+    "diffAvailable": false,
+    "modificationStatus": "unknown",
+    "diffSummary": null,
+    "provenance": null
+  }
+}

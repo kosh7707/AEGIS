@@ -1,0 +1,9 @@
+{
+  "mapsTo": [
+    "CWE-415"
+  ],
+  "name": "double free",
+  "ruleId": "-Wanalyzer-double-free",
+  "taxonomyFamily": "memory_safety",
+  "tool": "gcc-fanalyzer"
+}

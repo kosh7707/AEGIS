@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>diagnostics</key>
+	<array>
+		<dict>
+			<key>category</key>
+			<string>Logic error</string>
+			<key>check_name</key>
+			<string>core.NullDereference</string>
+			<key>description</key>
+			<string>Dereference of null pointer</string>
+			<key>location</key>
+			<dict>
+				<key>col</key>
+				<integer>5</integer>
+				<key>file</key>
+				<integer>0</integer>
+				<key>line</key>
+				<integer>17</integer>
+			</dict>
+			<key>path</key>
+			<array>
+				<dict>
+					<key>kind</key>
+					<string>event</string>
+					<key>location</key>
+					<dict>
+						<key>col</key>
+						<integer>3</integer>
+						<key>file</key>
+						<integer>0</integer>
+						<key>line</key>
+						<integer>15</integer>
+					</dict>
+					<key>message</key>
+					<string>Variable 'q' initialized to NULL</string>
+				</dict>
+				<dict>
+					<key>kind</key>
+					<string>event</string>
+					<key>location</key>
+					<dict>
+						<key>col</key>
+						<integer>5</integer>
+						<key>file</key>
+						<integer>0</integer>
+						<key>line</key>
+						<integer>17</integer>
+					</dict>
+					<key>message</key>
+					<string>Dereference of null pointer</string>
+				</dict>
+			</array>
+		</dict>
+	</array>
+	<key>files</key>
+	<array>
+		<string>/tmp/scan/src/main.c</string>
+	</array>
+</dict>
+</plist>

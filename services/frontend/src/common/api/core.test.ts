@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { getBackendUrl, setBackendUrl, getWsBaseUrl, ApiError, logError, healthFetch, apiFetch, healthCheck, type HealthCheckResponse, type HealthServiceEntry, type HealthServiceControl } from "./core";
+import { getBackendUrl, setBackendUrl, getWsBaseUrl, ApiError, logError, healthFetch, apiFetch, healthCheck, type HealthCheckResponse, type HealthServiceEntry, type HealthServiceControl, type LlmGatewayHealthDetail, type LlmGatewayHealthEntry } from "./core";
 
 describe("getBackendUrl", () => {
   beforeEach(() => localStorage.clear());
@@ -337,5 +337,60 @@ describe("healthCheck", () => {
     const ctrl: HealthServiceControl = {};
     expect(ctrl.pollDecision).toBeUndefined();
     expect(ctrl.blockedReason).toBeUndefined();
+  });
+
+  it("HealthCheckResponse.llmGateway accepts typed LlmGatewayHealthDetail (S2 /health forwarding contract)", () => {
+    // S2 /health forwards S7 readiness fields under llmGateway.detail.*
+    // (WR s2-to-s1-reply-s2-health-forwards-s7-readiness-fields-under-llmgateway.detail)
+    const detail: LlmGatewayHealthDetail = {
+      ready: true,
+      llmReady: false,
+      degraded: true,
+      degradeReasons: ["llm_backend_unreachable", "llm_circuit_open"],
+      blockedReason: "backend_unreachable",
+      dependencyStatus: {
+        llmBackend: { status: "unreachable", endpoint: "http://localhost:7777" },
+        circuitBreaker: { state: "open", consecutiveFailures: 5, threshold: 3, recoverySeconds: 30 },
+        rag: { enabled: true, status: "ok", kbEndpoint: "http://localhost:8000" },
+      },
+    };
+    const entry: LlmGatewayHealthEntry = { status: "degraded", detail };
+    const resp: HealthCheckResponse = { status: "degraded", llmGateway: entry };
+
+    expect(resp.llmGateway?.status).toBe("degraded");
+    expect(resp.llmGateway?.detail?.degraded).toBe(true);
+    expect(resp.llmGateway?.detail?.llmReady).toBe(false);
+    expect(resp.llmGateway?.detail?.blockedReason).toBe("backend_unreachable");
+    expect(resp.llmGateway?.detail?.degradeReasons).toEqual([
+      "llm_backend_unreachable",
+      "llm_circuit_open",
+    ]);
+    expect(resp.llmGateway?.detail?.dependencyStatus?.circuitBreaker?.state).toBe("open");
+  });
+
+  it("LlmGatewayHealthDetail fields are all optional (backward-compatible)", () => {
+    const empty: LlmGatewayHealthDetail = {};
+    expect(empty.ready).toBeUndefined();
+    expect(empty.llmReady).toBeUndefined();
+    expect(empty.degraded).toBeUndefined();
+    expect(empty.blockedReason).toBeUndefined();
+    expect(empty.dependencyStatus).toBeUndefined();
+  });
+
+  it("LlmGatewayHealthDetail allows passthrough extension fields", () => {
+    // S2/S7 may add fields without breaking S1 — interface index signature absorbs them
+    const extended: LlmGatewayHealthDetail = {
+      llmReady: true,
+      futureField: "some-value",
+    };
+    expect(extended.futureField).toBe("some-value");
+  });
+
+  it("Other *ServiceEntry consumers (sastRunner, knowledgeBase, etc) remain untyped-detail compatible", () => {
+    // Backward-compat: HealthServiceEntry default TDetail is unknown
+    const sast: HealthServiceEntry = { status: "ok", detail: { foo: "bar" } };
+    const kb: HealthServiceEntry = { status: "degraded" };
+    expect(sast.detail).toEqual({ foo: "bar" });
+    expect(kb.detail).toBeUndefined();
   });
 });

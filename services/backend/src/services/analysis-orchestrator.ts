@@ -20,7 +20,7 @@ import type {
 import { createLogger } from "../lib/logger";
 import { InvalidInputError, NotFoundError } from "../lib/errors";
 import type { ProjectSourceService } from "./project-source.service";
-import type { SastClient, SastScanResponse } from "./sast-client";
+import type { SastAnalysisBuildProfile, SastClient, SastScanResponse } from "./sast-client";
 import type { KbClient, CodeGraphIngestResponse } from "./kb-client";
 import type {
   AgentClient,
@@ -108,7 +108,7 @@ export class AnalysisOrchestrator {
       await this.analysisExecutionDAO?.update(executionId, { deepStatus: "running" });
     }
     const graphStats = await this.kbClient.getCodeGraphStats(kbProjectId, requestId);
-    if (!graphStats || graphStats.function_count <= 0) {
+    if (!graphStats || this.kbClient.getStatsFunctionCount(graphStats) <= 0) {
       throw new InvalidInputError(`Quick graph context not ready for scope ${kbProjectId}`);
     }
 
@@ -156,8 +156,8 @@ export class AnalysisOrchestrator {
     const graphContext = {
       kbProjectId,
       status: "ready",
-      functionCount: graphStats.function_count,
-      callEdgeCount: graphStats.call_edge_count,
+      functionCount: this.kbClient.getStatsFunctionCount(graphStats),
+      callEdgeCount: this.kbClient.getStatsCallEdgeCount(graphStats),
       ...(target ? { targetName: target.name, targetPath: target.relativePath } : {}),
     };
 
@@ -327,11 +327,14 @@ export class AnalysisOrchestrator {
       // 서드파티 라이브러리 경로 조회 (S4가 cross-boundary 필터링에 사용)
       const thirdPartyPaths = this.targetLibraryDAO?.getIncludedPaths(target.id) ?? [];
 
+      const scanBuildProfile = this.pipelineOrchestrator?.buildSastScanProfile(projectId, target)
+        ?? target.buildProfile;
+
       await this.runSingleAnalysis(
         projectId,
         `${analysisId}-${target.name}`,
         scanPath,
-        target.buildProfile,
+        scanBuildProfile,
         {
           id: target.id,
           name: target.name,
@@ -353,7 +356,7 @@ export class AnalysisOrchestrator {
     projectId: string,
     analysisId: string,
     scanPath: string,
-    buildProfile: BuildProfile | undefined,
+    buildProfile: SastAnalysisBuildProfile | undefined,
     targetInfo?: { id: string; name: string; relativePath: string; progress?: { current: number; total: number }; compileCommandsPath?: string },
     requestId?: string,
     signal?: AbortSignal,
@@ -969,8 +972,8 @@ export class AnalysisOrchestrator {
       readiness: ingestResult.readiness,
       replaceMode: ingestResult.replaceMode,
       operation: ingestResult.operation,
-      nodesCreated: ingestResult.nodes_created,
-      edgesCreated: ingestResult.edges_created,
+      nodesCreated: this.kbClient.getIngestNodeCount(ingestResult),
+      edgesCreated: this.kbClient.getIngestEdgeCount(ingestResult),
       warnings: ingestResult.warnings,
     };
   }

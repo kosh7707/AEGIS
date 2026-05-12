@@ -29,6 +29,8 @@ from app.runtime.request_summary import request_summary_tracker
 from app.scanner.ast_dumper import AstDumper
 from app.scanner.build_metadata import BuildMetadataExtractor
 from app.scanner.build_runner import BuildRunner
+from app.scanner.evidence import enrich_findings_evidence, project_libraries_evidence
+from app.scanner.static_evidence_contract import build_static_evidence_contract
 from app.scanner.include_resolver import IncludeResolver
 from app.scanner.orchestrator import ScanOrchestrator
 from app.scanner.sca_service import analyze_libraries, identify_libraries
@@ -460,21 +462,18 @@ async def _run_scan_core(
                 on_file_progress=on_file_progress,
                 on_runtime_state=on_runtime_state,
             )
+            findings = enrich_findings_evidence(findings)
 
             # 2. projectPath 모드: codeGraph + SCA
             code_graph_result = None
             sca_result = None
             if body.project_path:
                 libs = await identify_libraries(scan_dir)
-
-                sca_libs = []
-                for lib in libs:
-                    sca_libs.append({
-                        "name": lib["name"],
-                        "version": lib.get("version"),
-                        "path": lib["path"],
-                        "repoUrl": lib.get("repoUrl"),
-                    })
+                sca_libs = project_libraries_evidence(
+                    libs,
+                    provenance=body.provenance,
+                    diff_computed=False,
+                )
                 sca_result = {"libraries": sca_libs}
 
                 lib_skip = [lib["path"] for lib in libs if lib.get("path")]
@@ -505,10 +504,27 @@ async def _run_scan_core(
         execution=execution,
         codeGraph=code_graph_result,
         sca=sca_result,
+        staticEvidenceContract=build_static_evidence_contract(
+            success=True,
+            provenance=body.provenance,
+            findings=findings,
+            execution=execution,
+            code_graph=code_graph_result,
+            sca=sca_result,
+        ),
     )
 
     policy_violation = orchestrator.evaluate_policy(execution)
     if policy_violation:
+        failed_contract = build_static_evidence_contract(
+            success=False,
+            provenance=body.provenance,
+            findings=findings,
+            execution=execution,
+            code_graph=code_graph_result,
+            sca=sca_result,
+            policy_failure_reason_codes=["POLICY_VIOLATION", str(policy_violation["code"])],
+        )
         failed_response = scan_response.model_copy(
             update={
                 "success": False,
@@ -520,6 +536,7 @@ async def _run_scan_core(
                     request_id=request_id,
                     retryable=False,
                 ),
+                "static_evidence_contract": failed_contract,
             },
         )
         logger.warning(
@@ -1239,6 +1256,15 @@ async def build_and_analyze(
                     scan=scan_result,
                     codeGraph=scan_result.code_graph,
                     libraries=(scan_result.sca or {}).get("libraries"),
+                    staticEvidenceContract=build_static_evidence_contract(
+                        success=False,
+                        provenance=body.provenance,
+                        findings=scan_result.findings,
+                        execution=scan_result.execution,
+                        code_graph=scan_result.code_graph,
+                        sca=scan_result.sca,
+                        policy_failure_reason_codes=["POLICY_VIOLATION", str(exc.code)],
+                    ),
                     error=exc.message,
                     errorDetail=scan_result.error_detail,
                 )
@@ -1253,6 +1279,15 @@ async def build_and_analyze(
                 codeGraph=scan_result.code_graph,
                 libraries=(scan_result.sca or {}).get("libraries"),
                 metadata=meta,
+                staticEvidenceContract=build_static_evidence_contract(
+                    success=True,
+                    provenance=body.provenance,
+                    findings=scan_result.findings,
+                    execution=scan_result.execution,
+                    code_graph=scan_result.code_graph,
+                    sca=scan_result.sca,
+                    metadata=meta,
+                ),
                 elapsedMs=elapsed_ms,
             )
 
@@ -1371,6 +1406,15 @@ async def build_and_analyze(
             codeGraph=scan_result.code_graph,
             libraries=(scan_result.sca or {}).get("libraries"),
             metadata=meta,
+            staticEvidenceContract=build_static_evidence_contract(
+                success=True,
+                provenance=body.provenance,
+                findings=scan_result.findings,
+                execution=scan_result.execution,
+                code_graph=scan_result.code_graph,
+                sca=scan_result.sca,
+                metadata=meta,
+            ),
             elapsedMs=elapsed_ms,
         )
 
@@ -1388,6 +1432,15 @@ async def build_and_analyze(
             scan=scan_result,
             codeGraph=scan_result.code_graph,
             libraries=(scan_result.sca or {}).get("libraries"),
+            staticEvidenceContract=build_static_evidence_contract(
+                success=False,
+                provenance=body.provenance,
+                findings=scan_result.findings,
+                execution=scan_result.execution,
+                code_graph=scan_result.code_graph,
+                sca=scan_result.sca,
+                policy_failure_reason_codes=["POLICY_VIOLATION", str(exc.code)],
+            ),
             error=exc.message,
             errorDetail=scan_result.error_detail,
         )

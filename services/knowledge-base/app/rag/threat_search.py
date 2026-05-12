@@ -24,6 +24,7 @@ class ThreatHit:
     related_cwe: list[str] = field(default_factory=list)
     related_cve: list[str] = field(default_factory=list)
     related_attack: list[str] = field(default_factory=list)
+    corpus_partition: str = ""
     score: float = 0.0
 
 
@@ -106,6 +107,7 @@ class ThreatSearch:
                 related_cwe=r.metadata.get("related_cwe", []),
                 related_cve=r.metadata.get("related_cve", []),
                 related_attack=r.metadata.get("related_attack", []),
+                corpus_partition=r.metadata.get("corpusPartition", r.metadata.get("corpus_partition", "")),
                 score=r.score,
             )
             for r in results

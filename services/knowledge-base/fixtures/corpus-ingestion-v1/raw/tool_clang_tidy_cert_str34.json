@@ -1,0 +1,9 @@
+{
+  "mapsTo": [
+    "CWE-190"
+  ],
+  "name": "signed char conversion",
+  "ruleId": "cert-str34-c",
+  "taxonomyFamily": "memory_safety",
+  "tool": "clang-tidy"
+}

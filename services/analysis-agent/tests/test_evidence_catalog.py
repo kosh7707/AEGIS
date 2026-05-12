@@ -247,6 +247,124 @@ def test_sast_failure_emits_operational_not_no_findings():
     assert entry.ref_id not in {ref["refId"] for ref in catalog.as_evidence_refs()}
 
 
+def test_cve_no_hits_requires_completed_eligible_lookup():
+    catalog = EvidenceCatalog()
+
+    catalog.ingest_phase1_result(Phase1Result(
+        sca_libraries=[
+            {"name": "openssl", "version": "1.1.1", "versionStatus": "known", "cveLookupEligible": True},
+        ],
+        cve_lookup_attempted=True,
+        cve_lookup_completed=True,
+        cve_lookup_eligible_count=1,
+        cve_lookup_attempted_libraries=[{"name": "openssl", "version": "1.1.1"}],
+        cve_lookup=[],
+    ))
+
+    negative_refs = catalog.negative_ref_ids()
+    assert len(negative_refs) == 1
+    entry = catalog.get(next(iter(negative_refs)))
+    assert entry is not None
+    assert entry.source_tool == "cve.batch_lookup"
+    assert entry.tool_arguments == {
+        "phase": "phase1",
+        "libraryCount": 1,
+        "eligibleLibraryCount": 1,
+    }
+    assert "cve_no_hits" in entry.roles
+
+
+def test_cve_all_ineligible_is_operational_skip_not_no_hits():
+    catalog = EvidenceCatalog()
+
+    catalog.ingest_phase1_result(Phase1Result(
+        sca_libraries=[
+            {
+                "name": "zlib",
+                "version": None,
+                "versionStatus": "unknown",
+                "cveLookupEligible": False,
+                "diagnostics": [{"code": "VERSION_UNKNOWN"}],
+            },
+        ],
+        cve_lookup_attempted=False,
+        cve_lookup_completed=False,
+        cve_lookup_eligible_count=0,
+        cve_lookup_skipped_libraries=[
+            {
+                "name": "zlib",
+                "version": None,
+                "path": None,
+                "reason": "VERSION_UNKNOWN",
+                "versionStatus": "unknown",
+                "diagnostics": [{"code": "VERSION_UNKNOWN"}],
+            },
+        ],
+    ))
+
+    assert catalog.negative_ref_ids() == set()
+    operational_refs = catalog.operational_ref_ids()
+    assert len(operational_refs) == 1
+    entry = catalog.get(next(iter(operational_refs)))
+    assert entry is not None
+    assert entry.source_tool == "cve.batch_lookup"
+    assert entry.operational_status == "skipped"
+    assert "cve_lookup_skipped" in entry.roles
+    assert entry.tool_arguments["skippedReasons"] == ["VERSION_UNKNOWN"]
+
+
+def test_cve_lookup_error_is_operational_not_no_hits():
+    catalog = EvidenceCatalog()
+
+    catalog.ingest_phase1_result(Phase1Result(
+        sca_libraries=[{"name": "openssl", "version": "1.1.1"}],
+        cve_lookup_attempted=True,
+        cve_lookup_completed=False,
+        cve_lookup_eligible_count=1,
+        cve_lookup_attempted_libraries=[{"name": "openssl", "version": "1.1.1"}],
+        cve_lookup_error="ConnectError: refused",
+    ))
+
+    assert catalog.negative_ref_ids() == set()
+    operational_refs = catalog.operational_ref_ids()
+    assert len(operational_refs) == 1
+    entry = catalog.get(next(iter(operational_refs)))
+    assert entry is not None
+    assert entry.source_tool == "cve.batch_lookup"
+    assert entry.operational_status == "lookup_failed"
+    assert "cve_lookup_failed" in entry.roles
+
+
+def test_cve_truncated_lookup_is_operational_not_no_hits():
+    catalog = EvidenceCatalog()
+
+    catalog.ingest_phase1_result(Phase1Result(
+        sca_libraries=[
+            {"name": "lib-a", "version": "1.0.0"},
+            {"name": "lib-b", "version": "2.0.0"},
+        ],
+        cve_lookup_attempted=True,
+        cve_lookup_completed=True,
+        cve_lookup_eligible_count=2,
+        cve_lookup_attempted_libraries=[{"name": "lib-a", "version": "1.0.0"}],
+        cve_lookup_truncated=True,
+        cve_lookup_unqueried_eligible_count=1,
+        cve_lookup=[],
+    ))
+
+    assert catalog.negative_ref_ids() == set()
+    operational_refs = catalog.operational_ref_ids()
+    assert len(operational_refs) == 1
+    entry = catalog.get(next(iter(operational_refs)))
+    assert entry is not None
+    assert entry.source_tool == "cve.batch_lookup"
+    assert entry.operational_status == "truncated"
+    assert "cve_lookup_truncated" in entry.roles
+    assert entry.tool_arguments["eligibleLibraryCount"] == 2
+    assert entry.tool_arguments["attemptedLibraryCount"] == 1
+    assert entry.tool_arguments["unqueriedEligibleCount"] == 1
+
+
 def test_knowledge_no_hit_tool_result_emits_negative_entry():
     catalog = EvidenceCatalog()
     call = ToolCallRequest(

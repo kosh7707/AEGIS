@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import time
@@ -25,6 +26,8 @@ from app.schemas.response import (
 
 logger = logging.getLogger(__name__)
 _exchange_logger = logging.getLogger("llm_exchange")
+_LLM_BACKEND_HEALTH_CACHE_ATTR = "llm_backend_health_cache"
+_LLM_BACKEND_HEALTH_CACHE_LOCK_ATTR = "llm_backend_health_cache_lock"
 
 router = APIRouter(prefix="/v1", tags=["v1"])
 _STRICT_JSON_HEADER = "x-aegis-strict-json"
@@ -108,6 +111,70 @@ def _health_readiness(
         "blockedReason": blocked_reason,
         "dependencyStatus": dependency_status,
     }
+
+
+def _llm_backend_endpoint(model_registry) -> str:
+    profile = model_registry.get_default()
+    return profile.endpoint if profile else settings.llm_endpoint
+
+
+def _health_cache_ttl_seconds() -> float:
+    return max(float(settings.llm_health_cache_ttl_seconds), 0.0)
+
+
+def _cached_backend_payload(payload: dict[str, Any], *, cached: bool, ttl_seconds: float) -> dict[str, Any]:
+    enriched = dict(payload)
+    enriched["cached"] = cached
+    enriched["cacheTtlMs"] = int(ttl_seconds * 1000)
+    return enriched
+
+
+async def _check_llm_backend_with_cache(req: Request, model_registry) -> dict[str, Any]:
+    """Return a bounded-freshness backend health snapshot for readiness polling.
+
+    The Gateway health endpoint is often polled by orchestrators.  Without a
+    small freshness window every poll performs a network round-trip through the
+    DGX/OpenVPN proxy.  The cache is deliberately short and endpoint-scoped so
+    it reduces polling load without converting process liveness into stale LLM
+    readiness for more than the configured TTL.
+    """
+
+    ttl_seconds = _health_cache_ttl_seconds()
+    endpoint = _llm_backend_endpoint(model_registry)
+    if ttl_seconds <= 0:
+        return _cached_backend_payload(
+            await _check_llm_backend(model_registry, req.app.state.proxy_client),
+            cached=False,
+            ttl_seconds=ttl_seconds,
+        )
+
+    now = time.monotonic()
+    cache = getattr(req.app.state, _LLM_BACKEND_HEALTH_CACHE_ATTR, None)
+    if cache and cache.get("endpoint") == endpoint and now < cache.get("expiresAt", 0.0):
+        return _cached_backend_payload(cache["payload"], cached=True, ttl_seconds=ttl_seconds)
+
+    lock = getattr(req.app.state, _LLM_BACKEND_HEALTH_CACHE_LOCK_ATTR, None)
+    if lock is None:
+        lock = asyncio.Lock()
+        setattr(req.app.state, _LLM_BACKEND_HEALTH_CACHE_LOCK_ATTR, lock)
+
+    async with lock:
+        now = time.monotonic()
+        cache = getattr(req.app.state, _LLM_BACKEND_HEALTH_CACHE_ATTR, None)
+        if cache and cache.get("endpoint") == endpoint and now < cache.get("expiresAt", 0.0):
+            return _cached_backend_payload(cache["payload"], cached=True, ttl_seconds=ttl_seconds)
+
+        payload = await _check_llm_backend(model_registry, req.app.state.proxy_client)
+        setattr(
+            req.app.state,
+            _LLM_BACKEND_HEALTH_CACHE_ATTR,
+            {
+                "endpoint": endpoint,
+                "payload": payload,
+                "expiresAt": now + ttl_seconds,
+            },
+        )
+        return _cached_backend_payload(payload, cached=False, ttl_seconds=ttl_seconds)
 
 
 def _ensure_request_id(req: Request) -> str:
@@ -1049,7 +1116,7 @@ async def health(req: Request) -> JSONResponse:
     }
     llm_backend = None
     if settings.llm_mode == "real":
-        llm_backend = await _check_llm_backend(model_registry, req.app.state.proxy_client)
+        llm_backend = await _check_llm_backend_with_cache(req, model_registry)
         result["llmBackend"] = llm_backend
         result["llmConcurrency"] = settings.llm_concurrency
 
@@ -1384,8 +1451,7 @@ async def chat_proxy(req: Request) -> Response:
 
 async def _check_llm_backend(model_registry, proxy_client: httpx.AsyncClient) -> dict:
     """vLLM 백엔드 연결 상태를 확인한다. 실패해도 health는 정상 반환."""
-    profile = model_registry.get_default()
-    endpoint = profile.endpoint if profile else settings.llm_endpoint
+    endpoint = _llm_backend_endpoint(model_registry)
 
     try:
         resp = await proxy_client.get(f"{endpoint}/health", timeout=5.0)

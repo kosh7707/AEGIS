@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<results version="2">
+  <errors>
+    <error id="nullPointer" severity="error" msg="Null pointer dereference: p" verbose="Null pointer dereference" cwe="476">
+      <location file="/tmp/scan/src/main.c" line="17" column="5"/>
+    </error>
+  </errors>
+</results>

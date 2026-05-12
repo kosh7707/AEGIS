@@ -418,6 +418,53 @@ describe("SastClient contract", () => {
     expect(body.buildProfile).not.toHaveProperty("sdkId");
   });
 
+  it("maps explicit no-SDK scans to S4 sdkResolutionMode none", async () => {
+    globalThis.fetch = mockFetch(scanResponse);
+
+    await client.scan({
+      scanId: "scan-none",
+      projectId: "p-1",
+      projectPath: "/tmp/project",
+      buildProfile: {
+        sdkId: "none",
+        compiler: "gcc",
+        targetArch: "x86_64",
+        languageStandard: "c11",
+        headerLanguage: "auto",
+      },
+    });
+
+    const [, opts] = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+    const body = JSON.parse(opts.body);
+    expect(body.buildProfile).toMatchObject({
+      sdkResolutionMode: "none",
+      compiler: "gcc",
+      targetArch: "x86_64",
+      languageStandard: "c11",
+      headerLanguage: "auto",
+    });
+    expect(body.buildProfile).not.toHaveProperty("sdkId");
+  });
+
+  it("rejects bare uploaded SDK ids before S4 scan submission", async () => {
+    globalThis.fetch = mockFetch(scanResponse);
+
+    await expect(client.scan({
+      scanId: "scan-uploaded-sdk",
+      projectId: "p-1",
+      projectPath: "/tmp/project",
+      buildProfile: {
+        sdkId: "sdk-uploaded",
+        compiler: "gcc",
+        targetArch: "armv7",
+        languageStandard: "c11",
+        headerLanguage: "auto",
+      },
+    })).rejects.toThrow(/sdkResolutionMode non-registered/);
+
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+
   it("parses SastScanResponse correctly", async () => {
     globalThis.fetch = mockFetch(scanResponse);
 
@@ -899,17 +946,19 @@ describe("KbClient contract", () => {
   const client = new KbClient("http://localhost:8002");
 
   const ingestResponse = {
-    success: true,
     project_id: "p-1",
-    nodes_created: 50,
-    edges_created: 120,
-    elapsed_ms: 800,
+    nodeCount: 50,
+    edgeCount: 120,
+    vectorCount: 50,
+    operation: { mode: "replace_project_graph", repeatable: true, replacedExistingGraph: false },
+    readiness: { neo4jGraph: true, vectorIndex: true, graphRag: true },
+    status: "ready",
   };
 
   const statsResponse = {
-    project_id: "p-1",
-    function_count: 50,
-    call_edge_count: 120,
+    nodeCount: 50,
+    edgeCount: 120,
+    files: ["main.c"],
   };
 
   it("POST /v1/code-graph/:projectId/ingest sends correct URL and body", async () => {
@@ -929,6 +978,25 @@ describe("KbClient contract", () => {
     const body = JSON.parse(opts.body);
     expect(body.functions).toHaveLength(1);
     expect(body.functions[0].name).toBe("main");
+    expect(body).not.toHaveProperty("call_edges");
+  });
+
+  it("POST /v1/code-graph/:projectId/ingest preserves canonical functions calls", async () => {
+    globalThis.fetch = mockFetch(ingestResponse);
+
+    await client.ingestCodeGraph(
+      "p-1",
+      {
+        functions: [{ name: "main", file: "main.c", line: 1, calls: ["init"] }],
+        callEdges: [{ caller: "main", callee: "loop", file: "main.c", line: 3 }],
+      },
+      "req-ingest",
+    );
+
+    const [, opts] = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+    const body = JSON.parse(opts.body);
+    expect(body.functions[0].calls).toEqual(["init", "loop"]);
+    expect(body).not.toHaveProperty("call_edges");
   });
 
   it("parses CodeGraphIngestResponse correctly", async () => {
@@ -939,9 +1007,8 @@ describe("KbClient contract", () => {
       { functions: [], callEdges: [] },
     );
 
-    expect(result.success).toBe(true);
-    expect(result.nodes_created).toBe(50);
-    expect(result.edges_created).toBe(120);
+    expect(client.getIngestNodeCount(result)).toBe(50);
+    expect(client.getIngestEdgeCount(result)).toBe(120);
   });
 
   it("GET /v1/code-graph/:projectId/stats returns stats", async () => {
@@ -952,7 +1019,7 @@ describe("KbClient contract", () => {
     const [url] = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
     expect(url).toBe("http://localhost:8002/v1/code-graph/p-1/stats");
     expect(result).not.toBeNull();
-    expect(result!.function_count).toBe(50);
+    expect(client.getStatsFunctionCount(result!)).toBe(50);
   });
 
   it("GET /v1/code-graph/:projectId/stats returns null on failure", async () => {
@@ -1010,7 +1077,7 @@ describe("KbClient contract", () => {
     );
 
     expect(globalThis.fetch).toHaveBeenCalledTimes(2);
-    expect(result.nodes_created).toBe(50);
+    expect(client.getIngestNodeCount(result)).toBe(50);
   });
 
   it("surfaces real 408 timeout semantics from S5 ingest", async () => {

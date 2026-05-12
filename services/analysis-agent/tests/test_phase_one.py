@@ -200,6 +200,150 @@ class TestRunCveLookup:
         await executor.aclose()
 
     @pytest.mark.asyncio
+    async def test_partitions_s4_enriched_libraries_before_s5_lookup(self):
+        executor = Phase1Executor(kb_endpoint="http://localhost:8002")
+        result = Phase1Result(
+            sca_libraries=[
+                {
+                    "name": "openssl",
+                    "version": "1.1.1",
+                    "repoUrl": "https://github.com/openssl/openssl.git",
+                    "cveLookupEligible": True,
+                    "versionStatus": "known",
+                    "diagnostics": [],
+                },
+                {
+                    "name": "zlib",
+                    "version": None,
+                    "repoUrl": "https://github.com/madler/zlib.git",
+                    "cveLookupEligible": False,
+                    "versionStatus": "unknown",
+                    "diagnostics": [{"code": "VERSION_UNKNOWN"}],
+                },
+                {
+                    "name": "ambiguous-lib",
+                    "version": "1.0.0",
+                    "cveLookupEligible": False,
+                    "versionStatus": "ambiguous",
+                    "diagnostics": [{"code": "VERSION_AMBIGUOUS"}],
+                },
+            ],
+        )
+
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.raise_for_status = MagicMock()
+        mock_resp.json.return_value = {
+            "results": [{"library": "openssl", "version": "1.1.1", "cves": []}],
+        }
+        executor._kb_client.post = AsyncMock(return_value=mock_resp)
+
+        result = await executor._run_cve_lookup(result)
+
+        request_body = executor._kb_client.post.await_args.kwargs["json"]
+        assert request_body == {
+            "libraries": [{
+                "name": "openssl",
+                "version": "1.1.1",
+                "repoUrl": "https://github.com/openssl/openssl.git",
+            }],
+        }
+        assert result.cve_lookup_attempted is True
+        assert result.cve_lookup_completed is True
+        assert result.cve_lookup_eligible_count == 1
+        assert result.cve_lookup_attempted_libraries == request_body["libraries"]
+        assert [skip["name"] for skip in result.cve_lookup_skipped_libraries] == ["zlib", "ambiguous-lib"]
+        assert {skip["reason"] for skip in result.cve_lookup_skipped_libraries} == {
+            "VERSION_UNKNOWN",
+            "CVE_LOOKUP_INELIGIBLE",
+        }
+        assert all("version" in lib for lib in request_body["libraries"])
+        await executor.aclose()
+
+    @pytest.mark.asyncio
+    async def test_all_ineligible_s4_libraries_skip_s5_call(self):
+        executor = Phase1Executor(kb_endpoint="http://localhost:8002")
+        result = Phase1Result(
+            sca_libraries=[
+                {
+                    "name": "versionless",
+                    "version": None,
+                    "cveLookupEligible": False,
+                    "versionStatus": "unknown",
+                    "diagnostics": [{"code": "VERSION_UNKNOWN"}],
+                },
+            ],
+        )
+        executor._kb_client.post = AsyncMock()
+
+        result = await executor._run_cve_lookup(result)
+
+        executor._kb_client.post.assert_not_called()
+        assert result.cve_lookup_attempted is False
+        assert result.cve_lookup_completed is False
+        assert result.cve_lookup_eligible_count == 0
+        assert result.cve_lookup == []
+        assert result.cve_lookup_skipped_libraries == [{
+            "name": "versionless",
+            "version": None,
+            "path": None,
+            "reason": "VERSION_UNKNOWN",
+            "versionStatus": "unknown",
+            "diagnostics": [{"code": "VERSION_UNKNOWN"}],
+        }]
+        await executor.aclose()
+
+    @pytest.mark.asyncio
+    async def test_legacy_name_version_library_remains_lookup_eligible(self):
+        executor = Phase1Executor(kb_endpoint="http://localhost:8002")
+        result = Phase1Result(sca_libraries=[{"name": "legacy-lib", "version": "2.4.6"}])
+
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.raise_for_status = MagicMock()
+        mock_resp.json.return_value = {"results": []}
+        executor._kb_client.post = AsyncMock(return_value=mock_resp)
+
+        result = await executor._run_cve_lookup(result)
+
+        assert executor._kb_client.post.await_args.kwargs["json"] == {
+            "libraries": [{"name": "legacy-lib", "version": "2.4.6"}],
+        }
+        assert result.cve_lookup_attempted is True
+        assert result.cve_lookup_completed is True
+        assert result.cve_lookup_skipped_libraries == []
+        await executor.aclose()
+
+    @pytest.mark.asyncio
+    async def test_truncated_eligible_libraries_record_unqueried_count(self, monkeypatch):
+        monkeypatch.setattr("app.core.phase_one_kb.settings.phase1_max_cve_libraries", 1)
+        executor = Phase1Executor(kb_endpoint="http://localhost:8002")
+        result = Phase1Result(
+            sca_libraries=[
+                {"name": "lib-a", "version": "1.0.0"},
+                {"name": "lib-b", "version": "2.0.0"},
+            ],
+        )
+
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.raise_for_status = MagicMock()
+        mock_resp.json.return_value = {"results": []}
+        executor._kb_client.post = AsyncMock(return_value=mock_resp)
+
+        result = await executor._run_cve_lookup(result)
+
+        assert executor._kb_client.post.await_args.kwargs["json"] == {
+            "libraries": [{"name": "lib-a", "version": "1.0.0"}],
+        }
+        assert result.cve_lookup_eligible_count == 2
+        assert result.cve_lookup_attempted_libraries == [{"name": "lib-a", "version": "1.0.0"}]
+        assert result.cve_lookup_truncated is True
+        assert result.cve_lookup_unqueried_eligible_count == 1
+        assert result.cve_lookup_completed is True
+        await executor.aclose()
+
+    @pytest.mark.asyncio
     async def test_kb_down_graceful(self):
         executor = Phase1Executor(kb_endpoint="http://localhost:8002")
         result = Phase1Result(
@@ -211,6 +355,9 @@ class TestRunCveLookup:
         result = await executor._run_cve_lookup(result)
 
         assert result.cve_lookup == []
+        assert result.cve_lookup_attempted is True
+        assert result.cve_lookup_completed is False
+        assert result.cve_lookup_error
         await executor.aclose()
 
     @pytest.mark.asyncio
@@ -231,6 +378,8 @@ class TestRunCveLookup:
 
         assert result.cve_lookup == []
         assert result.cve_lookup_timed_out is True
+        assert result.cve_lookup_attempted is True
+        assert result.cve_lookup_completed is False
         await executor.aclose()
 
     @pytest.mark.asyncio
@@ -426,6 +575,42 @@ class TestBuildPhase2Prompt:
         assert "KB timeout" in user
         assert "CVE lookup timeout" in user
         assert "dangerous-callers timeout" in user
+
+    def test_sca_prompt_preserves_unknown_version_and_diff_uncertainty(self):
+        result = Phase1Result(
+            sca_libraries=[
+                {
+                    "name": "zlib",
+                    "version": None,
+                    "path": "third_party/zlib",
+                    "versionStatus": "unknown",
+                    "versionConfidence": "none",
+                    "cveLookupEligible": False,
+                    "diagnostics": [{"code": "VERSION_UNKNOWN"}, {"code": "DIFF_NOT_COMPUTED"}],
+                    "diffAvailable": False,
+                    "modificationStatus": "unknown",
+                    "diffSummary": None,
+                },
+            ],
+            cve_lookup_skipped_libraries=[
+                {
+                    "name": "zlib",
+                    "version": None,
+                    "path": "third_party/zlib",
+                    "reason": "VERSION_UNKNOWN",
+                    "versionStatus": "unknown",
+                    "diagnostics": [{"code": "VERSION_UNKNOWN"}, {"code": "DIFF_NOT_COMPUTED"}],
+                },
+            ],
+        )
+
+        _, user = build_phase2_prompt(result, {"objective": "test"})
+
+        assert "VERSION_UNKNOWN" in user
+        assert "DIFF_NOT_COMPUTED" in user
+        assert "CVE lookup skipped" in user
+        assert "수정 여부 미확인" in user
+        assert "원본 그대로" not in user
 
     def test_mentions_code_graph_not_ready(self):
         result = Phase1Result(
@@ -671,8 +856,25 @@ class TestTargetPath:
                     "projectPath": "/uploads/project",
                     "projectId": "proj-1",
                     "quickContext": {
-                        "sastFindings": [{"ruleId": "CWE-78", "message": "command injection"}],
-                        "scaLibraries": [{"name": "openssl", "version": "1.1.1"}],
+                        "sastFindings": [{
+                            "ruleId": "CWE-78",
+                            "message": "command injection",
+                            "metadata": {
+                                "evidenceResolution": {
+                                    "schemaVersion": "s4-evidence-v1",
+                                    "kind": "sast-finding",
+                                    "diagnostics": ["CWE_UNKNOWN"],
+                                },
+                            },
+                        }],
+                        "scaLibraries": [{
+                            "name": "openssl",
+                            "version": "1.1.1",
+                            "versionStatus": "known",
+                            "cveLookupEligible": True,
+                            "diffAvailable": False,
+                            "diagnostics": [{"code": "DIFF_NOT_COMPUTED"}],
+                        }],
                     },
                 }
             },
@@ -694,8 +896,9 @@ class TestTargetPath:
 
         result = await executor.execute(session)
 
-        assert result.sast_findings == [{"ruleId": "CWE-78", "message": "command injection"}]
-        assert result.sca_libraries == [{"name": "openssl", "version": "1.1.1"}]
+        assert result.sast_findings[0]["metadata"]["evidenceResolution"]["schemaVersion"] == "s4-evidence-v1"
+        assert result.sca_libraries[0]["versionStatus"] == "known"
+        assert result.sca_libraries[0]["diagnostics"] == [{"code": "DIFF_NOT_COMPUTED"}]
         executor._run_build_and_analyze.assert_not_called()
         executor._run_individual_tools.assert_not_called()
         await executor.aclose()
@@ -1043,7 +1246,15 @@ async def test_build_and_analyze_uses_durable_ownership_and_fetches_result(monke
                 "execution": {"toolResults": {}},
             },
             "codeGraph": {"functions": [{"name": "main"}]},
-            "libraries": [{"name": "libx"}],
+            "libraries": [{
+                "name": "libx",
+                "version": None,
+                "versionStatus": "unknown",
+                "cveLookupEligible": False,
+                "diagnostics": [{"code": "VERSION_UNKNOWN"}],
+                "diffAvailable": False,
+                "modificationStatus": "unknown",
+            }],
         },
     }
     executor._sast_client.post = AsyncMock(return_value=submit)
@@ -1065,6 +1276,8 @@ async def test_build_and_analyze_uses_durable_ownership_and_fetches_result(monke
     assert result.sast_findings[0]["ruleId"] == "CWE-78"
     assert result.code_functions[0]["name"] == "main"
     assert result.sca_libraries[0]["name"] == "libx"
+    assert result.sca_libraries[0]["versionStatus"] == "unknown"
+    assert result.sca_libraries[0]["diagnostics"] == [{"code": "VERSION_UNKNOWN"}]
     headers = executor._sast_client.post.await_args.kwargs["headers"]
     assert headers["Prefer"] == "respond-async"
     assert headers["X-Request-Id"].startswith("req-root:s4:v1-build-and-analyze:phase1_build_and_analyze:")

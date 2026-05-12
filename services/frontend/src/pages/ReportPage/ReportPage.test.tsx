@@ -7,6 +7,9 @@ import { ApiError } from "@/common/api/client";
 import { ReportPage } from "./ReportPage";
 
 const mockFetchProjectReport = vi.fn();
+const mockFetchStaticModuleReport = vi.fn();
+const mockFetchDynamicModuleReport = vi.fn();
+const mockFetchTestModuleReport = vi.fn();
 const mockToast = { error: vi.fn(), success: vi.fn(), info: vi.fn() };
 
 vi.mock("@/common/api/client", async () => {
@@ -14,6 +17,9 @@ vi.mock("@/common/api/client", async () => {
   return {
     ...actual,
     fetchProjectReport: (...args: unknown[]) => mockFetchProjectReport(...args),
+    fetchStaticModuleReport: (...args: unknown[]) => mockFetchStaticModuleReport(...args),
+    fetchDynamicModuleReport: (...args: unknown[]) => mockFetchDynamicModuleReport(...args),
+    fetchTestModuleReport: (...args: unknown[]) => mockFetchTestModuleReport(...args),
     logError: vi.fn(),
   };
 });
@@ -172,10 +178,33 @@ function renderPage() {
   );
 }
 
+function makeModuleReport(overrides: Partial<{ findings: unknown[]; runs: unknown[] }> = {}) {
+  return {
+    meta: {
+      generatedAt: "2026-04-10T01:00:00Z",
+      projectId: "project-1",
+      projectName: "Payments Platform",
+      module: "static_analysis",
+    },
+    summary: {
+      totalFindings: 0,
+      bySeverity: { critical: 0, high: 0, medium: 0, low: 0, info: 0 },
+      byStatus: {},
+      bySource: {},
+    },
+    runs: overrides.runs ?? [],
+    findings: overrides.findings ?? [],
+    gateResults: [],
+  } as unknown as ReturnType<typeof makeReport>["modules"]["static"];
+}
+
 describe("ReportPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockFetchProjectReport.mockResolvedValue(makeReport());
+    mockFetchStaticModuleReport.mockResolvedValue(makeModuleReport());
+    mockFetchDynamicModuleReport.mockResolvedValue(makeModuleReport());
+    mockFetchTestModuleReport.mockResolvedValue(makeModuleReport());
   });
 
   it("shows loading feedback before the report resolves", () => {
@@ -237,6 +266,88 @@ describe("ReportPage", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "close custom report" }));
     await waitFor(() => expect(screen.queryByTestId("custom-report-modal")).not.toBeInTheDocument());
+  });
+
+  it("lazy-loads the static module report when the Static tab is selected", async () => {
+    renderPage();
+
+    await waitFor(() => expect(mockFetchProjectReport).toHaveBeenCalledWith("project-1", {}));
+    expect(mockFetchStaticModuleReport).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("tab", { name: "정적 분석" }));
+
+    await waitFor(() => expect(mockFetchStaticModuleReport).toHaveBeenCalledWith("project-1", {}));
+  });
+
+  it("lazy-loads the dynamic module report when the Dynamic tab is selected", async () => {
+    renderPage();
+
+    await waitFor(() => expect(mockFetchProjectReport).toHaveBeenCalled());
+    expect(mockFetchDynamicModuleReport).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("tab", { name: "동적 분석" }));
+
+    await waitFor(() => expect(mockFetchDynamicModuleReport).toHaveBeenCalledWith("project-1", {}));
+  });
+
+  it("lazy-loads the test module report when the Test tab is selected", async () => {
+    renderPage();
+
+    await waitFor(() => expect(mockFetchProjectReport).toHaveBeenCalled());
+    expect(mockFetchTestModuleReport).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("tab", { name: "동적 테스트" }));
+
+    await waitFor(() => expect(mockFetchTestModuleReport).toHaveBeenCalledWith("project-1", {}));
+  });
+
+  it("applies per-module filters only to the active module fetch and leaves the aggregate fetch alone", async () => {
+    renderPage();
+
+    await waitFor(() => expect(mockFetchProjectReport).toHaveBeenCalledWith("project-1", {}));
+    expect(mockFetchProjectReport).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByRole("tab", { name: "정적 분석" }));
+    await waitFor(() => expect(mockFetchStaticModuleReport).toHaveBeenCalledWith("project-1", {}));
+
+    fireEvent.click(screen.getByRole("button", { name: /필터/i }));
+    const startDateInput = document.querySelector('input[type="date"]') as HTMLInputElement | null;
+    expect(startDateInput).not.toBeNull();
+    fireEvent.change(startDateInput as HTMLInputElement, { target: { value: "2026-04-01" } });
+    fireEvent.click(screen.getByRole("button", { name: "적용" }));
+
+    await waitFor(() => {
+      expect(mockFetchStaticModuleReport).toHaveBeenLastCalledWith("project-1", { from: "2026-04-01" });
+    });
+
+    // Aggregate endpoint must NOT receive the module-scoped filter.
+    expect(mockFetchProjectReport).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders an empty-module empty state when the module fetch returns no findings or runs", async () => {
+    mockFetchDynamicModuleReport.mockResolvedValue(makeModuleReport({ findings: [], runs: [] }));
+
+    renderPage();
+
+    await waitFor(() => expect(mockFetchProjectReport).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole("tab", { name: "동적 분석" }));
+
+    expect(
+      await screen.findByText("해당 모듈에 표시할 탐지 항목이 없습니다."),
+    ).toBeInTheDocument();
+  });
+
+  it("surfaces a toast when the lazy module fetch fails", async () => {
+    mockFetchTestModuleReport.mockRejectedValueOnce(
+      new ApiError("module fetch failed", "INTERNAL_ERROR", false, "req-2"),
+    );
+
+    renderPage();
+    await waitFor(() => expect(mockFetchProjectReport).toHaveBeenCalled());
+
+    fireEvent.click(screen.getByRole("tab", { name: "동적 테스트" }));
+
+    await waitFor(() => expect(mockToast.error).toHaveBeenCalled());
   });
 
   it("shows the unavailable state without fetching when no project id is present", async () => {

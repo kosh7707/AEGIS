@@ -46,6 +46,12 @@ class SearchRequest(BaseModel):
         default=None,
         description="소스 필터: CWE, ATT&CK, CAPEC 중 선택",
     )
+    query_intent: str | None = Field(default=None, alias="queryIntent")
+    corpus_partitions: list[str] | None = Field(default=None, alias="corpusPartitions")
+    profiles: list[str] = Field(default_factory=list)
+    allow_global_embedding: bool | None = Field(default=None, alias="allowGlobalEmbedding")
+
+    model_config = {"populate_by_name": True}
 
 
 class SearchBatchItem(BaseModel):
@@ -54,6 +60,12 @@ class SearchBatchItem(BaseModel):
     min_score: float = Field(default=0.35, ge=0.0, le=1.0)
     graph_depth: int = Field(default=2, ge=0, le=5)
     source_filter: list[str] | None = None
+    query_intent: str | None = Field(default=None, alias="queryIntent")
+    corpus_partitions: list[str] | None = Field(default=None, alias="corpusPartitions")
+    profiles: list[str] = Field(default_factory=list)
+    allow_global_embedding: bool | None = Field(default=None, alias="allowGlobalEmbedding")
+
+    model_config = {"populate_by_name": True}
 
 
 class SearchBatchRequest(BaseModel):
@@ -87,6 +99,10 @@ async def search(
         graph_depth=req.graph_depth,
         exclude_ids=req.exclude_ids,
         source_filter=req.source_filter,
+        query_intent=req.query_intent,
+        corpus_partitions=req.corpus_partitions,
+        profiles=req.profiles,
+        allow_global_embedding=req.allow_global_embedding,
     )
 
     elapsed_ms = int((time.monotonic() - start) * 1000)
@@ -124,6 +140,10 @@ async def search_batch(
             "min_score": q.min_score,
             "graph_depth": q.graph_depth,
             "source_filter": q.source_filter,
+            "query_intent": q.query_intent,
+            "corpus_partitions": q.corpus_partitions,
+            "profiles": q.profiles,
+            "allow_global_embedding": q.allow_global_embedding,
         }
         for q in req.queries
     ]

@@ -1,0 +1,638 @@
+{
+  "schemaVersion": "s5-knowledge-corpus-v1",
+  "corpusVersion": "knowledge-corpus-v1",
+  "title": "S5 Knowledge Corpus v1 taxonomy/profile assets",
+  "scope": {
+    "primaryDomain": "automotive-first native/embedded C/C++ security analysis",
+    "corePrinciple": "Native/system vulnerability taxonomy is core truth; domain profiles are additive retrieval and explanation context.",
+    "outOfScope": [
+      "Python ecosystem",
+      "JavaScript/npm ecosystem",
+      "S5 final security verdicts",
+      "clean pass declarations"
+    ]
+  },
+  "coreTaxonomy": [
+    {
+      "id": "memory_safety",
+      "label": "Memory safety",
+      "family": "native_system_core",
+      "contextOnly": false,
+      "exampleCweIds": [
+        "CWE-119",
+        "CWE-120",
+        "CWE-125",
+        "CWE-787",
+        "CWE-416",
+        "CWE-415",
+        "CWE-476",
+        "CWE-190",
+        "CWE-191"
+      ],
+      "description": "Core native/system vulnerability primitive for memory safety."
+    },
+    {
+      "id": "command_execution",
+      "label": "Command execution",
+      "family": "native_system_core",
+      "contextOnly": false,
+      "exampleCweIds": [
+        "CWE-77",
+        "CWE-78",
+        "CWE-94",
+        "CWE-95"
+      ],
+      "description": "Core native/system vulnerability primitive for command execution."
+    },
+    {
+      "id": "input_validation",
+      "label": "Input validation",
+      "family": "native_system_core",
+      "contextOnly": false,
+      "exampleCweIds": [
+        "CWE-20",
+        "CWE-74",
+        "CWE-134",
+        "CWE-918"
+      ],
+      "description": "Core native/system vulnerability primitive for input validation."
+    },
+    {
+      "id": "path_file_access",
+      "label": "Path and file access",
+      "family": "native_system_core",
+      "contextOnly": false,
+      "exampleCweIds": [
+        "CWE-22",
+        "CWE-23",
+        "CWE-36",
+        "CWE-73"
+      ],
+      "description": "Core native/system vulnerability primitive for path and file access."
+    },
+    {
+      "id": "crypto_tls",
+      "label": "Cryptography and TLS",
+      "family": "native_system_core",
+      "contextOnly": false,
+      "exampleCweIds": [
+        "CWE-295",
+        "CWE-319",
+        "CWE-326",
+        "CWE-327",
+        "CWE-330"
+      ],
+      "description": "Core native/system vulnerability primitive for cryptography and tls."
+    },
+    {
+      "id": "authn_authz",
+      "label": "Authentication and authorization",
+      "family": "native_system_core",
+      "contextOnly": false,
+      "exampleCweIds": [
+        "CWE-287",
+        "CWE-306",
+        "CWE-798",
+        "CWE-862",
+        "CWE-863"
+      ],
+      "description": "Core native/system vulnerability primitive for authentication and authorization."
+    },
+    {
+      "id": "network_protocol",
+      "label": "Network protocol handling",
+      "family": "native_system_core",
+      "contextOnly": false,
+      "exampleCweIds": [
+        "CWE-400",
+        "CWE-770",
+        "CWE-113",
+        "CWE-444"
+      ],
+      "description": "Core native/system vulnerability primitive for network protocol handling."
+    },
+    {
+      "id": "parser_serialization",
+      "label": "Parser and serialization",
+      "family": "native_system_core",
+      "contextOnly": false,
+      "exampleCweIds": [
+        "CWE-502",
+        "CWE-611",
+        "CWE-843",
+        "CWE-704"
+      ],
+      "description": "Core native/system vulnerability primitive for parser and serialization."
+    },
+    {
+      "id": "concurrency",
+      "label": "Concurrency",
+      "family": "native_system_core",
+      "contextOnly": false,
+      "exampleCweIds": [
+        "CWE-362",
+        "CWE-364",
+        "CWE-367",
+        "CWE-820"
+      ],
+      "description": "Core native/system vulnerability primitive for concurrency."
+    },
+    {
+      "id": "resource_lifecycle",
+      "label": "Resource lifecycle",
+      "family": "native_system_core",
+      "contextOnly": false,
+      "exampleCweIds": [
+        "CWE-401",
+        "CWE-404",
+        "CWE-772",
+        "CWE-775"
+      ],
+      "description": "Core native/system vulnerability primitive for resource lifecycle."
+    },
+    {
+      "id": "credential_secret_exposure",
+      "label": "Credential and secret exposure",
+      "family": "native_system_core",
+      "contextOnly": false,
+      "exampleCweIds": [
+        "CWE-259",
+        "CWE-260",
+        "CWE-522",
+        "CWE-798"
+      ],
+      "description": "Core native/system vulnerability primitive for credential and secret exposure."
+    },
+    {
+      "id": "information_exposure_logging",
+      "label": "Information exposure and logging",
+      "family": "native_system_core",
+      "contextOnly": false,
+      "exampleCweIds": [
+        "CWE-200",
+        "CWE-209",
+        "CWE-532",
+        "CWE-922"
+      ],
+      "description": "Core native/system vulnerability primitive for information exposure and logging."
+    },
+    {
+      "id": "third_party_component",
+      "label": "Third-party component",
+      "family": "native_system_core",
+      "contextOnly": false,
+      "exampleCweIds": [
+        "CWE-1104",
+        "CWE-1395",
+        "CWE-937",
+        "CWE-1035"
+      ],
+      "description": "Core native/system vulnerability primitive for third-party component."
+    },
+    {
+      "id": "build_supply_chain",
+      "label": "Build and supply chain",
+      "family": "native_system_core",
+      "contextOnly": false,
+      "exampleCweIds": [
+        "CWE-494",
+        "CWE-829",
+        "CWE-347",
+        "CWE-1357"
+      ],
+      "description": "Core native/system vulnerability primitive for build and supply chain."
+    },
+    {
+      "id": "firmware_boot_update",
+      "label": "Firmware boot and update",
+      "family": "native_system_core",
+      "contextOnly": false,
+      "exampleCweIds": [
+        "CWE-494",
+        "CWE-347",
+        "CWE-693",
+        "CWE-1188"
+      ],
+      "description": "Core native/system vulnerability primitive for firmware boot and update."
+    },
+    {
+      "id": "os_kernel_driver",
+      "label": "OS, kernel, and driver boundary",
+      "family": "native_system_core",
+      "contextOnly": false,
+      "exampleCweIds": [
+        "CWE-269",
+        "CWE-284",
+        "CWE-787",
+        "CWE-416"
+      ],
+      "description": "Core native/system vulnerability primitive for os, kernel, and driver boundary."
+    },
+    {
+      "id": "rtos_embedded",
+      "label": "RTOS and embedded runtime",
+      "family": "native_system_core",
+      "contextOnly": false,
+      "exampleCweIds": [
+        "CWE-400",
+        "CWE-770",
+        "CWE-190",
+        "CWE-787"
+      ],
+      "description": "Core native/system vulnerability primitive for rtos and embedded runtime."
+    },
+    {
+      "id": "privilege_boundary",
+      "label": "Privilege boundary",
+      "family": "native_system_core",
+      "contextOnly": false,
+      "exampleCweIds": [
+        "CWE-250",
+        "CWE-269",
+        "CWE-276",
+        "CWE-732"
+      ],
+      "description": "Core native/system vulnerability primitive for privilege boundary."
+    }
+  ],
+  "specializationProfiles": [
+    {
+      "id": "automotive-specialization",
+      "role": "primary-default",
+      "default": true,
+      "contextOnly": true,
+      "canCreateVulnerabilityTruth": false,
+      "consumerPolicy": "contextual_only",
+      "tags": [
+        {
+          "id": "can_bus",
+          "method": "profile_signal",
+          "consumerPolicy": "contextual_only"
+        },
+        {
+          "id": "ecu_gateway",
+          "method": "profile_signal",
+          "consumerPolicy": "contextual_only"
+        },
+        {
+          "id": "telematics",
+          "method": "profile_signal",
+          "consumerPolicy": "contextual_only"
+        },
+        {
+          "id": "ivi",
+          "method": "profile_signal",
+          "consumerPolicy": "contextual_only"
+        },
+        {
+          "id": "ota_vehicle",
+          "method": "profile_signal",
+          "consumerPolicy": "contextual_only"
+        },
+        {
+          "id": "adas_sensor",
+          "method": "profile_signal",
+          "consumerPolicy": "contextual_only"
+        },
+        {
+          "id": "charging_infra",
+          "method": "profile_signal",
+          "consumerPolicy": "contextual_only"
+        },
+        {
+          "id": "vehicle_key_auth",
+          "method": "profile_signal",
+          "consumerPolicy": "contextual_only"
+        },
+        {
+          "id": "diagnostic_service",
+          "method": "profile_signal",
+          "consumerPolicy": "contextual_only"
+        },
+        {
+          "id": "in_vehicle_network",
+          "method": "profile_signal",
+          "consumerPolicy": "contextual_only"
+        }
+      ]
+    },
+    {
+      "id": "embedded-system-specialization",
+      "role": "additional",
+      "default": false,
+      "contextOnly": true,
+      "canCreateVulnerabilityTruth": false,
+      "consumerPolicy": "contextual_only",
+      "tags": [
+        {
+          "id": "rtos_tasking",
+          "method": "profile_signal",
+          "consumerPolicy": "contextual_only"
+        },
+        {
+          "id": "firmware_image",
+          "method": "profile_signal",
+          "consumerPolicy": "contextual_only"
+        },
+        {
+          "id": "bootloader",
+          "method": "profile_signal",
+          "consumerPolicy": "contextual_only"
+        },
+        {
+          "id": "secure_boot",
+          "method": "profile_signal",
+          "consumerPolicy": "contextual_only"
+        },
+        {
+          "id": "mcu_peripheral",
+          "method": "profile_signal",
+          "consumerPolicy": "contextual_only"
+        },
+        {
+          "id": "cross_compilation",
+          "method": "profile_signal",
+          "consumerPolicy": "contextual_only"
+        },
+        {
+          "id": "bare_metal",
+          "method": "profile_signal",
+          "consumerPolicy": "contextual_only"
+        },
+        {
+          "id": "resource_constrained_runtime",
+          "method": "profile_signal",
+          "consumerPolicy": "contextual_only"
+        }
+      ]
+    },
+    {
+      "id": "ics-ot-specialization",
+      "role": "additional",
+      "default": false,
+      "contextOnly": true,
+      "canCreateVulnerabilityTruth": false,
+      "consumerPolicy": "contextual_only",
+      "tags": [
+        {
+          "id": "plc",
+          "method": "profile_signal",
+          "consumerPolicy": "contextual_only"
+        },
+        {
+          "id": "scada",
+          "method": "profile_signal",
+          "consumerPolicy": "contextual_only"
+        },
+        {
+          "id": "hmi",
+          "method": "profile_signal",
+          "consumerPolicy": "contextual_only"
+        },
+        {
+          "id": "modbus",
+          "method": "profile_signal",
+          "consumerPolicy": "contextual_only"
+        },
+        {
+          "id": "dnp3",
+          "method": "profile_signal",
+          "consumerPolicy": "contextual_only"
+        },
+        {
+          "id": "opc_ua",
+          "method": "profile_signal",
+          "consumerPolicy": "contextual_only"
+        },
+        {
+          "id": "iec_62443",
+          "method": "profile_signal",
+          "consumerPolicy": "contextual_only"
+        },
+        {
+          "id": "industrial_control_network",
+          "method": "profile_signal",
+          "consumerPolicy": "contextual_only"
+        }
+      ]
+    }
+  ],
+  "relationMethods": [
+    {
+      "id": "exact_id_match",
+      "signalStrength": "strong",
+      "allowedConsumerPolicies": [
+        "contextual_only",
+        "s3_may_derive_local_support_if_refs_validate",
+        "scoped_no_hit_record_only"
+      ],
+      "canSupportNoHit": true,
+      "canCreateVulnerabilityTruth": false,
+      "traceRequired": true,
+      "methodVersion": "v1"
+    },
+    {
+      "id": "curated_mapping",
+      "signalStrength": "strong",
+      "allowedConsumerPolicies": [
+        "contextual_only",
+        "s3_may_derive_local_support_if_refs_validate"
+      ],
+      "canSupportNoHit": false,
+      "canCreateVulnerabilityTruth": false,
+      "traceRequired": true,
+      "methodVersion": "v1"
+    },
+    {
+      "id": "direct_source_relation",
+      "signalStrength": "strong",
+      "allowedConsumerPolicies": [
+        "contextual_only",
+        "s3_may_derive_local_support_if_refs_validate",
+        "scoped_no_hit_record_only"
+      ],
+      "canSupportNoHit": true,
+      "canCreateVulnerabilityTruth": false,
+      "traceRequired": true,
+      "methodVersion": "v1"
+    },
+    {
+      "id": "provider_range_eval",
+      "signalStrength": "strong-scoped",
+      "allowedConsumerPolicies": [
+        "contextual_only",
+        "scoped_no_hit_record_only",
+        "diagnostic_only"
+      ],
+      "canSupportNoHit": true,
+      "canCreateVulnerabilityTruth": false,
+      "traceRequired": true,
+      "methodVersion": "v1"
+    },
+    {
+      "id": "graph_expansion",
+      "signalStrength": "medium",
+      "allowedConsumerPolicies": [
+        "contextual_only",
+        "s3_may_derive_local_support_if_refs_validate",
+        "diagnostic_only"
+      ],
+      "canSupportNoHit": false,
+      "canCreateVulnerabilityTruth": false,
+      "traceRequired": true,
+      "methodVersion": "v1"
+    },
+    {
+      "id": "keyword_match",
+      "signalStrength": "weak",
+      "allowedConsumerPolicies": [
+        "contextual_only",
+        "diagnostic_only",
+        "do_not_use_as_negative_evidence"
+      ],
+      "canSupportNoHit": false,
+      "canCreateVulnerabilityTruth": false,
+      "traceRequired": true,
+      "methodVersion": "v1"
+    },
+    {
+      "id": "embedding_similarity",
+      "signalStrength": "weak",
+      "allowedConsumerPolicies": [
+        "contextual_only",
+        "diagnostic_only",
+        "do_not_use_as_negative_evidence"
+      ],
+      "canSupportNoHit": false,
+      "canCreateVulnerabilityTruth": false,
+      "traceRequired": true,
+      "methodVersion": "v1"
+    },
+    {
+      "id": "constrained_embedding_rerank",
+      "signalStrength": "medium-low",
+      "allowedConsumerPolicies": [
+        "contextual_only",
+        "diagnostic_only",
+        "do_not_use_as_negative_evidence"
+      ],
+      "canSupportNoHit": false,
+      "canCreateVulnerabilityTruth": false,
+      "traceRequired": true,
+      "methodVersion": "v1"
+    },
+    {
+      "id": "global_embedding_search",
+      "signalStrength": "low",
+      "allowedConsumerPolicies": [
+        "contextual_only",
+        "diagnostic_only",
+        "do_not_use_as_negative_evidence"
+      ],
+      "canSupportNoHit": false,
+      "canCreateVulnerabilityTruth": false,
+      "traceRequired": true,
+      "methodVersion": "v1"
+    },
+    {
+      "id": "profile_signal",
+      "signalStrength": "context-only",
+      "allowedConsumerPolicies": [
+        "contextual_only",
+        "diagnostic_only"
+      ],
+      "canSupportNoHit": false,
+      "canCreateVulnerabilityTruth": false,
+      "traceRequired": true,
+      "methodVersion": "v1",
+      "notes": "Specialization profile/tag signal. Additive retrieval/explanation context only; not core taxonomy truth."
+    }
+  ],
+  "consumerPolicies": [
+    {
+      "id": "s3_may_derive_local_support_if_refs_validate",
+      "claimSupportAllowed": "only_after_s3_validates_source_local_refs",
+      "negativeEvidenceAllowed": false
+    },
+    {
+      "id": "contextual_only",
+      "claimSupportAllowed": false,
+      "negativeEvidenceAllowed": false
+    },
+    {
+      "id": "scoped_no_hit_record_only",
+      "claimSupportAllowed": false,
+      "negativeEvidenceAllowed": "only_as_scoped_no_hit_record_not_clean_pass"
+    },
+    {
+      "id": "diagnostic_only",
+      "claimSupportAllowed": false,
+      "negativeEvidenceAllowed": false
+    },
+    {
+      "id": "do_not_use",
+      "claimSupportAllowed": false,
+      "negativeEvidenceAllowed": false
+    },
+    {
+      "id": "do_not_use_as_negative_evidence",
+      "claimSupportAllowed": false,
+      "negativeEvidenceAllowed": false
+    }
+  ],
+  "relationProvenanceSchema": {
+    "requiredFields": [
+      "subjectId",
+      "predicate",
+      "objectId",
+      "sourceKind",
+      "sourceId",
+      "sourceVersion",
+      "sourceUrl",
+      "method",
+      "methodVersion",
+      "confidence",
+      "taxonomyFamily",
+      "specializationProfiles",
+      "matchedTerms",
+      "score",
+      "consumerPolicy",
+      "createdAt",
+      "freshness"
+    ],
+    "fieldNotes": {
+      "method": "one of relationMethods.id",
+      "specializationProfiles": "additive profile ids/tags only; not core taxonomy truth",
+      "consumerPolicy": "one of consumerPolicies.id"
+    }
+  },
+  "legacyCompatibility": {
+    "threat_category": {
+      "sourceOfTruth": false,
+      "replacement": "coreTaxonomy.id",
+      "notes": "legacy display/search category only until G006/G007 migration"
+    },
+    "attack_surfaces": {
+      "sourceOfTruth": false,
+      "replacement": "specializationProfiles[].tags[]",
+      "notes": "legacy attack surfaces become profile signals"
+    },
+    "automotive_relevance": {
+      "sourceOfTruth": false,
+      "replacement": "profile signal score",
+      "notes": "domain relevance is not vulnerability truth or no-hit evidence"
+    }
+  },
+  "semanticGuards": {
+    "automotiveIsProfileNotCore": true,
+    "profilesAreAdditiveContextOnly": true,
+    "keywordOrEmbeddingMissCannotNoHit": true,
+    "weakMethodsCannotSupportNegativeEvidence": [
+      "keyword_match",
+      "embedding_similarity",
+      "constrained_embedding_rerank",
+      "global_embedding_search"
+    ],
+    "profileSignalCannotCreateTruthOrNoHit": true
+  }
+}

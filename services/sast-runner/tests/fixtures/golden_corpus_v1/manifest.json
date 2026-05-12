@@ -1,0 +1,205 @@
+{
+  "schemaVersion": "s4-golden-corpus-v1",
+  "analysisProfile": "c-cpp-core",
+  "owner": "s4-sast-runner",
+  "purpose": "Executable deterministic validation baseline for S4 static evidence contract, current six-tool capability skeletons, S3-consumable evidence bundles, and C/C++ vulnerability-family canaries.",
+  "expansionCriteria": [
+    "Before tool portfolio governance, all four Golden Corpus v1 layers must have at least one executable representative and pass the manifest validator.",
+    "Any future SAST tool addition/removal/upgrade must update toolCapabilityOracles with the affected tool id, expected evidence surfaces, known limits, and at least one fixture or benchmark pointer.",
+    "Any future quality-improvement claim must add or update a vulnerabilityFamilyCanary or external benchmark slice that can fail before the implementation changes.",
+    "Any new downstream-consumer assumption must be represented as either a contractOracle or evidenceBundleCorpus case before governance sign-off.",
+    "No Golden Corpus case may require LLM calls, S5 calls, external vulnerability lookups, network access, or final security verdict fields."
+  ],
+  "layers": {
+    "contractOracles": [
+      {
+        "id": "static-evidence-contract-minimum",
+        "fixture": "tests/fixtures/static_evidence_contract/minimum_contract_oracle.json",
+        "executable": "tests/test_static_evidence_contract.py::test_contract_oracle_fixture_matches_s3_minimum_key_set",
+        "asserts": [
+          "S3 minimum top-level key set",
+          "optional missingEvidence split",
+          "explicit not_provided non-S4 evidence surfaces",
+          "qualityEvaluation default not_evaluated"
+        ]
+      }
+    ],
+    "toolCapabilityOracles": [
+      {
+        "toolId": "semgrep",
+        "profile": "pattern-taint",
+        "primaryEvidence": [
+          "SARIF findings",
+          "ruleId",
+          "CWE metadata",
+          "taint dataflow when provided"
+        ],
+        "knownLimits": [
+          "Rule coverage depends on configured rulesets",
+          "C++ scan path extension filtering is deliberate"
+        ],
+        "executable": "tests/test_golden_corpus_v1.py::test_tool_capability_manifest_covers_existing_six_tools"
+      },
+      {
+        "toolId": "cppcheck",
+        "profile": "original-profile-ctu",
+        "primaryEvidence": [
+          "XML findings",
+          "CWE metadata",
+          "location evidence"
+        ],
+        "knownLimits": [
+          "SDK headers are excluded by profile design",
+          "Dataflow may be absent"
+        ],
+        "executable": "tests/test_golden_corpus_v1.py::test_tool_capability_manifest_covers_existing_six_tools"
+      },
+      {
+        "toolId": "flawfinder",
+        "profile": "text-dangerous-function-scan",
+        "primaryEvidence": [
+          "dangerous function findings",
+          "CWE metadata",
+          "location evidence"
+        ],
+        "knownLimits": [
+          "Text-pattern evidence only",
+          "No semantic runtime judgment"
+        ],
+        "executable": "tests/test_golden_corpus_v1.py::test_tool_capability_manifest_covers_existing_six_tools"
+      },
+      {
+        "toolId": "clang-tidy",
+        "profile": "enriched-compile-profile",
+        "primaryEvidence": [
+          "CERT/static analyzer diagnostics",
+          "CWE mapping",
+          "location evidence"
+        ],
+        "knownLimits": [
+          "Compile profile availability can affect coverage",
+          "Some checks have no CWE mapping"
+        ],
+        "executable": "tests/test_golden_corpus_v1.py::test_tool_capability_manifest_covers_existing_six_tools"
+      },
+      {
+        "toolId": "scan-build",
+        "profile": "enriched-compile-profile",
+        "primaryEvidence": [
+          "Clang Static Analyzer plist",
+          "path-sensitive diagnostics",
+          "CWE mapping"
+        ],
+        "knownLimits": [
+          "Requires compile-capable source units",
+          "May be partial under timeout/degraded runs"
+        ],
+        "executable": "tests/test_golden_corpus_v1.py::test_tool_capability_manifest_covers_existing_six_tools"
+      },
+      {
+        "toolId": "gcc-fanalyzer",
+        "profile": "original-profile-path-sensitive",
+        "primaryEvidence": [
+          "GCC analyzer diagnostics",
+          "path-sensitive diagnostics",
+          "CWE mapping"
+        ],
+        "knownLimits": [
+          "Requires GCC analyzer availability",
+          "Original profile avoids SDK header mismatch"
+        ],
+        "executable": "tests/test_golden_corpus_v1.py::test_tool_capability_manifest_covers_existing_six_tools"
+      }
+    ],
+    "evidenceBundleCorpus": [
+      {
+        "id": "scan-static-contract-bundle-v1",
+        "fixture": "tests/fixtures/golden_corpus_v1/evidence_bundles/scan_contract_bundle.json",
+        "executable": "tests/test_golden_corpus_v1.py::test_evidence_bundle_cases_preserve_required_surfaces[scan-static-contract-bundle-v1]",
+        "asserts": [
+          "finding evidenceResolution remains present",
+          "staticEvidenceContract gates/coverage/claimBoundaries/toolEvidenceMatrix are present",
+          "no verdict-like fields are emitted"
+        ]
+      },
+      {
+        "id": "structural-code-graph-contract-bundle-v1",
+        "fixture": "tests/fixtures/golden_corpus_v1/evidence_bundles/structural_graph_bundle.json",
+        "executable": "tests/test_golden_corpus_v1.py::test_evidence_bundle_cases_preserve_required_surfaces[structural-code-graph-contract-bundle-v1]",
+        "asserts": [
+          "structuralCodeGraph is structural-callgraph only",
+          "semanticRetrieval and graphRag remain not_provided"
+        ]
+      },
+      {
+        "id": "sca-diff-partial-contract-bundle-v1",
+        "fixture": "tests/fixtures/golden_corpus_v1/evidence_bundles/sca_diff_partial_bundle.json",
+        "executable": "tests/test_golden_corpus_v1.py::test_evidence_bundle_cases_preserve_required_surfaces[sca-diff-partial-contract-bundle-v1]",
+        "asserts": [
+          "mixed SCA diff evidence is partial",
+          "evidenceReadiness is partial not negative evidence"
+        ]
+      },
+      {
+        "id": "degraded-execution-contract-bundle-v1",
+        "fixture": "tests/fixtures/golden_corpus_v1/evidence_bundles/degraded_execution_bundle.json",
+        "executable": "tests/test_golden_corpus_v1.py::test_evidence_bundle_cases_preserve_required_surfaces[degraded-execution-contract-bundle-v1]",
+        "asserts": [
+          "systemStability is degraded",
+          "toolEvidenceMatrix exposes partial local tool state"
+        ]
+      },
+      {
+        "id": "policy-failure-contract-bundle-v1",
+        "fixture": "tests/fixtures/golden_corpus_v1/evidence_bundles/policy_failure_bundle.json",
+        "executable": "tests/test_golden_corpus_v1.py::test_evidence_bundle_cases_preserve_required_surfaces[policy-failure-contract-bundle-v1]",
+        "asserts": [
+          "systemStability is fail",
+          "evidenceReadiness is not_ready",
+          "blocking tool omission is visible in toolEvidenceMatrix"
+        ]
+      }
+    ],
+    "vulnerabilityFamilyCanaries": [
+      {
+        "id": "cwe120-buffer-copy-local-static-evidence",
+        "cweId": "CWE-120",
+        "family": "classic-buffer-copy-overflow",
+        "fixture": "tests/fixtures/golden_corpus_v1/vulnerability_canaries/cwe120_buffer_copy/main.c",
+        "executable": "tests/test_golden_corpus_v1.py::test_vulnerability_family_canaries_produce_local_evidence_without_verdict[cwe120-buffer-copy-local-static-evidence]",
+        "asserts": [
+          "local SAST finding evidence includes exact CWE id",
+          "external vulnerability knowledge remains not_provided",
+          "final security verdict remains not_provided",
+          "no verdict-like fields are emitted"
+        ]
+      },
+      {
+        "id": "cwe190-integer-overflow-local-static-evidence",
+        "cweId": "CWE-190",
+        "family": "integer-overflow",
+        "fixture": "tests/fixtures/golden_corpus_v1/vulnerability_canaries/cwe190_integer_overflow/main.c",
+        "executable": "tests/test_golden_corpus_v1.py::test_vulnerability_family_canaries_produce_local_evidence_without_verdict[cwe190-integer-overflow-local-static-evidence]",
+        "asserts": [
+          "local SAST finding evidence includes exact CWE id",
+          "external vulnerability knowledge remains not_provided",
+          "final security verdict remains not_provided",
+          "no verdict-like fields are emitted"
+        ]
+      },
+      {
+        "id": "cwe416-use-after-free-local-static-evidence",
+        "cweId": "CWE-416",
+        "family": "use-after-free",
+        "fixture": "tests/fixtures/golden_corpus_v1/vulnerability_canaries/cwe416_use_after_free/main.c",
+        "executable": "tests/test_golden_corpus_v1.py::test_vulnerability_family_canaries_produce_local_evidence_without_verdict[cwe416-use-after-free-local-static-evidence]",
+        "asserts": [
+          "local SAST finding evidence includes exact CWE id",
+          "external vulnerability knowledge remains not_provided",
+          "final security verdict remains not_provided",
+          "no verdict-like fields are emitted"
+        ]
+      }
+    ]
+  }
+}

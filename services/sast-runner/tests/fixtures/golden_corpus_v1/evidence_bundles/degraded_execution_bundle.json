@@ -1,0 +1,21 @@
+{
+  "id": "degraded-execution-contract-bundle-v1",
+  "kind": "evidence-bundle-oracle",
+  "description": "Degraded local tool execution is exposed as degraded system stability and per-tool partial evidence, not as a verdict.",
+  "contractInput": {
+    "success": true,
+    "execution": "degraded",
+    "cweId": "CWE-120",
+    "dataFlow": true
+  },
+  "requiredResponseSurfaces": [
+    "findings[].metadata.evidenceResolution",
+    "staticEvidenceContract.gates.systemStability",
+    "staticEvidenceContract.toolEvidenceMatrix"
+  ],
+  "expectedContractPaths": {
+    "staticEvidenceContract.gates.systemStability.status": "degraded",
+    "staticEvidenceContract.toolEvidenceMatrix.scan-build.status": "partial",
+    "staticEvidenceContract.toolEvidenceMatrix.scan-build.consumerPolicy": "local_tool_partial_use_with_degradation_metadata"
+  }
+}

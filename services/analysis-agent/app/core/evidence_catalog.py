@@ -232,7 +232,33 @@ class EvidenceCatalog:
             attempted = {
                 "phase": "phase1",
                 "libraryCount": len(result.sca_libraries),
+                "eligibleLibraryCount": result.cve_lookup_eligible_count,
             }
+            skipped_reasons = sorted({
+                str(skip.get("reason"))
+                for skip in result.cve_lookup_skipped_libraries
+                if isinstance(skip, dict) and skip.get("reason")
+            })
+            if skipped_reasons:
+                skipped_attempted = dict(attempted)
+                skipped_attempted["skippedReasons"] = skipped_reasons
+                skipped_attempted["skippedLibraryCount"] = len(result.cve_lookup_skipped_libraries)
+                self.add_operational(
+                    "cve.batch_lookup",
+                    skipped_attempted,
+                    "skipped",
+                    roles=("operational_status", "cve_lookup_skipped"),
+                )
+            if result.cve_lookup_truncated:
+                truncated_attempted = dict(attempted)
+                truncated_attempted["attemptedLibraryCount"] = len(result.cve_lookup_attempted_libraries)
+                truncated_attempted["unqueriedEligibleCount"] = result.cve_lookup_unqueried_eligible_count
+                self.add_operational(
+                    "cve.batch_lookup",
+                    truncated_attempted,
+                    "truncated",
+                    roles=("operational_status", "cve_lookup_truncated"),
+                )
             if result.cve_lookup_timed_out:
                 self.add_operational(
                     "cve.batch_lookup",
@@ -240,7 +266,20 @@ class EvidenceCatalog:
                     "timeout",
                     roles=("operational_status", "cve_lookup_timeout"),
                 )
-            elif not result.cve_lookup:
+            elif result.cve_lookup_error:
+                self.add_operational(
+                    "cve.batch_lookup",
+                    attempted,
+                    "lookup_failed",
+                    roles=("operational_status", "cve_lookup_failed"),
+                )
+            elif (
+                result.cve_lookup_attempted
+                and result.cve_lookup_completed
+                and result.cve_lookup_eligible_count > 0
+                and not result.cve_lookup_truncated
+                and not result.cve_lookup
+            ):
                 self.add_negative(
                     "cve.batch_lookup",
                     attempted,

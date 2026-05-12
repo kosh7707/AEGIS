@@ -1,0 +1,35 @@
+{
+  "metadata": {
+    "evidenceResolution": {
+      "schemaVersion": "s4-evidence-v1",
+      "kind": "sast-finding",
+      "toolId": "cppcheck",
+      "ruleId": "unknown-rule",
+      "cwe": {
+        "status": "unknown",
+        "id": null,
+        "source": null
+      },
+      "location": {
+        "status": "present",
+        "file": "src/incomplete.c",
+        "line": 2,
+        "column": null,
+        "endLine": null,
+        "endColumn": null
+      },
+      "dataFlow": {
+        "present": false,
+        "stepCount": 0
+      },
+      "origin": {
+        "status": "user-code",
+        "source": "default"
+      },
+      "diagnostics": [
+        "CWE_UNKNOWN",
+        "DATAFLOW_NOT_PROVIDED"
+      ]
+    }
+  }
+}

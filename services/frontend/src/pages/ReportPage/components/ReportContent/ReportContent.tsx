@@ -1,6 +1,7 @@
 import "./ReportContent.css";
 import React from "react";
 import type { AnalysisResult, ProjectReport } from "@aegis/shared";
+import { Spinner } from "@/common/ui/primitives";
 import { CustomReportModal } from "../CustomReportModal/CustomReportModal";
 import { ReportApprovalsSection } from "../ReportApprovalsSection/ReportApprovalsSection";
 import { ReportAuditTimeline } from "../ReportAuditTimeline/ReportAuditTimeline";
@@ -58,6 +59,8 @@ type ReportContentProps = {
   allRuns: RunsEntry[];
   sevCounts: { critical: number; high: number; medium: number; low: number };
   deepResult?: AnalysisResult | null;
+  moduleTabLoading?: boolean;
+  moduleTabEmpty?: boolean;
 };
 
 export function ReportContent({
@@ -79,6 +82,8 @@ export function ReportContent({
   allRuns,
   sevCounts,
   deepResult,
+  moduleTabLoading = false,
+  moduleTabEmpty = false,
 }: ReportContentProps) {
   const summary =
     activeTab === "all"
@@ -175,24 +180,36 @@ export function ReportContent({
             </div>
           ) : null}
 
-          <div className="report-section">
-            <div className="report-section__h">
-              탐지 항목
-              <span className="count">{allFindings.length}</span>
+          {moduleTabLoading ? (
+            <div className="page-loading-shell" role="status" aria-live="polite">
+              <Spinner label="모듈 보고서 불러오는 중..." />
             </div>
-            <ReportFindingsSection
-              findings={allFindings}
-              showModule={activeTab === "all"}
-            />
-          </div>
+          ) : moduleTabEmpty ? (
+            <div className="report-empty-line" role="status">
+              해당 모듈에 표시할 탐지 항목이 없습니다.
+            </div>
+          ) : (
+            <>
+              <div className="report-section">
+                <div className="report-section__h">
+                  탐지 항목
+                  <span className="count">{allFindings.length}</span>
+                </div>
+                <ReportFindingsSection
+                  findings={allFindings}
+                  showModule={activeTab === "all"}
+                />
+              </div>
 
-          <div className="report-section">
-            <div className="report-section__h">
-              실행 이력
-              <span className="count">{allRuns.length}</span>
-            </div>
-            <ReportRunsSection runs={allRuns} showModule={activeTab === "all"} />
-          </div>
+              <div className="report-section">
+                <div className="report-section__h">
+                  실행 이력
+                  <span className="count">{allRuns.length}</span>
+                </div>
+                <ReportRunsSection runs={allRuns} showModule={activeTab === "all"} />
+              </div>
+            </>
+          )}
 
           {activeTab === "all" ? (
             <div className="report-section">

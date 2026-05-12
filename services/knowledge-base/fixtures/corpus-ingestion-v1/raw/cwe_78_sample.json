@@ -1,0 +1,15 @@
+{
+  "id": "CWE-78",
+  "mitigations": [
+    "Avoid invoking shell command processors with untrusted input."
+  ],
+  "name": "Improper Neutralization of Special Elements used in an OS Command",
+  "provenance": {
+    "sourceKind": "CWE",
+    "sourceVersion": "4.15-fixture"
+  },
+  "relatedWeaknesses": [
+    "CWE-77"
+  ],
+  "taxonomyFamily": "command_execution"
+}

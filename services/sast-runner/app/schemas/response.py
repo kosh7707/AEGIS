@@ -131,6 +131,7 @@ class ScanResponse(BaseModel):
     execution: ExecutionReport | None = None
     code_graph: dict[str, Any] | None = Field(default=None, alias="codeGraph")
     sca: dict[str, Any] | None = None
+    static_evidence_contract: dict[str, Any] | None = Field(default=None, alias="staticEvidenceContract")
     error: str | None = None
     error_detail: ErrorDetail | None = Field(default=None, alias="errorDetail")
 
@@ -193,6 +194,7 @@ class BuildAndAnalyzeResponse(BaseModel):
     code_graph: dict[str, Any] | None = Field(default=None, alias="codeGraph")
     libraries: list[dict[str, Any]] | None = None
     metadata: dict[str, Any] | None = None
+    static_evidence_contract: dict[str, Any] | None = Field(default=None, alias="staticEvidenceContract")
     elapsed_ms: int | None = Field(default=None, alias="elapsedMs")
     error: str | None = None
     error_detail: ErrorDetail | None = Field(default=None, alias="errorDetail")

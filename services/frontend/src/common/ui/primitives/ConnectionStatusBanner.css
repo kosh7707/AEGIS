@@ -10,6 +10,14 @@
   background: var(--warning-surface);
   color: var(--warning);
 }
+/* LLM partial unreadiness — review-tone caution (handoff DESIGN §3.1).
+   Uses the same canonical --warning ramp as reconnecting; distinct class so
+   future copy/icon variations stay scoped. */
+.connection-status-banner.is-llm-degraded {
+  border-color: color-mix(in srgb, var(--warning) 32%, transparent);
+  background: var(--warning-surface);
+  color: var(--warning);
+}
 .connection-status-banner__icon { flex-shrink:0; }
 .connection-status-banner__copy { min-width:0; flex:1; }
 .connection-status-banner__action { margin-left:12px; border-color:currentColor; background:transparent; color:inherit; }

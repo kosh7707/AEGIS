@@ -1,0 +1,6 @@
+{
+  "asset": "knowledge-corpus-v1",
+  "schemaVersion": "knowledge-corpus-v1-fixture-ref",
+  "sourcePath": "fixtures/knowledge-corpus-v1/manifest.json",
+  "sourceVersion": "knowledge-corpus-v1"
+}

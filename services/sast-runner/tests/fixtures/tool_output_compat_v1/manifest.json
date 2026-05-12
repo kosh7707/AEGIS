@@ -1,0 +1,191 @@
+{
+  "schemaVersion": "s4-tool-output-compat-v1",
+  "toolOrder": [
+    "semgrep",
+    "cppcheck",
+    "flawfinder",
+    "clang-tidy",
+    "scan-build",
+    "gcc-fanalyzer"
+  ],
+  "cases": [
+    {
+      "caseId": "semgrep-sarif-strcpy",
+      "toolId": "semgrep",
+      "parserKind": "semgrep-sarif",
+      "inputFixture": "semgrep.sarif.json",
+      "baseDir": "/tmp/scan",
+      "expectedFindings": [
+        {
+          "toolId": "semgrep",
+          "ruleId": "semgrep:c.security.strcpy",
+          "severity": "error",
+          "location": {
+            "file": "src/main.c",
+            "line": 12
+          },
+          "metadata": {
+            "cweId": "CWE-120",
+            "cwe": [
+              "CWE-120"
+            ]
+          },
+          "dataFlow": [
+            {
+              "file": "src/main.c",
+              "line": 10
+            },
+            {
+              "file": "src/main.c",
+              "line": 12
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "cppcheck-xml-null-pointer",
+      "toolId": "cppcheck",
+      "parserKind": "cppcheck-xml",
+      "inputFixture": "cppcheck.xml",
+      "baseDir": "/tmp/scan",
+      "expectedFindings": [
+        {
+          "toolId": "cppcheck",
+          "ruleId": "cppcheck:nullPointer",
+          "severity": "error",
+          "location": {
+            "file": "src/main.c",
+            "line": 17
+          },
+          "metadata": {
+            "cppcheckId": "nullPointer",
+            "cweId": "CWE-476",
+            "cwe": [
+              "CWE-476"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "caseId": "flawfinder-csv-gets",
+      "toolId": "flawfinder",
+      "parserKind": "flawfinder-csv",
+      "inputFixture": "flawfinder.csv",
+      "baseDir": "/tmp/scan",
+      "expectedFindings": [
+        {
+          "toolId": "flawfinder",
+          "ruleId": "flawfinder:buffer/gets",
+          "severity": "error",
+          "location": {
+            "file": "src/main.c",
+            "line": 8,
+            "column": 5
+          },
+          "metadata": {
+            "cweId": "CWE-120",
+            "cwe": [
+              "CWE-120"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "caseId": "clang-tidy-text-null-deref",
+      "toolId": "clang-tidy",
+      "parserKind": "clang-tidy-text",
+      "inputFixture": "clang-tidy.txt",
+      "baseDir": "/tmp/scan",
+      "expectedFindings": [
+        {
+          "toolId": "clang-tidy",
+          "ruleId": "clang-tidy:clang-analyzer-core.NullDereference",
+          "severity": "warning",
+          "location": {
+            "file": "src/main.c",
+            "line": 17,
+            "column": 20
+          },
+          "metadata": {
+            "clangTidyCheck": "clang-analyzer-core.NullDereference",
+            "cweId": "CWE-476",
+            "cwe": [
+              "CWE-476"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "caseId": "scan-build-plist-null-deref",
+      "toolId": "scan-build",
+      "parserKind": "scan-build-plist",
+      "inputFixture": "scan-build-plist",
+      "baseDir": "/tmp/scan",
+      "expectedFindings": [
+        {
+          "toolId": "scan-build",
+          "ruleId": "scan-build:core.NullDereference",
+          "severity": "warning",
+          "location": {
+            "file": "src/main.c",
+            "line": 17,
+            "column": 5
+          },
+          "metadata": {
+            "checkName": "core.NullDereference",
+            "cweId": "CWE-476",
+            "cwe": [
+              "CWE-476"
+            ]
+          },
+          "dataFlow": [
+            {
+              "file": "src/main.c",
+              "line": 15
+            },
+            {
+              "file": "src/main.c",
+              "line": 17
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "gcc-fanalyzer-text-malloc-leak",
+      "toolId": "gcc-fanalyzer",
+      "parserKind": "gcc-fanalyzer-text",
+      "inputFixture": "gcc-fanalyzer.txt",
+      "baseDir": "/tmp/scan",
+      "expectedFindings": [
+        {
+          "toolId": "gcc-fanalyzer",
+          "ruleId": "gcc-fanalyzer:analyzer-malloc-leak",
+          "severity": "warning",
+          "location": {
+            "file": "src/main.c",
+            "line": 12,
+            "column": 5
+          },
+          "metadata": {
+            "gccFlag": "-Wanalyzer-malloc-leak",
+            "cweId": "CWE-401",
+            "cwe": [
+              "CWE-401"
+            ]
+          },
+          "dataFlow": [
+            {
+              "file": "src/main.c",
+              "line": 8
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

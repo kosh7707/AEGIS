@@ -21,7 +21,7 @@ import type { PipelinePhase } from "@aegis/shared";
 import { createLogger } from "../lib/logger";
 import { NotFoundError, BuildAgentUnavailableError, BuildAgentTimeoutError, PipelineStepError, InvalidInputError } from "../lib/errors";
 import type { ProjectSourceService } from "./project-source.service";
-import type { SastClient, SastScanResponse } from "./sast-client";
+import type { SastAnalysisBuildProfile, SastClient, SastScanResponse } from "./sast-client";
 import type { KbClient } from "./kb-client";
 import type { BuildAgentClient, BuildResolveBuildContext, BuildResolveRequest } from "./build-agent-client";
 import type { TargetLibraryDAO } from "../dao/target-library.dao";
@@ -223,7 +223,7 @@ export class PipelineOrchestrator {
         projectId,
         projectPath: scanPath,
         compileCommands: target.compileCommandsPath,
-        buildProfile: target.buildProfile,
+        buildProfile: this.buildSastScanProfile(projectId, target),
         thirdPartyPaths: thirdPartyPaths.length > 0 ? thirdPartyPaths : undefined,
       },
       requestId,
@@ -280,16 +280,17 @@ export class PipelineOrchestrator {
           throw new PipelineStepError(`Code graph not ready for ${target.name}: ${ingestResult.status ?? "unknown"}`);
         }
 
+        const nodeCount = this.kbClient.getIngestNodeCount(ingestResult);
         this.buildTargetDAO.updatePipelineState(target.id, {
           status: "graphed",
           codeGraphStatus: "ingested",
-          codeGraphNodeCount: ingestResult.nodes_created,
+          codeGraphNodeCount: nodeCount,
         });
         await this.analysisExecutionDAO?.update(scanId, {
           quickGraphRagStatus: "succeeded",
           status: "completed",
         });
-        this.updateStatus(projectId, pipelineId, target, "graphed", `코드그래프 적재 완료 (${ingestResult.nodes_created} nodes)`);
+        this.updateStatus(projectId, pipelineId, target, "graphed", `코드그래프 적재 완료 (${nodeCount} nodes)`);
       } catch (err) {
         this.buildTargetDAO.updatePipelineState(target.id, {
           status: "graph_failed",
@@ -515,6 +516,40 @@ export class PipelineOrchestrator {
     return {
       ...build,
       ...this.buildUploadedSdkDescriptor(projectId, target.buildProfile.sdkId),
+    };
+  }
+
+  buildSastScanProfile(projectId: string, target: BuildTarget): SastAnalysisBuildProfile {
+    const profile = target.buildProfile;
+    if (profile.sdkId === "none") {
+      const { sdkId: _sdkId, ...rest } = profile;
+      return { ...rest, sdkResolutionMode: "none" };
+    }
+    if (!profile.sdkId?.startsWith("sdk-")) {
+      return profile;
+    }
+
+    const descriptor = this.buildUploadedSdkDescriptor(projectId, profile.sdkId);
+    if (!descriptor.sdkRootPath) {
+      throw new InvalidInputError(`SDK materialization descriptor missing sdkRootPath: ${profile.sdkId}`);
+    }
+
+    const { sdkId: _sdkId, ...rest } = profile;
+    return {
+      ...rest,
+      sdkResolutionMode: "non-registered",
+      sdkDescriptor: {
+        sdkRootPath: descriptor.sdkRootPath,
+        ...(descriptor.setupScript ? { setupScript: descriptor.setupScript } : {}),
+        ...(descriptor.sysroot ? { sysroot: descriptor.sysroot } : {}),
+        ...(descriptor.toolchainTriplet ? { toolchainTriplet: descriptor.toolchainTriplet } : {}),
+        ...(profile.compilerVersion ? { compilerVersion: profile.compilerVersion } : {}),
+        ...(profile.targetArch ? { targetArch: profile.targetArch } : {}),
+        ...(profile.languageStandard ? { languageStandard: profile.languageStandard } : {}),
+        ...(profile.includePaths ? { includePaths: profile.includePaths } : {}),
+        ...(profile.defines ? { defines: profile.defines } : {}),
+        ...(descriptor.environment ? { environment: descriptor.environment } : {}),
+      },
     };
   }
 

@@ -1,0 +1,522 @@
+{
+  "manifestVersion": "corpus-ingestion-v1",
+  "retrievedAt": "2026-05-11T00:00:00Z",
+  "schemaVersion": "s5-corpus-source-manifest-v1",
+  "sources": [
+    {
+      "completedCoverage": true,
+      "coverageStatus": "completed_fixture",
+      "family": "schema_asset",
+      "providerState": {
+        "freshness": {
+          "status": "fixture_current"
+        },
+        "retrievedAt": "2026-05-11T00:00:00Z",
+        "state": "fixture"
+      },
+      "rawArtifacts": [
+        {
+          "artifactKind": "asset_manifest",
+          "contentHash": "sha256:82aa580339ea85c04d8ee6cac21f8d4c604f3412a35bdbc91c41b1f7a9a9a705",
+          "fixturePath": "raw/knowledge_corpus_asset.json",
+          "rawArtifactId": "raw-knowledge-corpus-v1",
+          "retrievedAt": "2026-05-11T00:00:00Z",
+          "transformVersion": "corpus-ingestion-v1",
+          "uri": "file://knowledge_corpus_asset.json"
+        }
+      ],
+      "sourceId": "source-knowledge-corpus-v1",
+      "sourceKind": "knowledge-corpus-v1",
+      "sourceUrl": "file://fixtures/knowledge-corpus-v1/manifest.json",
+      "sourceVersion": "knowledge-corpus-v1"
+    },
+    {
+      "completedCoverage": true,
+      "coverageStatus": "completed_fixture",
+      "family": "schema_asset",
+      "providerState": {
+        "freshness": {
+          "status": "fixture_current"
+        },
+        "retrievedAt": "2026-05-11T00:00:00Z",
+        "state": "fixture"
+      },
+      "rawArtifacts": [
+        {
+          "artifactKind": "golden_set_manifest",
+          "contentHash": "sha256:f1bd166ec12b376f6b9c3ba3a91458b1091942a5c0339ab020877ee0c4a9ac25",
+          "fixturePath": "raw/golden_set_asset.json",
+          "rawArtifactId": "raw-golden-set-v1",
+          "retrievedAt": "2026-05-11T00:00:00Z",
+          "transformVersion": "corpus-ingestion-v1",
+          "uri": "file://golden_set_asset.json"
+        }
+      ],
+      "sourceId": "source-golden-set-v1",
+      "sourceKind": "golden-set-v1",
+      "sourceUrl": "file://fixtures/golden-set-v1/manifest.json",
+      "sourceVersion": "golden-set-v1"
+    },
+    {
+      "completedCoverage": true,
+      "coverageStatus": "completed_fixture",
+      "family": "weakness_core",
+      "providerState": {
+        "freshness": {
+          "status": "fixture_current"
+        },
+        "retrievedAt": "2026-05-11T00:00:00Z",
+        "state": "fixture"
+      },
+      "rawArtifacts": [
+        {
+          "artifactKind": "weakness",
+          "contentHash": "sha256:41ebef3e06db1f681b7fd012ed0d815141d81f658d2b22ed73e0eea2f067bb89",
+          "fixturePath": "raw/cwe_78_sample.json",
+          "rawArtifactId": "raw-cwe-fixture",
+          "retrievedAt": "2026-05-11T00:00:00Z",
+          "transformVersion": "corpus-ingestion-v1",
+          "uri": "file://cwe_78_sample.json"
+        }
+      ],
+      "sourceId": "source-cwe-fixture",
+      "sourceKind": "CWE",
+      "sourceUrl": "https://cwe.mitre.org/data/index.html",
+      "sourceVersion": "4.15-fixture"
+    },
+    {
+      "completedCoverage": true,
+      "coverageStatus": "completed_fixture",
+      "family": "tool_rule_core",
+      "providerState": {
+        "freshness": {
+          "status": "fixture_current"
+        },
+        "retrievedAt": "2026-05-11T00:00:00Z",
+        "state": "fixture"
+      },
+      "rawArtifacts": [
+        {
+          "artifactKind": "tool_rule",
+          "contentHash": "sha256:1d7cd9169fe55bed274c3a57b7949c787fc65e54faad81b1daa23af29cff53f3",
+          "fixturePath": "raw/tool_semgrep_system_command.json",
+          "rawArtifactId": "raw-semgrep-fixture",
+          "retrievedAt": "2026-05-11T00:00:00Z",
+          "transformVersion": "corpus-ingestion-v1",
+          "uri": "file://tool_semgrep_system_command.json"
+        }
+      ],
+      "sourceId": "source-semgrep-fixture",
+      "sourceKind": "semgrep",
+      "sourceUrl": "https://semgrep.dev/r",
+      "sourceVersion": "fixture-2026-05-11"
+    },
+    {
+      "completedCoverage": true,
+      "coverageStatus": "completed_fixture",
+      "family": "tool_rule_core",
+      "providerState": {
+        "freshness": {
+          "status": "fixture_current"
+        },
+        "retrievedAt": "2026-05-11T00:00:00Z",
+        "state": "fixture"
+      },
+      "rawArtifacts": [
+        {
+          "artifactKind": "tool_rule",
+          "contentHash": "sha256:68aff02f6efe1b07eb96db7581748eba269ec94e91069e6627c2c12a858641b3",
+          "fixturePath": "raw/tool_cppcheck_invalid_printf.json",
+          "rawArtifactId": "raw-cppcheck-fixture",
+          "retrievedAt": "2026-05-11T00:00:00Z",
+          "transformVersion": "corpus-ingestion-v1",
+          "uri": "file://tool_cppcheck_invalid_printf.json"
+        }
+      ],
+      "sourceId": "source-cppcheck-fixture",
+      "sourceKind": "cppcheck",
+      "sourceUrl": "https://cppcheck.sourceforge.io",
+      "sourceVersion": "fixture-2026-05-11"
+    },
+    {
+      "completedCoverage": true,
+      "coverageStatus": "completed_fixture",
+      "family": "tool_rule_core",
+      "providerState": {
+        "freshness": {
+          "status": "fixture_current"
+        },
+        "retrievedAt": "2026-05-11T00:00:00Z",
+        "state": "fixture"
+      },
+      "rawArtifacts": [
+        {
+          "artifactKind": "tool_rule",
+          "contentHash": "sha256:196e94393877dd1de280d755e6adf712ffa4897e2a10f9d81c4aa3a29fad2808",
+          "fixturePath": "raw/tool_clang_tidy_cert_str34.json",
+          "rawArtifactId": "raw-clang-tidy-fixture",
+          "retrievedAt": "2026-05-11T00:00:00Z",
+          "transformVersion": "corpus-ingestion-v1",
+          "uri": "file://tool_clang_tidy_cert_str34.json"
+        }
+      ],
+      "sourceId": "source-clang-tidy-fixture",
+      "sourceKind": "clang-tidy",
+      "sourceUrl": "https://clang.llvm.org/extra/clang-tidy",
+      "sourceVersion": "fixture-2026-05-11"
+    },
+    {
+      "completedCoverage": true,
+      "coverageStatus": "completed_fixture",
+      "family": "tool_rule_core",
+      "providerState": {
+        "freshness": {
+          "status": "fixture_current"
+        },
+        "retrievedAt": "2026-05-11T00:00:00Z",
+        "state": "fixture"
+      },
+      "rawArtifacts": [
+        {
+          "artifactKind": "tool_rule",
+          "contentHash": "sha256:c58a1dc16f015455f6bedbdec6afd2f40fd14db50ac6003adf02c576ad666d74",
+          "fixturePath": "raw/tool_gcc_fanalyzer_double_free.json",
+          "rawArtifactId": "raw-gcc-fanalyzer-fixture",
+          "retrievedAt": "2026-05-11T00:00:00Z",
+          "transformVersion": "corpus-ingestion-v1",
+          "uri": "file://tool_gcc_fanalyzer_double_free.json"
+        }
+      ],
+      "sourceId": "source-gcc-fanalyzer-fixture",
+      "sourceKind": "gcc-fanalyzer",
+      "sourceUrl": "https://gcc.gnu.org/onlinedocs/gcc/Static-Analyzer-Options.html",
+      "sourceVersion": "fixture-2026-05-11"
+    },
+    {
+      "completedCoverage": true,
+      "coverageStatus": "completed_fixture",
+      "family": "tool_rule_core",
+      "providerState": {
+        "freshness": {
+          "status": "fixture_current"
+        },
+        "retrievedAt": "2026-05-11T00:00:00Z",
+        "state": "fixture"
+      },
+      "rawArtifacts": [
+        {
+          "artifactKind": "tool_rule",
+          "contentHash": "sha256:105abdc937f5ffc7025e46a1307c0e89bc6651c84ce38a1846c160ef3cd005cd",
+          "fixturePath": "raw/tool_scan_build_use_after_free.json",
+          "rawArtifactId": "raw-scan-build-fixture",
+          "retrievedAt": "2026-05-11T00:00:00Z",
+          "transformVersion": "corpus-ingestion-v1",
+          "uri": "file://tool_scan_build_use_after_free.json"
+        }
+      ],
+      "sourceId": "source-scan-build-fixture",
+      "sourceKind": "scan-build",
+      "sourceUrl": "https://clang-analyzer.llvm.org/scan-build.html",
+      "sourceVersion": "fixture-2026-05-11"
+    },
+    {
+      "completedCoverage": true,
+      "coverageStatus": "completed_fixture",
+      "family": "tool_rule_core",
+      "providerState": {
+        "freshness": {
+          "status": "fixture_current"
+        },
+        "retrievedAt": "2026-05-11T00:00:00Z",
+        "state": "fixture"
+      },
+      "rawArtifacts": [
+        {
+          "artifactKind": "tool_rule",
+          "contentHash": "sha256:e2e0992598e0be0742ebb3a0cccc88cb0a6035d43f34495e82b6cfee532d2a85",
+          "fixturePath": "raw/tool_flawfinder_shell.json",
+          "rawArtifactId": "raw-flawfinder-fixture",
+          "retrievedAt": "2026-05-11T00:00:00Z",
+          "transformVersion": "corpus-ingestion-v1",
+          "uri": "file://tool_flawfinder_shell.json"
+        }
+      ],
+      "sourceId": "source-flawfinder-fixture",
+      "sourceKind": "flawfinder",
+      "sourceUrl": "https://dwheeler.com/flawfinder/",
+      "sourceVersion": "fixture-2026-05-11"
+    },
+    {
+      "completedCoverage": true,
+      "coverageStatus": "completed_fixture",
+      "family": "package_identity",
+      "providerState": {
+        "freshness": {
+          "status": "fixture_current"
+        },
+        "retrievedAt": "2026-05-11T00:00:00Z",
+        "state": "fixture"
+      },
+      "rawArtifacts": [
+        {
+          "artifactKind": "package_identity",
+          "contentHash": "sha256:2367831ef142716a653b6c74cbe2bc8edf9f46218e962478e20fd39e2edc2004",
+          "fixturePath": "raw/package_identity_curl.json",
+          "rawArtifactId": "raw-package-identity-fixture",
+          "retrievedAt": "2026-05-11T00:00:00Z",
+          "transformVersion": "corpus-ingestion-v1",
+          "uri": "file://package_identity_curl.json"
+        }
+      ],
+      "sourceId": "source-package-identity-fixture",
+      "sourceKind": "package-identity",
+      "sourceUrl": "file://fixtures/package-identity",
+      "sourceVersion": "fixture-2026-05-11"
+    },
+    {
+      "completedCoverage": true,
+      "coverageStatus": "completed_fixture",
+      "family": "vulnerability_intelligence",
+      "providerState": {
+        "freshness": {
+          "status": "fixture_current"
+        },
+        "retrievedAt": "2026-05-11T00:00:00Z",
+        "state": "fixture"
+      },
+      "rawArtifacts": [
+        {
+          "artifactKind": "vulnerability_advisory",
+          "contentHash": "sha256:020dd55426f7e1d952610fdcba201d4d914d56dfd67e7ac584f44d46c7515857",
+          "fixturePath": "raw/osv_curl_advisory.json",
+          "rawArtifactId": "raw-osv-fixture",
+          "retrievedAt": "2026-05-11T00:00:00Z",
+          "transformVersion": "corpus-ingestion-v1",
+          "uri": "file://osv_curl_advisory.json"
+        }
+      ],
+      "sourceId": "source-osv-fixture",
+      "sourceKind": "OSV",
+      "sourceUrl": "https://osv.dev",
+      "sourceVersion": "fixture-2026-05-11"
+    },
+    {
+      "completedCoverage": true,
+      "coverageStatus": "completed_fixture",
+      "family": "vulnerability_intelligence",
+      "providerState": {
+        "freshness": {
+          "status": "fixture_current"
+        },
+        "retrievedAt": "2026-05-11T00:00:00Z",
+        "state": "fixture"
+      },
+      "rawArtifacts": [
+        {
+          "artifactKind": "vulnerability_advisory",
+          "contentHash": "sha256:8a2d8ae9f406d96e4e83796d1b657b9495c06cd52af057d96630ed848380da56",
+          "fixturePath": "raw/nvd_cve_2026_0001.json",
+          "rawArtifactId": "raw-nvd-cve-fixture",
+          "retrievedAt": "2026-05-11T00:00:00Z",
+          "transformVersion": "corpus-ingestion-v1",
+          "uri": "file://nvd_cve_2026_0001.json"
+        }
+      ],
+      "sourceId": "source-nvd-cve-fixture",
+      "sourceKind": "NVD_CVE",
+      "sourceUrl": "https://nvd.nist.gov/vuln/data-feeds",
+      "sourceVersion": "2.0-fixture"
+    },
+    {
+      "completedCoverage": true,
+      "coverageStatus": "completed_fixture",
+      "family": "vulnerability_intelligence",
+      "providerState": {
+        "freshness": {
+          "status": "fixture_current"
+        },
+        "retrievedAt": "2026-05-11T00:00:00Z",
+        "state": "fixture"
+      },
+      "rawArtifacts": [
+        {
+          "artifactKind": "vulnerability_advisory",
+          "contentHash": "sha256:dd75056d9e7afa519bb42dbb008942fe2b143bbb5d38b58145e46d712bc348d8",
+          "fixturePath": "raw/ghsa_curl_advisory.json",
+          "rawArtifactId": "raw-ghsa-fixture",
+          "retrievedAt": "2026-05-11T00:00:00Z",
+          "transformVersion": "corpus-ingestion-v1",
+          "uri": "file://ghsa_curl_advisory.json"
+        }
+      ],
+      "sourceId": "source-ghsa-fixture",
+      "sourceKind": "GHSA",
+      "sourceUrl": "https://github.com/advisories",
+      "sourceVersion": "fixture-2026-05-11"
+    },
+    {
+      "completedCoverage": true,
+      "coverageStatus": "completed_fixture",
+      "family": "vulnerability_intelligence",
+      "providerState": {
+        "freshness": {
+          "status": "fixture_current"
+        },
+        "retrievedAt": "2026-05-11T00:00:00Z",
+        "state": "fixture"
+      },
+      "rawArtifacts": [
+        {
+          "artifactKind": "risk_enrichment",
+          "contentHash": "sha256:5658d33b0ac063c9e6c6cd2b856d1a814f108ed758d90e45c9772370611a53b4",
+          "fixturePath": "raw/cisa_kev_cve_2026_0001.json",
+          "rawArtifactId": "raw-cisa-kev-fixture",
+          "retrievedAt": "2026-05-11T00:00:00Z",
+          "transformVersion": "corpus-ingestion-v1",
+          "uri": "file://cisa_kev_cve_2026_0001.json"
+        }
+      ],
+      "sourceId": "source-cisa-kev-fixture",
+      "sourceKind": "CISA_KEV",
+      "sourceUrl": "https://www.cisa.gov/known-exploited-vulnerabilities-catalog",
+      "sourceVersion": "fixture-2026-05-11"
+    },
+    {
+      "completedCoverage": true,
+      "coverageStatus": "completed_fixture",
+      "family": "vulnerability_intelligence",
+      "providerState": {
+        "freshness": {
+          "status": "fixture_current"
+        },
+        "retrievedAt": "2026-05-11T00:00:00Z",
+        "state": "fixture"
+      },
+      "rawArtifacts": [
+        {
+          "artifactKind": "risk_enrichment",
+          "contentHash": "sha256:acdf42be2f34e59a95e58cc274ea91ccee916acc2e86492636f43b15a0de8357",
+          "fixturePath": "raw/first_epss_cve_2026_0001.json",
+          "rawArtifactId": "raw-first-epss-fixture",
+          "retrievedAt": "2026-05-11T00:00:00Z",
+          "transformVersion": "corpus-ingestion-v1",
+          "uri": "file://first_epss_cve_2026_0001.json"
+        }
+      ],
+      "sourceId": "source-first-epss-fixture",
+      "sourceKind": "FIRST_EPSS",
+      "sourceUrl": "https://www.first.org/epss/",
+      "sourceVersion": "fixture-2026-05-11"
+    },
+    {
+      "completedCoverage": true,
+      "coverageStatus": "completed_fixture",
+      "family": "attack_core",
+      "providerState": {
+        "freshness": {
+          "status": "fixture_current"
+        },
+        "retrievedAt": "2026-05-11T00:00:00Z",
+        "scope": "sample_fixture_not_production_scale",
+        "state": "fixture"
+      },
+      "rawArtifacts": [
+        {
+          "artifactKind": "attack_pattern",
+          "contentHash": "sha256:d8ff10bf9b8246a92236f52d67fa958a7d4aaab4ce1b6521b5dcfcdf670f136d",
+          "fixturePath": "raw/capec_88_command_injection.json",
+          "rawArtifactId": "raw-capec-88-fixture",
+          "retrievedAt": "2026-05-11T00:00:00Z",
+          "transformVersion": "corpus-ingestion-v1",
+          "uri": "file://capec_88_command_injection.json"
+        }
+      ],
+      "sourceId": "source-capec-fixture",
+      "sourceKind": "CAPEC",
+      "sourceUrl": "https://capec.mitre.org/data/definitions/88.html",
+      "sourceVersion": "3.9-fixture"
+    },
+    {
+      "completedCoverage": true,
+      "coverageStatus": "completed_fixture",
+      "family": "attack_core",
+      "providerState": {
+        "freshness": {
+          "status": "fixture_current"
+        },
+        "retrievedAt": "2026-05-11T00:00:00Z",
+        "scope": "sample_fixture_not_production_scale",
+        "state": "fixture"
+      },
+      "rawArtifacts": [
+        {
+          "artifactKind": "attack_pattern",
+          "contentHash": "sha256:c40373175a6e60d8cbb065100dba09b7fe538c1a076167eecd1f8937b7ef9139",
+          "fixturePath": "raw/attack_ics_t0807_command_line_interface.json",
+          "rawArtifactId": "raw-attack-ics-t0807-fixture",
+          "retrievedAt": "2026-05-11T00:00:00Z",
+          "transformVersion": "corpus-ingestion-v1",
+          "uri": "file://attack_ics_t0807_command_line_interface.json"
+        }
+      ],
+      "sourceId": "source-attack-ics-fixture",
+      "sourceKind": "ATTACK_ICS",
+      "sourceUrl": "https://attack.mitre.org/techniques/T0807/",
+      "sourceVersion": "attack-ics-fixture-2026-05-11"
+    },
+    {
+      "completedCoverage": true,
+      "coverageStatus": "completed_fixture",
+      "family": "attack_core",
+      "providerState": {
+        "freshness": {
+          "status": "fixture_current"
+        },
+        "retrievedAt": "2026-05-11T00:00:00Z",
+        "scope": "sample_fixture_not_production_scale",
+        "state": "fixture"
+      },
+      "rawArtifacts": [
+        {
+          "artifactKind": "attack_pattern",
+          "contentHash": "sha256:df49d26d3cd806620d616735b7742513356f576ed6b79c5d885df633720162fd",
+          "fixturePath": "raw/attack_enterprise_t1059_command_interpreter.json",
+          "rawArtifactId": "raw-attack-enterprise-t1059-fixture",
+          "retrievedAt": "2026-05-11T00:00:00Z",
+          "transformVersion": "corpus-ingestion-v1",
+          "uri": "file://attack_enterprise_t1059_command_interpreter.json"
+        }
+      ],
+      "sourceId": "source-attack-enterprise-fixture",
+      "sourceKind": "ATTACK_ENTERPRISE",
+      "sourceUrl": "https://attack.mitre.org/techniques/T1059/",
+      "sourceVersion": "attack-enterprise-fixture-2026-05-11"
+    }
+  ],
+  "summary": {
+    "completedCoverageSourceKinds": [
+      "ATTACK_ENTERPRISE",
+      "ATTACK_ICS",
+      "CAPEC",
+      "CISA_KEV",
+      "CWE",
+      "FIRST_EPSS",
+      "GHSA",
+      "NVD_CVE",
+      "OSV",
+      "clang-tidy",
+      "cppcheck",
+      "flawfinder",
+      "gcc-fanalyzer",
+      "golden-set-v1",
+      "knowledge-corpus-v1",
+      "package-identity",
+      "scan-build",
+      "semgrep"
+    ],
+    "completedSourceCount": 18,
+    "nonCompletedSourceCount": 0,
+    "nonCompletedSourceKinds": [],
+    "sourceCount": 18
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "id": "policy-failure-contract-bundle-v1",
+  "kind": "evidence-bundle-oracle",
+  "description": "Policy-failure artifacts remain emitted evidence artifacts with failed/not-ready gates and a blocking per-tool omission signal.",
+  "contractInput": {
+    "success": false,
+    "execution": "policy-failure",
+    "cweId": "CWE-120",
+    "dataFlow": true,
+    "policyFailureReasonCodes": ["POLICY_VIOLATION", "DISALLOWED_TOOL_ENVIRONMENT_DRIFT"]
+  },
+  "requiredResponseSurfaces": [
+    "findings[].metadata.evidenceResolution",
+    "staticEvidenceContract.gates.systemStability",
+    "staticEvidenceContract.gates.evidenceReadiness",
+    "staticEvidenceContract.toolEvidenceMatrix"
+  ],
+  "expectedContractPaths": {
+    "staticEvidenceContract.gates.systemStability.status": "fail",
+    "staticEvidenceContract.gates.evidenceReadiness.status": "not_ready",
+    "staticEvidenceContract.toolEvidenceMatrix.semgrep.status": "skipped",
+    "staticEvidenceContract.toolEvidenceMatrix.semgrep.consumerPolicy": "blocks_successful_artifact"
+  }
+}

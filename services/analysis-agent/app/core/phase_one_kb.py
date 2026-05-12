@@ -31,6 +31,69 @@ _DANGEROUS_FUNC_PATTERNS: dict[str, re.Pattern] = {
     for func in _DANGEROUS_FUNCS
 }
 
+
+def _diagnostic_codes(lib: dict) -> list[str]:
+    diagnostics = lib.get("diagnostics")
+    codes: list[str] = []
+    if isinstance(diagnostics, list):
+        for item in diagnostics:
+            if isinstance(item, dict):
+                code = item.get("code")
+            else:
+                code = item
+            if isinstance(code, str) and code:
+                codes.append(code)
+    return codes
+
+
+def _cve_skip_record(lib: dict, reason: str) -> dict:
+    return {
+        "name": lib.get("name"),
+        "version": lib.get("version"),
+        "path": lib.get("path"),
+        "reason": reason,
+        "versionStatus": lib.get("versionStatus"),
+        "diagnostics": lib.get("diagnostics") if isinstance(lib.get("diagnostics"), list) else [],
+    }
+
+
+def _cve_entry_for_library(lib: dict) -> tuple[dict[str, str] | None, dict | None]:
+    """Return S5 lookup entry or a structured skip diagnostic for an S4 SCA lib.
+
+    S4 enriched fields are eligibility hints, not vulnerability verdicts.  S5
+    batch lookup currently requires a concrete library version; therefore S3
+    must not send versionless/unknown/ambiguous libraries and must preserve the
+    skip reason as operational context.
+    """
+    name = lib.get("name")
+    if not isinstance(name, str) or not name.strip():
+        return None, _cve_skip_record(lib, "MISSING_NAME")
+
+    version = lib.get("version")
+    if not isinstance(version, str) or not version.strip():
+        reason = "VERSION_UNKNOWN"
+        codes = _diagnostic_codes(lib)
+        if "VERSION_UNKNOWN" in codes:
+            reason = "VERSION_UNKNOWN"
+        return None, _cve_skip_record(lib, reason)
+
+    if lib.get("cveLookupEligible") is False:
+        return None, _cve_skip_record(lib, "CVE_LOOKUP_INELIGIBLE")
+
+    version_status = lib.get("versionStatus")
+    # Legacy S4/SCA entries did not have versionStatus. Preserve compatibility:
+    # name+version with absent status remains lookup-eligible.
+    if isinstance(version_status, str) and version_status not in {"known"}:
+        return None, _cve_skip_record(lib, f"VERSION_STATUS_{version_status.upper()}")
+
+    entry: dict[str, str] = {"name": name.strip(), "version": version.strip()}
+    if isinstance(lib.get("repoUrl"), str) and lib["repoUrl"].strip():
+        entry["repoUrl"] = lib["repoUrl"].strip()
+    if isinstance(lib.get("commit"), str) and lib["commit"].strip():
+        entry["commit"] = lib["commit"].strip()
+    return entry, None
+
+
 def extract_cwe_ids(findings: list[dict]) -> set[str]:
     """findings에서 고유 CWE ID를 결정론적으로 추출한다."""
     cwe_ids: set[str] = set()
@@ -61,21 +124,24 @@ async def run_cve_lookup(
     logger: logging.Logger,
 ) -> Phase1Result:
     """SCA 라이브러리+버전으로 S5 KB 실시간 CVE 조회."""
-    libraries = []
+    libraries: list[dict[str, str]] = []
+    skipped: list[dict] = []
     for lib in result.sca_libraries:
-        if not lib.get("name"):
+        if not isinstance(lib, dict):
             continue
-        entry: dict[str, str] = {"name": lib["name"]}
-        if lib.get("version"):
-            entry["version"] = lib["version"]
-        if lib.get("repoUrl"):
-            entry["repoUrl"] = lib["repoUrl"]
-        if lib.get("commit"):
-            entry["commit"] = lib["commit"]
-        libraries.append(entry)
+        entry, skip = _cve_entry_for_library(lib)
+        if skip is not None:
+            skipped.append(skip)
+        if entry is not None:
+            libraries.append(entry)
+
+    result.cve_lookup_skipped_libraries = skipped
+    result.cve_lookup_eligible_count = len(libraries)
 
     if not libraries:
         return result
+
+    result.cve_lookup_attempted = True
 
     agent_log(
         logger, "Phase 1: CVE 실시간 조회",
@@ -91,12 +157,18 @@ async def run_cve_lookup(
 
     limit = settings.phase1_max_cve_libraries
     if len(libraries) > limit:
+        result.cve_lookup_truncated = True
+        result.cve_lookup_unqueried_eligible_count = len(libraries) - limit
         agent_log(
             logger, "Phase 1: CVE 라이브러리 목록 잘림",
             component="phase_one", phase="cve_truncated",
             total=len(libraries), limit=limit,
         )
-    request_body = {"libraries": libraries[:limit]}
+    else:
+        result.cve_lookup_truncated = False
+        result.cve_lookup_unqueried_eligible_count = 0
+    result.cve_lookup_attempted_libraries = libraries[:limit]
+    request_body = {"libraries": result.cve_lookup_attempted_libraries}
     try:
         resp = await kb_client.post(
             "/v1/cve/batch-lookup",
@@ -105,12 +177,14 @@ async def run_cve_lookup(
         )
         resp.raise_for_status()
         data = resp.json()
+        result.cve_lookup_completed = True
         for lib_result in data.get("results", []):
             for cve in lib_result.get("cves", []):
                 cve["_library"] = lib_result.get("library", "")
                 cve["_version"] = lib_result.get("version", "")
                 result.cve_lookup.append(cve)
     except Exception as exc:
+        result.cve_lookup_completed = False
         if is_kb_timeout_error(exc):
             result.cve_lookup_timed_out = True
             agent_log(
@@ -120,6 +194,7 @@ async def run_cve_lookup(
                 level=logging.WARNING,
             )
         else:
+            result.cve_lookup_error = str(exc)
             agent_log(
                 logger, "Phase 1: CVE 조회 실패",
                 component="phase_one", phase="cve_lookup_error_detail",

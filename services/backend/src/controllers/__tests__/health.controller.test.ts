@@ -69,6 +69,50 @@ describe("health.controller", () => {
     });
   });
 
+  it("forwards S7 readiness ramp fields under llmGateway.detail", async () => {
+    const llmHealth = {
+      checkHealth: vi.fn().mockResolvedValue({
+        status: "ok",
+        ready: false,
+        llmReady: false,
+        degraded: true,
+        degradeReasons: ["llm_backend_unreachable"],
+        blockedReason: "backend_unreachable",
+        dependencyStatus: {
+          llmBackend: { status: "unreachable", endpoint: "http://127.0.0.1:18000" },
+          circuitBreaker: { state: "closed", consecutiveFailures: 0, threshold: 3, recoverySeconds: 30 },
+          rag: { enabled: false, status: "disabled", kbEndpoint: "http://localhost:8002" },
+        },
+      }),
+    } as any;
+    const app = express();
+    app.use(createHealthRouter(
+      llmHealth,
+      { findAll: vi.fn().mockReturnValue([]) } as any,
+      { checkHealth: vi.fn().mockResolvedValue({ status: "ok" }) } as any,
+      { checkHealth: vi.fn().mockResolvedValue({ status: "ok" }) } as any,
+      { checkHealth: vi.fn().mockResolvedValue({ status: "ok" }) } as any,
+      { checkHealth: vi.fn().mockResolvedValue({ status: "ok" }) } as any,
+    ));
+
+    const res = await request(app).get("/");
+
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe("degraded");
+    expect(res.body.llmGateway.status).toBe("degraded");
+    expect(res.body.llmGateway).not.toHaveProperty("ready");
+    expect(res.body.llmGateway.detail).toMatchObject({
+      ready: false,
+      llmReady: false,
+      degraded: true,
+      degradeReasons: ["llm_backend_unreachable"],
+      blockedReason: "backend_unreachable",
+      dependencyStatus: {
+        llmBackend: { status: "unreachable", endpoint: "http://127.0.0.1:18000" },
+      },
+    });
+  });
+
   it("maps legacy ackStatus=broken into chain_abort", async () => {
     const app = express();
     app.use(createHealthRouter(

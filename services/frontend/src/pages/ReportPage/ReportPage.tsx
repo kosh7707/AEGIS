@@ -31,6 +31,8 @@ export const ReportPage: React.FC = () => {
     allRuns,
     sevCounts,
     deepResult,
+    moduleTabLoading,
+    moduleTabEmpty,
   } = useReportPageController(projectId, toast);
 
   if (loading) {
@@ -73,6 +75,8 @@ export const ReportPage: React.FC = () => {
       allRuns={allRuns}
       sevCounts={sevCounts}
       deepResult={deepResult}
+      moduleTabLoading={moduleTabLoading}
+      moduleTabEmpty={moduleTabEmpty}
     />
   );
 };

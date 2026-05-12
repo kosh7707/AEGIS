@@ -136,6 +136,10 @@ class CodeSearchRequest(BaseModel):
     graph_depth: int = Field(default=2, ge=0, le=5)
     include_call_chain: bool = Field(default=True, description="호출 체인 포함 여부")
     build_snapshot_id: str | None = Field(default=None, alias="buildSnapshotId")
+    query_intent: str | None = Field(default=None, alias="queryIntent")
+    corpus_partitions: list[str] | None = Field(default=None, alias="corpusPartitions")
+    profiles: list[str] = Field(default_factory=list)
+    allow_global_embedding: bool | None = Field(default=None, alias="allowGlobalEmbedding")
 
     model_config = {"populate_by_name": True}
 
@@ -440,17 +444,28 @@ async def search(
         raise HTTPException(503, "Code graph search not initialized")
 
     start = time.monotonic()
+    search_kwargs = {
+        "top_k": req.top_k,
+        "min_score": req.min_score,
+        "graph_depth": req.graph_depth,
+        "include_call_chain": req.include_call_chain,
+        "build_snapshot_id": req.build_snapshot_id,
+    }
+    if req.query_intent is not None:
+        search_kwargs["query_intent"] = req.query_intent
+    if req.corpus_partitions:
+        search_kwargs["corpus_partitions"] = req.corpus_partitions
+    if req.profiles:
+        search_kwargs["profiles"] = req.profiles
+    if req.allow_global_embedding is not None:
+        search_kwargs["allow_global_embedding"] = req.allow_global_embedding
     result = await run_sync_with_deadline(
         deadline,
         "code-graph-search",
         _code_assembler.search,
         project_id,
         req.query,
-        top_k=req.top_k,
-        min_score=req.min_score,
-        graph_depth=req.graph_depth,
-        include_call_chain=req.include_call_chain,
-        build_snapshot_id=req.build_snapshot_id,
+        **search_kwargs,
     )
     elapsed_ms = int((time.monotonic() - start) * 1000)
 

@@ -1,0 +1,1 @@
+/tmp/scan/src/main.c:17:20: warning: Dereference of null pointer (loaded from variable 'q') [clang-analyzer-core.NullDereference]

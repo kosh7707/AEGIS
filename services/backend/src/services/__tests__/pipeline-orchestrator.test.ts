@@ -109,9 +109,11 @@ function createMocks(options?: {
     isBuildReadyForQuick: vi.fn((result: any) => result.success === true && !!result.compileCommandsPath && (result.entries ?? 0) > 0),
   };
   const kbClient = {
-    ingestCodeGraph: vi.fn().mockResolvedValue({ nodes_created: 20, edges_created: 5 }),
+    ingestCodeGraph: vi.fn().mockResolvedValue({ status: "ready", readiness: { graphRag: true }, nodeCount: 20, edgeCount: 5 }),
     checkReady: vi.fn().mockResolvedValue({ status: "ready", degraded: false }),
     isGraphReady: vi.fn().mockReturnValue(true),
+    getIngestNodeCount: vi.fn((result: any) => result.nodeCount ?? result.nodes_created ?? 0),
+    getIngestEdgeCount: vi.fn((result: any) => result.edgeCount ?? result.edges_created ?? 0),
   };
   const buildAgentClient = {
     submitTask: vi.fn().mockResolvedValue(resolveSuccess),
@@ -364,7 +366,7 @@ describe("PipelineOrchestrator", () => {
         },
       })),
     };
-    const { orchestrator, buildAgentClient, buildTargetDAO } = createMocks({ sdkRegistryLookup, uploadsDir });
+    const { orchestrator, buildAgentClient, buildTargetDAO, sastClient } = createMocks({ sdkRegistryLookup, uploadsDir });
     buildTargetDAO.findByProjectId.mockReturnValue([
       makeTarget({
         buildProfile: { sdkId: "sdk-uploaded", compiler: "gcc", headerLanguage: "c" } as BuildProfile,
@@ -399,6 +401,24 @@ describe("PipelineOrchestrator", () => {
             },
           }),
         },
+      }),
+      undefined,
+      undefined,
+    );
+    expect(sastClient.scan).toHaveBeenCalledWith(
+      expect.objectContaining({
+        buildProfile: expect.objectContaining({
+          sdkResolutionMode: "non-registered",
+          sdkDescriptor: expect.objectContaining({
+            sdkRootPath: fs.realpathSync(sdkRoot),
+            setupScript: "linux-devkit/environment-setup-arm",
+            sysroot: "linux-devkit/sysroots/arm-sysroot",
+            toolchainTriplet: "arm-none-linux-gnueabihf",
+            environment: expect.objectContaining({
+              AEGIS_SDK_ROOT: fs.realpathSync(sdkRoot),
+            }),
+          }),
+        }),
       }),
       undefined,
       undefined,

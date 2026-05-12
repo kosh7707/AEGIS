@@ -1,0 +1,419 @@
+{
+  "execution": {
+    "toolResults": {
+      "semgrep": {
+        "status": "ok"
+      }
+    }
+  },
+  "findings": [],
+  "staticEvidenceContract": {
+    "analysisProfile": "c-cpp-core",
+    "artifactKind": "s4-static-evidence-artifact",
+    "claimBoundaries": {
+      "maySupport": [
+        "local-static-tool-observations"
+      ],
+      "mustNotSupportAlone": [
+        "external-vulnerability-affectedness",
+        "semantic-graph-completeness",
+        "runtime-exploitability",
+        "final-security-verdict",
+        "absence-of-vulnerability-from-empty-findings"
+      ],
+      "negativeEvidencePolicy": "empty-or-missing-s4-evidence-is-not-negative-security-evidence"
+    },
+    "coverage": {
+      "exploitabilityJudgment": {
+        "consumerPolicy": "do_not_use_as_negative_evidence",
+        "reasonCodes": [
+          "EXPLOITABILITY_NOT_JUDGED"
+        ],
+        "status": "not_provided",
+        "summary": "fixture surface"
+      },
+      "externalVulnerabilityKnowledge": {
+        "consumerPolicy": "do_not_use_as_negative_evidence",
+        "reasonCodes": [
+          "EXTERNAL_KNOWLEDGE_NOT_QUERIED"
+        ],
+        "status": "not_provided",
+        "summary": "fixture surface"
+      },
+      "finalSecurityVerdict": {
+        "consumerPolicy": "do_not_use_as_negative_evidence",
+        "reasonCodes": [
+          "FINAL_VERDICT_NOT_PROVIDED"
+        ],
+        "status": "not_provided",
+        "summary": "fixture surface"
+      },
+      "findingCweMapping": {
+        "consumerPolicy": "observed_positive_evidence_only",
+        "evidenceRefs": [
+          "findings[].metadata.evidenceResolution.cwe"
+        ],
+        "reasonCodes": [],
+        "status": "provided",
+        "summary": "fixture surface"
+      },
+      "findingDataflow": {
+        "consumerPolicy": "observed_positive_evidence_only",
+        "evidenceRefs": [
+          "findings[].dataFlow"
+        ],
+        "reasonCodes": [],
+        "status": "provided",
+        "summary": "fixture surface"
+      },
+      "findingLocations": {
+        "consumerPolicy": "observed_positive_evidence_only",
+        "evidenceRefs": [
+          "findings[].location"
+        ],
+        "reasonCodes": [],
+        "status": "provided",
+        "summary": "fixture surface"
+      },
+      "includeGraph": {
+        "consumerPolicy": "do_not_use_as_negative_evidence",
+        "reasonCodes": [
+          "INCLUDE_GRAPH_NOT_REQUESTED"
+        ],
+        "status": "not_computed",
+        "summary": "fixture surface"
+      },
+      "originClassification": {
+        "consumerPolicy": "observed_positive_evidence_only",
+        "evidenceRefs": [
+          "findings[].metadata.evidenceResolution.origin"
+        ],
+        "reasonCodes": [],
+        "status": "provided",
+        "summary": "fixture surface"
+      },
+      "runtimeBehavior": {
+        "consumerPolicy": "do_not_use_as_negative_evidence",
+        "reasonCodes": [
+          "RUNTIME_NOT_ANALYZED"
+        ],
+        "status": "not_provided",
+        "summary": "fixture surface"
+      },
+      "sastFindings": {
+        "consumerPolicy": "observed_positive_evidence_only",
+        "evidenceRefs": [
+          "findings[]"
+        ],
+        "reasonCodes": [],
+        "status": "provided",
+        "summary": "fixture surface"
+      },
+      "scaDiffEvidence": {
+        "consumerPolicy": "do_not_use_as_negative_evidence",
+        "reasonCodes": [
+          "SCA_NOT_COMPUTED"
+        ],
+        "status": "not_computed",
+        "summary": "fixture surface"
+      },
+      "scaIdentity": {
+        "consumerPolicy": "do_not_use_as_negative_evidence",
+        "reasonCodes": [
+          "SCA_NOT_COMPUTED"
+        ],
+        "status": "not_computed",
+        "summary": "fixture surface"
+      },
+      "scaVersionEvidence": {
+        "consumerPolicy": "do_not_use_as_negative_evidence",
+        "reasonCodes": [
+          "SCA_NOT_COMPUTED"
+        ],
+        "status": "not_computed",
+        "summary": "fixture surface"
+      },
+      "semanticGraphRetrieval": {
+        "consumerPolicy": "do_not_use_as_negative_evidence",
+        "reasonCodes": [
+          "SEMANTIC_RETRIEVAL_NOT_PERFORMED"
+        ],
+        "status": "not_provided",
+        "summary": "fixture surface"
+      },
+      "staticToolExecution": {
+        "anomalyReasonCodes": [
+          "TOOL_BLOCKING_SKIP:semgrep"
+        ],
+        "consumerPolicy": "observed_positive_evidence_only",
+        "evidenceRefs": [
+          "execution",
+          "execution.toolResults"
+        ],
+        "reasonCodes": [
+          "TOOL_EXECUTION_PARTIAL"
+        ],
+        "status": "partial",
+        "summary": "fixture surface"
+      },
+      "structuralCodeGraph": {
+        "consumerPolicy": "do_not_use_as_negative_evidence",
+        "reasonCodes": [
+          "CODE_GRAPH_NOT_REQUESTED"
+        ],
+        "status": "not_computed",
+        "summary": "fixture surface"
+      },
+      "targetMetadata": {
+        "consumerPolicy": "do_not_use_as_negative_evidence",
+        "reasonCodes": [
+          "TARGET_METADATA_NOT_COMPUTED"
+        ],
+        "status": "not_computed",
+        "summary": "fixture surface"
+      }
+    },
+    "followUpHints": [
+      {
+        "consumerPolicy": "do_not_use_as_negative_evidence",
+        "message": "outside S4 fixture",
+        "reasonCode": "EXTERNAL_KNOWLEDGE_NOT_QUERIED",
+        "status": "not_provided",
+        "surface": "externalVulnerabilityKnowledge"
+      },
+      {
+        "consumerPolicy": "do_not_use_as_negative_evidence",
+        "message": "outside S4 fixture",
+        "reasonCode": "SEMANTIC_RETRIEVAL_NOT_PERFORMED",
+        "status": "not_provided",
+        "surface": "semanticGraphRetrieval"
+      },
+      {
+        "consumerPolicy": "do_not_use_as_negative_evidence",
+        "message": "outside S4 fixture",
+        "reasonCode": "RUNTIME_NOT_ANALYZED",
+        "status": "not_provided",
+        "surface": "runtimeBehavior"
+      },
+      {
+        "consumerPolicy": "do_not_use_as_negative_evidence",
+        "message": "outside S4 fixture",
+        "reasonCode": "EXPLOITABILITY_NOT_JUDGED",
+        "status": "not_provided",
+        "surface": "exploitabilityJudgment"
+      },
+      {
+        "consumerPolicy": "do_not_use_as_negative_evidence",
+        "message": "outside S4 fixture",
+        "reasonCode": "FINAL_VERDICT_NOT_PROVIDED",
+        "status": "not_provided",
+        "surface": "finalSecurityVerdict"
+      }
+    ],
+    "gates": {
+      "evidenceReadiness": {
+        "blockingSurfaces": [
+          "staticToolExecution"
+        ],
+        "consumerPolicy": "do_not_use_as_negative_evidence",
+        "reasonCodes": [
+          "POLICY_VIOLATION",
+          "DISALLOWED_TOOL_ENVIRONMENT_DRIFT"
+        ],
+        "status": "not_ready"
+      },
+      "qualityEvaluation": {
+        "consumerPolicy": "do_not_treat_as_quality_score",
+        "reasonCodes": [
+          "NO_VALIDATION_PROFILE_RAN"
+        ],
+        "status": "not_evaluated"
+      },
+      "systemStability": {
+        "consumerPolicy": "do_not_treat_as_successful_artifact",
+        "reasonCodes": [
+          "POLICY_VIOLATION",
+          "DISALLOWED_TOOL_ENVIRONMENT_DRIFT",
+          "TOOL_BLOCKING_SKIP:semgrep"
+        ],
+        "status": "fail"
+      }
+    },
+    "producer": {
+      "deterministic": true,
+      "service": "s4-sast-runner"
+    },
+    "provenance": {
+      "buildSnapshotId": "bsnap-canary",
+      "buildUnitId": "bunit-canary",
+      "snapshotSchemaVersion": "build-snapshot-v1"
+    },
+    "schemaVersion": "s4-static-evidence-contract-v1",
+    "toolEvidenceMatrix": [
+      {
+        "consumerPolicy": "blocks_successful_artifact",
+        "degradeReasons": [],
+        "degraded": false,
+        "deterministic": true,
+        "elapsedMs": 1,
+        "emitsFinalVerdict": false,
+        "evidenceRefs": [
+          "execution.toolResults.semgrep"
+        ],
+        "findingsCount": 0,
+        "limitations": [
+          "fixture limitation"
+        ],
+        "overlap": [
+          "fixture overlap"
+        ],
+        "requiresExternalKnowledge": false,
+        "requiresNetwork": false,
+        "role": "fixture-role",
+        "skipReason": "profile-not-applicable",
+        "status": "skipped",
+        "toolId": "semgrep",
+        "uniqueContribution": "fixture contribution",
+        "verdictPolicy": "local-tool-state-is-not-a-vulnerability-verdict",
+        "version": "fixture"
+      },
+      {
+        "consumerPolicy": "local_tool_execution_state_only_not_vulnerability_verdict",
+        "degradeReasons": [],
+        "degraded": false,
+        "deterministic": true,
+        "elapsedMs": 1,
+        "emitsFinalVerdict": false,
+        "evidenceRefs": [
+          "execution.toolResults.cppcheck"
+        ],
+        "findingsCount": 0,
+        "limitations": [
+          "fixture limitation"
+        ],
+        "overlap": [
+          "fixture overlap"
+        ],
+        "requiresExternalKnowledge": false,
+        "requiresNetwork": false,
+        "role": "fixture-role",
+        "skipReason": null,
+        "status": "ok",
+        "toolId": "cppcheck",
+        "uniqueContribution": "fixture contribution",
+        "verdictPolicy": "local-tool-state-is-not-a-vulnerability-verdict",
+        "version": "fixture"
+      },
+      {
+        "consumerPolicy": "local_tool_execution_state_only_not_vulnerability_verdict",
+        "degradeReasons": [],
+        "degraded": false,
+        "deterministic": true,
+        "elapsedMs": 1,
+        "emitsFinalVerdict": false,
+        "evidenceRefs": [
+          "execution.toolResults.flawfinder"
+        ],
+        "findingsCount": 0,
+        "limitations": [
+          "fixture limitation"
+        ],
+        "overlap": [
+          "fixture overlap"
+        ],
+        "requiresExternalKnowledge": false,
+        "requiresNetwork": false,
+        "role": "fixture-role",
+        "skipReason": null,
+        "status": "ok",
+        "toolId": "flawfinder",
+        "uniqueContribution": "fixture contribution",
+        "verdictPolicy": "local-tool-state-is-not-a-vulnerability-verdict",
+        "version": "fixture"
+      },
+      {
+        "consumerPolicy": "local_tool_execution_state_only_not_vulnerability_verdict",
+        "degradeReasons": [],
+        "degraded": false,
+        "deterministic": true,
+        "elapsedMs": 1,
+        "emitsFinalVerdict": false,
+        "evidenceRefs": [
+          "execution.toolResults.clang-tidy"
+        ],
+        "findingsCount": 0,
+        "limitations": [
+          "fixture limitation"
+        ],
+        "overlap": [
+          "fixture overlap"
+        ],
+        "requiresExternalKnowledge": false,
+        "requiresNetwork": false,
+        "role": "fixture-role",
+        "skipReason": null,
+        "status": "ok",
+        "toolId": "clang-tidy",
+        "uniqueContribution": "fixture contribution",
+        "verdictPolicy": "local-tool-state-is-not-a-vulnerability-verdict",
+        "version": "fixture"
+      },
+      {
+        "consumerPolicy": "local_tool_execution_state_only_not_vulnerability_verdict",
+        "degradeReasons": [],
+        "degraded": false,
+        "deterministic": true,
+        "elapsedMs": 1,
+        "emitsFinalVerdict": false,
+        "evidenceRefs": [
+          "execution.toolResults.scan-build"
+        ],
+        "findingsCount": 0,
+        "limitations": [
+          "fixture limitation"
+        ],
+        "overlap": [
+          "fixture overlap"
+        ],
+        "requiresExternalKnowledge": false,
+        "requiresNetwork": false,
+        "role": "fixture-role",
+        "skipReason": null,
+        "status": "ok",
+        "toolId": "scan-build",
+        "uniqueContribution": "fixture contribution",
+        "verdictPolicy": "local-tool-state-is-not-a-vulnerability-verdict",
+        "version": "fixture"
+      },
+      {
+        "consumerPolicy": "local_tool_execution_state_only_not_vulnerability_verdict",
+        "degradeReasons": [],
+        "degraded": false,
+        "deterministic": true,
+        "elapsedMs": 1,
+        "emitsFinalVerdict": false,
+        "evidenceRefs": [
+          "execution.toolResults.gcc-fanalyzer"
+        ],
+        "findingsCount": 0,
+        "limitations": [
+          "fixture limitation"
+        ],
+        "overlap": [
+          "fixture overlap"
+        ],
+        "requiresExternalKnowledge": false,
+        "requiresNetwork": false,
+        "role": "fixture-role",
+        "skipReason": null,
+        "status": "ok",
+        "toolId": "gcc-fanalyzer",
+        "uniqueContribution": "fixture contribution",
+        "verdictPolicy": "local-tool-state-is-not-a-vulnerability-verdict",
+        "version": "fixture"
+      }
+    ]
+  },
+  "status": "failed",
+  "success": false
+}

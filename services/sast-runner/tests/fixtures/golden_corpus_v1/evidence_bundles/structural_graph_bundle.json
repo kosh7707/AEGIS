@@ -1,0 +1,28 @@
+{
+  "id": "structural-code-graph-contract-bundle-v1",
+  "kind": "evidence-bundle-oracle",
+  "description": "Structural code graph evidence is exposed as local structural observations only, never semantic GraphRAG retrieval.",
+  "contractInput": {
+    "success": true,
+    "execution": "clean",
+    "cweId": "CWE-120",
+    "dataFlow": true,
+    "codeGraph": {
+      "functions": [
+        {"name": "main", "file": "src/main.c", "line": 1, "calls": ["copy_input"]},
+        {"name": "copy_input", "file": "src/main.c", "line": 4, "calls": ["strcpy"]}
+      ]
+    }
+  },
+  "requiredResponseSurfaces": [
+    "findings[].metadata.evidenceResolution",
+    "staticEvidenceContract.coverage.structuralCodeGraph",
+    "staticEvidenceContract.toolEvidenceMatrix"
+  ],
+  "expectedContractPaths": {
+    "staticEvidenceContract.coverage.structuralCodeGraph.status": "provided",
+    "staticEvidenceContract.coverage.structuralCodeGraph.graphKind": "structural-callgraph",
+    "staticEvidenceContract.coverage.structuralCodeGraph.semanticRetrieval": "not_provided",
+    "staticEvidenceContract.coverage.structuralCodeGraph.graphRag": "not_provided"
+  }
+}

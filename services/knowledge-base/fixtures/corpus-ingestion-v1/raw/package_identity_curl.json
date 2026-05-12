@@ -1,0 +1,14 @@
+{
+  "aliases": [
+    "libcurl",
+    "curl/curl",
+    "haxx:curl"
+  ],
+  "canonicalName": "curl",
+  "cpe": "cpe:2.3:a:haxx:curl:*:*:*:*:*:*:*:*",
+  "ecosystem": "generic",
+  "packageIdentityId": "pkg:generic/curl",
+  "purl": "pkg:generic/curl@8.0.0",
+  "repoUrl": "https://github.com/curl/curl",
+  "vendor": "haxx"
+}

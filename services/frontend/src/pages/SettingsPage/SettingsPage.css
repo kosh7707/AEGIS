@@ -97,6 +97,7 @@
 .settings-section--2 { animation-delay: 100ms; }
 .settings-section--3 { animation-delay: 160ms; }
 .settings-section--4 { animation-delay: 220ms; }
+.settings-section--5 { animation-delay: 280ms; }
 
 @keyframes settings-section-in {
   from { opacity: 0; transform: translateY(4px); }

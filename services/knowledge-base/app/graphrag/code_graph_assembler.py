@@ -6,6 +6,17 @@ import logging
 import re
 from typing import TYPE_CHECKING
 
+from app.graphrag.retrieval_planner import (
+    RetrievalPlan,
+    annotate_hit,
+    build_retrieval_trace,
+    canonical_method,
+    method_rank_weight,
+    methods_from_match_types,
+    plan_retrieval,
+)
+from app.graphrag.retrieval_policy import build_score_breakdown, lexical_boost_for_hit
+
 if TYPE_CHECKING:
     from app.graphrag.code_graph_service import CodeGraphService
     from app.graphrag.code_vector_search import CodeVectorSearch
@@ -89,7 +100,7 @@ class CodeGraphAssembler:
         vector_hits = self._vector.search(
             query,
             project_id=project_id,
-            top_k=top_k * 2,
+            top_k=top_k,
             min_score=min_score,
             build_snapshot_id=build_snapshot_id,
         )
@@ -187,6 +198,33 @@ class CodeGraphAssembler:
         merged.sort(key=lambda h: h["score"], reverse=True)
         return merged
 
+    @staticmethod
+    def _rerank_hits(hits: list[dict], *, plan: RetrievalPlan) -> list[dict]:
+        scored: list[tuple[float, dict, dict]] = []
+        for hit in hits:
+            method = canonical_method(str(hit.get("match_type", "")), embedding_scope=plan.embedding_scope)
+            score = float(hit.get("score", 0) or 0)
+            lexical_boost = lexical_boost_for_hit(hit, plan.lexical_signals)
+            profile_boost = 0.25 if plan.profiles and hit.get("match_type") == "graph_neighbor" else 0.0
+            breakdown = build_score_breakdown(
+                base_score=score,
+                method=method,
+                lexical_boost=lexical_boost,
+                profile_boost=profile_boost,
+            )
+            scored.append((breakdown["finalRerankScore"], hit, breakdown))
+        scored.sort(key=lambda item: item[0], reverse=True)
+        return [
+            annotate_hit(
+                hit,
+                rank=rank,
+                embedding_scope=plan.embedding_scope,
+                rerank_score=round(score, 6),
+                score_breakdown=breakdown,
+            )
+            for rank, (score, hit, breakdown) in enumerate(scored, start=1)
+        ]
+
     def search(
         self,
         project_id: str,
@@ -197,9 +235,41 @@ class CodeGraphAssembler:
         graph_depth: int = 2,
         include_call_chain: bool = True,
         build_snapshot_id: str | None = None,
+        query_intent: str | None = None,
+        corpus_partitions: list[str] | None = None,
+        profiles: list[str] | None = None,
+        allow_global_embedding: bool | None = None,
     ) -> dict:
         """하이브리드 코드 그래프 검색."""
+        plan = plan_retrieval(
+            query or "",
+            query_intent=query_intent,
+            corpus_partitions=corpus_partitions,
+            profiles=profiles,
+            allow_global_embedding=allow_global_embedding,
+            default_intent="code_context",
+            top_k=top_k,
+            graph_depth=graph_depth,
+        )
+        final_top_k = plan.final_top_k
+        candidate_pool_k = plan.candidate_pool_k
         if not query or not query.strip():
+            trace = build_retrieval_trace(
+                plan=plan,
+                hits=[],
+                methods_attempted=[],
+                methods_succeeded=[],
+                relation_methods=[],
+                rerankers_applied=[],
+                top_k=final_top_k,
+                min_score=min_score,
+                graph_depth=graph_depth,
+                projection_state={
+                    "state": "target_scoped" if build_snapshot_id is not None else "project_scoped",
+                    "projectId": project_id,
+                    **({"buildSnapshotId": build_snapshot_id} if build_snapshot_id is not None else {}),
+                },
+            )
             return {
                 "query": "",
                 "hits": [],
@@ -207,15 +277,16 @@ class CodeGraphAssembler:
                 "match_type_counts": {
                     "name_exact": 0, "vector_semantic": 0, "graph_neighbor": 0,
                 },
+                "retrievalTrace": trace,
             }
 
         seen: set[str] = set()
 
         exact_hits = self._path_name_exact(
-            project_id, query, seen, top_k, build_snapshot_id,
+            project_id, query, seen, candidate_pool_k, build_snapshot_id,
         )
         vector_hits = self._path_vector_semantic(
-            project_id, query, seen, top_k, min_score, build_snapshot_id,
+            project_id, query, seen, candidate_pool_k, min_score, build_snapshot_id,
         )
 
         if self._rrf_k > 0:
@@ -224,15 +295,53 @@ class CodeGraphAssembler:
             all_hits = exact_hits + vector_hits
             all_hits.sort(key=lambda h: h.get("score", 0), reverse=True)
 
-        all_hits = all_hits[:top_k]
+        all_hits = self._rerank_hits(all_hits[:candidate_pool_k], plan=plan)
+        all_hits = all_hits[:final_top_k]
 
         if include_call_chain and all_hits:
             neighbor_hits = self._enrich_with_call_chain(
                 project_id, all_hits, graph_depth, seen, build_snapshot_id,
             )
-            remaining = max(0, top_k - len(all_hits))
-            all_hits.extend(neighbor_hits[:remaining])
+            remaining = max(0, final_top_k - len(all_hits))
+            start_rank = len(all_hits) + 1
+            all_hits.extend(
+                annotate_hit(
+                    hit,
+                    rank=start_rank + offset,
+                    embedding_scope=plan.embedding_scope,
+                    rerank_score=float(hit.get("score", 0) or 0),
+                )
+                for offset, hit in enumerate(neighbor_hits[:remaining])
+            )
 
+        all_hits = all_hits[:final_top_k]
+        relation_methods = methods_from_match_types(
+            [str(hit.get("match_type", "")) for hit in all_hits],
+            embedding_scope=plan.embedding_scope,
+        )
+        methods_attempted = ["exact_id_match"]
+        if plan.lexical_signals:
+            methods_attempted.append("keyword_match")
+        methods_attempted.append("global_embedding_search" if plan.embedding_scope == "global" else "constrained_embedding_rerank")
+        if include_call_chain and graph_depth > 0:
+            methods_attempted.append("graph_expansion")
+        methods_succeeded = list(dict.fromkeys(relation_methods))
+        trace = build_retrieval_trace(
+            plan=plan,
+            hits=all_hits,
+            methods_attempted=methods_attempted,
+            methods_succeeded=methods_succeeded,
+            relation_methods=relation_methods,
+            rerankers_applied=["rrf" if self._rrf_k > 0 else "score_sort", "method_trust", "lexical_signal_policy"],
+            top_k=final_top_k,
+            min_score=min_score,
+            graph_depth=graph_depth,
+            projection_state={
+                "state": "target_scoped" if build_snapshot_id is not None else "project_scoped",
+                "projectId": project_id,
+                **({"buildSnapshotId": build_snapshot_id} if build_snapshot_id is not None else {}),
+            },
+        )
         result = {
             "query": query,
             "hits": all_hits,
@@ -248,6 +357,7 @@ class CodeGraphAssembler:
                     1 for h in all_hits if h.get("match_type") == "graph_neighbor"
                 ),
             },
+            "retrievalTrace": trace,
         }
         if build_snapshot_id is not None:
             result["provenance"] = {"buildSnapshotId": build_snapshot_id}

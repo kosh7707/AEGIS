@@ -1,0 +1,13 @@
+{
+  "id": "T0807",
+  "name": "Command-Line Interface",
+  "description": "Adversaries may use command-line interfaces to interact with systems and execute commands in ICS/OT environments.",
+  "sourceKind": "ATTACK_ICS",
+  "taxonomyFamily": "command_execution",
+  "cweIds": ["CWE-78"],
+  "relatedCapec": ["CAPEC-88"],
+  "relatedTechniques": ["T1059"],
+  "platforms": ["Engineering Workstation", "Human-Machine Interface", "Control Server"],
+  "profiles": ["ics-ot-specialization", "embedded-system-specialization"],
+  "sourceRefs": ["https://attack.mitre.org/techniques/T0807/"]
+}

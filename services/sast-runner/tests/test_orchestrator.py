@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from app.scanner.orchestrator import ScanOrchestrator, _filter_user_code_findings, _is_third_party, _is_user_path, _parse_version
-from app.schemas.request import BuildProfile
+from app.schemas.request import BuildProfile, SdkDescriptor
 from app.schemas.response import (
     ExecutionReport,
     FindingsFilterInfo,
@@ -133,6 +133,30 @@ class TestSelectTools:
         )
         orchestrator.gcc_analyzer.check_available = AsyncMock(return_value=(True, "13.3.0"))
         active = await orchestrator._select_tools(None, profile, available)
+        assert "gcc-fanalyzer" not in active.get("_skipped", {})
+        assert active.get("gcc-fanalyzer") is True
+
+    @pytest.mark.asyncio
+    async def test_gcc_fanalyzer_non_registered_sdk_recheck_restores_active_without_key_error(self, orchestrator):
+        """non-registered SDK compiler rescue is stable and removes stale skip state."""
+        available = self._available_all()
+        available["gcc-fanalyzer"]["available"] = False
+        available["gcc-fanalyzer"]["probeReason"] = "runtime-tool-missing"
+        profile = BuildProfile(
+            sdkResolutionMode="non-registered",
+            sdkDescriptor=SdkDescriptor(
+                sdkRootPath="/opt/non-registered-sdk",
+                compilerPath="/opt/non-registered-sdk/bin/arm-gcc",
+            ),
+            compiler="arm-gcc",
+            targetArch="arm",
+            languageStandard="c99",
+            headerLanguage="c",
+        )
+        orchestrator.gcc_analyzer.check_available = AsyncMock(return_value=(True, "13.3.0"))
+
+        active = await orchestrator._select_tools(None, profile, available)
+
         assert "gcc-fanalyzer" not in active.get("_skipped", {})
         assert active.get("gcc-fanalyzer") is True
 

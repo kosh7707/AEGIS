@@ -1,0 +1,9 @@
+{
+  "cveID": "CVE-2026-0001",
+  "dateAdded": "2026-02-01",
+  "dueDate": "2026-06-01",
+  "knownRansomwareCampaignUse": "Unknown",
+  "product": "curl",
+  "shortDescription": "Fixture KEV enrichment for curl command execution advisory.",
+  "vendorProject": "curl"
+}

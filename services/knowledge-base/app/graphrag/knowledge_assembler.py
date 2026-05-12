@@ -6,6 +6,16 @@ import logging
 import re
 from typing import TYPE_CHECKING, Protocol
 
+from app.graphrag.retrieval_planner import (
+    RetrievalPlan,
+    annotate_hit,
+    build_retrieval_trace,
+    canonical_method,
+    method_rank_weight,
+    methods_from_match_types,
+    plan_retrieval,
+)
+from app.graphrag.retrieval_policy import build_score_breakdown, lexical_boost_for_hit
 from app.graphrag.vector_search import VectorSearch
 
 if TYPE_CHECKING:
@@ -155,24 +165,49 @@ class KnowledgeAssembler:
         seen_ids: set[str],
         top_k: int,
         min_score: float,
+        plan: RetrievalPlan,
         source_filter: list[str] | None = None,
-    ) -> tuple[list[dict], set[str], set[str], set[str]]:
+        strict_source_filter: bool = False,
+    ) -> tuple[list[dict], set[str], set[str], set[str], list[dict[str, object]]]:
         """경로 2: 벡터 시맨틱 검색 + 그래프 보강."""
         enriched_hits: list[dict] = []
         all_cwe: set[str] = set()
         all_cve: set[str] = set()
         all_attack: set[str] = set()
+        fallback_trace: list[dict[str, object]] = []
 
-        vector_hits = self._vector.search(
-            query, top_k=top_k, min_score=min_score, source_filter=source_filter,
-        )
+        if plan.corpus_partitions:
+            vector_hits = self._vector.search(
+                query,
+                top_k=top_k,
+                min_score=min_score,
+                corpus_partitions=plan.corpus_partitions,
+            )
+            if not vector_hits and source_filter:
+                fallback_trace.append({
+                    "from": "corpusPartition",
+                    "to": "source_filter",
+                    "reason": "no_vector_hits_with_corpus_partition_filter",
+                    "values": source_filter,
+                })
+                vector_hits = self._vector.search(
+                    query, top_k=top_k, min_score=min_score, source_filter=source_filter,
+                )
+        else:
+            vector_hits = self._vector.search(
+                query, top_k=top_k, min_score=min_score, source_filter=source_filter,
+            )
 
         for hit in vector_hits:
             if hit.id in seen_ids:
                 continue
-            if source_filter and hit.source not in source_filter:
+            if (
+                (strict_source_filter or not plan.corpus_partitions)
+                and source_filter
+                and hit.source not in source_filter
+            ):
                 continue
-            if len(enriched_hits) >= top_k * 2:
+            if len(enriched_hits) >= top_k:
                 break
 
             hit_dict = {
@@ -182,6 +217,7 @@ class KnowledgeAssembler:
                 "score": hit.score,
                 "threat_category": hit.threat_category,
                 "match_type": "vector_semantic",
+                "corpusPartition": getattr(hit, "corpus_partition", ""),
             }
 
             cwe, cve, att = self._enrich_with_graph(hit.id, hit_dict)
@@ -196,7 +232,7 @@ class KnowledgeAssembler:
             enriched_hits.append(hit_dict)
             seen_ids.add(hit.id)
 
-        return enriched_hits, all_cwe, all_cve, all_attack
+        return enriched_hits, all_cwe, all_cve, all_attack, fallback_trace
 
     @staticmethod
     def _apply_rrf(result_lists: list[list[dict]], k: int = 60) -> list[dict]:
@@ -220,6 +256,33 @@ class KnowledgeAssembler:
         merged.sort(key=lambda h: h["score"], reverse=True)
         return merged
 
+    @staticmethod
+    def _rerank_hits(hits: list[dict], *, plan: RetrievalPlan) -> list[dict]:
+        scored: list[tuple[float, dict, dict]] = []
+        for hit in hits:
+            method = canonical_method(str(hit.get("match_type", "")), embedding_scope=plan.embedding_scope)
+            score = float(hit.get("score", 0) or 0)
+            lexical_boost = lexical_boost_for_hit(hit, plan.lexical_signals)
+            profile_boost = 0.25 if plan.profiles and hit.get("match_type") == "graph_neighbor" else 0.0
+            breakdown = build_score_breakdown(
+                base_score=score,
+                method=method,
+                lexical_boost=lexical_boost,
+                profile_boost=profile_boost,
+            )
+            scored.append((breakdown["finalRerankScore"], hit, breakdown))
+        scored.sort(key=lambda item: item[0], reverse=True)
+        return [
+            annotate_hit(
+                hit,
+                rank=rank,
+                embedding_scope=plan.embedding_scope,
+                rerank_score=round(score, 6),
+                score_breakdown=breakdown,
+            )
+            for rank, (score, hit, breakdown) in enumerate(scored, start=1)
+        ]
+
     def assemble(
         self,
         query: str,
@@ -229,9 +292,37 @@ class KnowledgeAssembler:
         graph_depth: int = 2,
         exclude_ids: list[str] | None = None,
         source_filter: list[str] | None = None,
+        query_intent: str | None = None,
+        corpus_partitions: list[str] | None = None,
+        profiles: list[str] | None = None,
+        allow_global_embedding: bool | None = None,
     ) -> dict:
         """3경로 하이브리드 검색 → 병합 → 그래프 보강."""
+        plan = plan_retrieval(
+            query or "",
+            query_intent=query_intent,
+            corpus_partitions=corpus_partitions,
+            source_filter=source_filter,
+            profiles=profiles,
+            allow_global_embedding=allow_global_embedding,
+            default_intent="weakness_context",
+            top_k=top_k,
+            graph_depth=graph_depth,
+        )
+        final_top_k = plan.final_top_k
+        candidate_pool_k = plan.candidate_pool_k
         if not query or not query.strip():
+            trace = build_retrieval_trace(
+                plan=plan,
+                hits=[],
+                methods_attempted=[],
+                methods_succeeded=[],
+                relation_methods=[],
+                rerankers_applied=[],
+                top_k=final_top_k,
+                min_score=min_score,
+                graph_depth=graph_depth,
+            )
             return {
                 "query": query or "",
                 "hits": [],
@@ -241,16 +332,24 @@ class KnowledgeAssembler:
                 "related_cve": [],
                 "related_attack": [],
                 "match_type_counts": {"id_exact": 0, "graph_neighbor": 0, "vector_semantic": 0},
+                "retrievalTrace": trace,
             }
 
         seen_ids: set[str] = set(exclude_ids) if exclude_ids else set()
         extracted_ids = _extract_ids(query)
+        effective_source_filter = plan.source_filter
 
         exact_hits, cwe1, cve1, att1 = self._path_id_exact(
-            extracted_ids, seen_ids, graph_depth, top_k, source_filter=source_filter,
+            extracted_ids, seen_ids, graph_depth, candidate_pool_k, source_filter=source_filter,
         )
-        vector_hits, cwe2, cve2, att2 = self._path_vector_semantic(
-            query, seen_ids, top_k, min_score, source_filter=source_filter,
+        vector_hits, cwe2, cve2, att2, vector_fallback = self._path_vector_semantic(
+            query,
+            seen_ids,
+            candidate_pool_k,
+            min_score,
+            plan=plan,
+            source_filter=effective_source_filter,
+            strict_source_filter=source_filter is not None,
         )
 
         # RRF 또는 단순 정렬
@@ -263,7 +362,34 @@ class KnowledgeAssembler:
         else:
             all_hits = exact_hits + vector_hits
             all_hits.sort(key=lambda h: h.get("score", 0), reverse=True)
-        all_hits = all_hits[: top_k * 2]
+        all_hits = self._rerank_hits(all_hits[:candidate_pool_k], plan=plan)
+        all_hits = all_hits[:final_top_k]
+        relation_methods = methods_from_match_types(
+            [str(hit.get("match_type", "")) for hit in all_hits],
+            embedding_scope=plan.embedding_scope,
+        )
+        methods_attempted = []
+        if extracted_ids:
+            methods_attempted.extend(["exact_id_match", "graph_expansion"])
+        if plan.lexical_signals:
+            methods_attempted.append("keyword_match")
+        methods_attempted.append("global_embedding_search" if plan.embedding_scope == "global" else "constrained_embedding_rerank")
+        methods_attempted = list(dict.fromkeys(methods_attempted))
+        methods_succeeded = list(dict.fromkeys(relation_methods))
+        trace = build_retrieval_trace(
+            plan=plan,
+            hits=all_hits,
+            methods_attempted=methods_attempted,
+            methods_succeeded=methods_succeeded,
+            relation_methods=relation_methods,
+            rerankers_applied=["rrf" if self._rrf_k > 0 else "score_sort", "method_trust", "lexical_signal_policy"],
+            top_k=final_top_k,
+            min_score=min_score,
+            graph_depth=graph_depth,
+            projection_state={"state": "ready"},
+            provider_state={"state": "not_applicable"},
+            extra_fallback_trace=vector_fallback,
+        )
 
         return {
             "query": query,
@@ -278,6 +404,7 @@ class KnowledgeAssembler:
                 "graph_neighbor": sum(1 for h in all_hits if h.get("match_type") == "graph_neighbor"),
                 "vector_semantic": sum(1 for h in all_hits if h.get("match_type") == "vector_semantic"),
             },
+            "retrievalTrace": trace,
         }
 
     def batch_assemble(self, queries: list[dict]) -> dict:
@@ -297,6 +424,12 @@ class KnowledgeAssembler:
                 graph_depth=q.get("graph_depth", 2),
                 exclude_ids=exclude,
                 source_filter=q.get("source_filter"),
+                query_intent=q.get("query_intent") or q.get("queryIntent"),
+                corpus_partitions=q.get("corpus_partitions") or q.get("corpusPartitions"),
+                profiles=q.get("profiles"),
+                allow_global_embedding=q.get("allow_global_embedding")
+                if "allow_global_embedding" in q
+                else q.get("allowGlobalEmbedding"),
             )
 
             for hit in result.get("hits", []):
