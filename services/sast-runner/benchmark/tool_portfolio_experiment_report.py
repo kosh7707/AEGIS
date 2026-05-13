@@ -9,6 +9,11 @@ from app.scanner.orchestrator import ALL_TOOLS
 from app.schemas.response import SastFinding
 from benchmark.benchmark_slice_report import build_default_benchmark_slice_report
 from benchmark.tool_portfolio_acquisition_manifest import build_acquisition_index
+from benchmark.tool_portfolio_corpus_readiness import (
+    build_corpus_readiness_gate,
+    default_not_run_corpus_readiness_gate,
+    external_corpus_status_from_readiness,
+)
 from benchmark.tool_portfolio_decision_cycle import build_decision_cycle_lock, checksum_json
 from benchmark.tool_portfolio_experiment_manifest import (
     corpus_targets,
@@ -38,6 +43,9 @@ def build_experiment_report(
     matching_policy: Mapping[str, Any],
     thresholds: Mapping[str, Any],
     external_corpus_status: Mapping[str, Any] | None = None,
+    corpus_readiness_gate: Mapping[str, Any] | None = None,
+    required_corpora: Sequence[str] | None = None,
+    corpus_readiness_base_path: Path | str | None = None,
     system_stability: Mapping[str, Any] | None = None,
     repo_root: Path | str | None = None,
 ) -> dict[str, Any]:
@@ -47,9 +55,22 @@ def build_experiment_report(
     for config in required_configs:
         validate_tool_set_config(config)
     system_stability_gate = dict(system_stability or default_not_run_system_gate())
+    if corpus_readiness_gate is None and required_corpora is not None:
+        corpus_readiness_gate = build_corpus_readiness_gate(
+            acquisition_manifests=acquisition_manifests,
+            corpus_manifest=corpus_manifest,
+            required_corpora=required_corpora,
+            base_path=corpus_readiness_base_path,
+        )
+    corpus_readiness_gate = dict(corpus_readiness_gate or default_not_run_corpus_readiness_gate())
+    effective_external_corpus_status = (
+        dict(external_corpus_status)
+        if external_corpus_status is not None
+        else external_corpus_status_from_readiness(corpus_readiness_gate)
+    )
     prerequisite_quality_gate = build_quality_gate(
         system_stability_gate=system_stability_gate,
-        external_corpus_status=external_corpus_status,
+        external_corpus_status=effective_external_corpus_status,
     )
     system_gate_failed = system_stability_gate.get("status") == "fail"
     missing_configs = sorted(set(required_configs) - set(findings_by_config))
@@ -130,6 +151,7 @@ def build_experiment_report(
         "matchingPolicy": matching_policy,
         "toolSetConfigs": required_configs,
         "systemStabilityGate": system_stability_gate,
+        "corpusReadinessGate": corpus_readiness_gate,
         "qualityGate": quality_gate,
         "validationMetrics": validation_metrics,
         "testMetrics": test_metrics,
@@ -152,8 +174,8 @@ def build_experiment_report(
             "upgradeCandidates": [],
             "addCandidates": [],
             "futureCandidateActionsRequireWr": True,
-            "externalCorpusStatus": dict(external_corpus_status or {}),
-            "requiredFollowUps": _required_followups(external_corpus_status),
+            "externalCorpusStatus": effective_external_corpus_status,
+            "requiredFollowUps": _required_followups(effective_external_corpus_status),
         },
     }
     _reject_forbidden_keys(report)

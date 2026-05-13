@@ -51,7 +51,8 @@ def build_harness_fixture_report(
         findings_by_config=fixture["findingsByConfig"],
         matching_policy=fixture["matchingPolicy"],
         thresholds=fixture["thresholds"],
-        external_corpus_status={"juliet": {"status": "blocked", "reasonCodes": ["LOCAL_JULIET_CORPUS_NOT_PRESENT"]}},
+        required_corpora=["juliet-c-cpp-1.3"],
+        corpus_readiness_base_path=repo_root or Path(__file__).resolve().parents[1],
         repo_root=repo_root,
     )
 

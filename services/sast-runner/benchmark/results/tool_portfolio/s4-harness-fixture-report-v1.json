@@ -719,6 +719,52 @@
       "validation": 3
     }
   },
+  "corpusReadinessGate": {
+    "acquisitionStatuses": {
+      "juliet-c-cpp-1.3": {
+        "acquisitionId": "juliet-c-cpp-1.3",
+        "caseCount": 0,
+        "corpusName": "juliet",
+        "reasonCodes": [
+          "LOCAL_JULIET_CORPUS_NOT_PRESENT"
+        ],
+        "status": "blocked"
+      }
+    },
+    "caseStatuses": [],
+    "consumerPolicy": "local_filesystem_readiness_only_not_quality_or_security_verdict",
+    "decisionGradeReady": false,
+    "externalCorpusStatus": {
+      "juliet": {
+        "reasonCodes": [
+          "LOCAL_JULIET_CORPUS_NOT_PRESENT"
+        ],
+        "status": "blocked"
+      }
+    },
+    "reasonCodes": [
+      "LOCAL_JULIET_CORPUS_NOT_PRESENT"
+    ],
+    "requiredCorpora": [
+      "juliet-c-cpp-1.3"
+    ],
+    "schemaVersion": "s4-tool-portfolio-corpus-readiness-gate-v1",
+    "status": "blocked",
+    "summary": {
+      "caseCount": 7,
+      "checkedCaseCount": 0,
+      "sliceCounts": {
+        "s4-canary": 1,
+        "s4-harness-fixture-negative": 2,
+        "s4-harness-fixture-positive": 4
+      },
+      "splitCounts": {
+        "canary": 1,
+        "test": 3,
+        "validation": 3
+      }
+    }
+  },
   "createdAt": "2026-05-12T00:00:00Z",
   "decisionCycle": {
     "corpusManifestChecksum": "sha256:92d4e79ff4e1cdd2076fce3ba1effbe70653a5785dc5bef64e01a3939d17a310",

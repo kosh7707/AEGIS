@@ -123,6 +123,8 @@ def test_file_based_s4_harness_fixture_builds_end_to_end_report() -> None:
 
     assert fixture["schemaVersion"] == "s4-tool-portfolio-harness-fixture-v1"
     assert report["schemaVersion"] == EXPERIMENT_REPORT_SCHEMA_VERSION
+    assert report["corpusReadinessGate"]["status"] == "blocked"
+    assert "LOCAL_JULIET_CORPUS_NOT_PRESENT" in report["corpusReadinessGate"]["reasonCodes"]
     assert report["validationMetrics"]["status"] == "pass"
     assert report["testMetrics"]["status"] == "pass"
     assert report["decisionSupport"]["externalCorpusStatus"]["juliet"]["status"] == "blocked"
