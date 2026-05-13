@@ -14,6 +14,9 @@ class Phase1Result:
     sast_scan_attempted: bool = False
     sast_scan_completed: bool = False
     sast_failure_detail: dict = field(default_factory=dict)
+    sast_static_evidence_contract: dict = field(default_factory=dict)
+    sast_static_evidence_ready: bool | None = None
+    sast_static_evidence_diagnostics: dict = field(default_factory=dict)
     code_functions: list[dict] = field(default_factory=list)
     sca_libraries: list[dict] = field(default_factory=list)
     threat_context: list[dict] = field(default_factory=list)

@@ -11,11 +11,14 @@
   "requiredResponseSurfaces": [
     "findings[].metadata.evidenceResolution",
     "staticEvidenceContract.gates.systemStability",
-    "staticEvidenceContract.toolEvidenceMatrix"
+    "staticEvidenceContract.toolEvidenceMatrix",
+    "staticEvidenceContract.gates.claimSupportReadiness"
   ],
   "expectedContractPaths": {
     "staticEvidenceContract.gates.systemStability.status": "degraded",
     "staticEvidenceContract.toolEvidenceMatrix.scan-build.status": "partial",
-    "staticEvidenceContract.toolEvidenceMatrix.scan-build.consumerPolicy": "local_tool_partial_use_with_degradation_metadata"
+    "staticEvidenceContract.toolEvidenceMatrix.scan-build.consumerPolicy": "local_tool_partial_use_with_degradation_metadata",
+    "staticEvidenceContract.gates.claimSupportReadiness.status": "partial",
+    "staticEvidenceContract.claimBoundaryMatrix.local-static-artifact.supportStatus": "partially_supported"
   }
 }

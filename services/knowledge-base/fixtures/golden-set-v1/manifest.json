@@ -1,23 +1,21 @@
 {
-  "schemaVersion": "s5-golden-set-v1",
-  "goldenSetVersion": "golden-set-v1",
-  "title": "S5 Golden Set v1 for acquisition/readiness/GraphRAG quality gates",
-  "description": "Fixture-only oracle separating runtime acquisition stability, evidence readiness, and offline retrieval quality. Runtime envelopes must not expose TP/FP/FN metrics.",
-  "gateModel": {
-    "systemStability": "manifest loads, schema validates, and acquisition statuses remain contract vocabulary",
-    "evidenceReadiness": "consumer policies determine whether S3/S4 may use returned material as context, diagnostics, scoped negative evidence, or local-support references",
-    "qualityGate": "offline-only retrieval/transform metrics over expectedCandidateIds and retrievedCandidateIds"
-  },
   "cases": [
     {
       "caseId": "cve-candidate-range-out-discovery-no-hit",
-      "family": "cve-package",
-      "surface": "cveCandidateEvaluation",
-      "queryIntent": "candidate_cve_evaluation",
+      "consumerPolicy": "scoped_no_hit_record_only",
       "corpusPartition": "public_vulnerability",
-      "profiles": [
-        "embedded-system-specialization"
-      ],
+      "evidenceReadinessOracle": {
+        "mayBeNegativeEvidence": true,
+        "maySupportClaim": false,
+        "requiredDiagnostics": [
+          "candidateId",
+          "versionRange",
+          "providerSnapshot"
+        ],
+        "status": "ready_for_scoped_no_hit"
+      },
+      "expectedCandidateIds": [],
+      "family": "cve-package",
       "methodsAttempted": [
         "exact_id_match",
         "provider_range_eval"
@@ -26,39 +24,37 @@
         "exact_id_match",
         "provider_range_eval"
       ],
+      "profiles": [
+        "embedded-system-specialization"
+      ],
+      "qualityOracle": {
+        "evaluated": false,
+        "notes": "fixture-only oracle; never emitted in runtime acquisition envelopes",
+        "offlineOnly": true
+      },
+      "queryIntent": "candidate_cve_evaluation",
+      "retrievedCandidateIds": [],
       "runtimeObservation": {
         "acquisitionStatus": "completed_no_hit",
         "candidateCount": 0,
         "notes": "candidate CVE/version range evaluated; only scoped candidate record may be negative"
       },
-      "consumerPolicy": "scoped_no_hit_record_only",
-      "evidenceReadinessOracle": {
-        "status": "ready_for_scoped_no_hit",
-        "maySupportClaim": false,
-        "mayBeNegativeEvidence": true,
-        "requiredDiagnostics": [
-          "candidateId",
-          "versionRange",
-          "providerSnapshot"
-        ]
-      },
-      "qualityOracle": {
-        "evaluated": false,
-        "offlineOnly": true,
-        "notes": "fixture-only oracle; never emitted in runtime acquisition envelopes"
-      },
-      "expectedCandidateIds": [],
-      "retrievedCandidateIds": []
+      "surface": "cveCandidateEvaluation"
     },
     {
       "caseId": "cve-candidate-range-out-discovery-other-hit",
-      "family": "cve-package",
-      "surface": "cveDiscovery",
-      "queryIntent": "cve_discovery",
+      "consumerPolicy": "contextual_only",
       "corpusPartition": "public_vulnerability",
-      "profiles": [
-        "embedded-system-specialization"
+      "evidenceReadinessOracle": {
+        "mayBeNegativeEvidence": false,
+        "maySupportClaim": false,
+        "requiredDiagnostics": [],
+        "status": "contextual_ready"
+      },
+      "expectedCandidateIds": [
+        "CVE-2026-0002"
       ],
+      "family": "cve-package",
       "methodsAttempted": [
         "exact_id_match",
         "provider_range_eval",
@@ -68,114 +64,117 @@
         "exact_id_match",
         "provider_range_eval",
         "direct_source_relation"
+      ],
+      "profiles": [
+        "embedded-system-specialization"
+      ],
+      "qualityOracle": {
+        "evaluated": true,
+        "k": 5,
+        "notes": "fixture-only oracle; never emitted in runtime acquisition envelopes",
+        "offlineOnly": true
+      },
+      "queryIntent": "cve_discovery",
+      "retrievedCandidateIds": [
+        "CVE-2026-0002"
       ],
       "runtimeObservation": {
         "acquisitionStatus": "completed_hit",
         "candidateCount": 1,
         "notes": "candidate exclusion can still return other package CVEs as contextual candidates"
       },
-      "consumerPolicy": "contextual_only",
-      "evidenceReadinessOracle": {
-        "status": "contextual_ready",
-        "maySupportClaim": false,
-        "mayBeNegativeEvidence": false,
-        "requiredDiagnostics": []
-      },
-      "qualityOracle": {
-        "evaluated": true,
-        "offlineOnly": true,
-        "notes": "fixture-only oracle; never emitted in runtime acquisition envelopes",
-        "k": 5
-      },
-      "expectedCandidateIds": [
-        "CVE-2026-0002"
-      ],
-      "retrievedCandidateIds": [
-        "CVE-2026-0002"
-      ]
+      "surface": "cveDiscovery"
     },
     {
       "caseId": "cve-version-unknown-input-insufficient",
-      "family": "cve-package",
-      "surface": "cveCandidateEvaluation",
-      "queryIntent": "candidate_cve_evaluation",
+      "consumerPolicy": "do_not_use_as_negative_evidence",
       "corpusPartition": "public_vulnerability",
-      "profiles": [],
+      "evidenceReadinessOracle": {
+        "mayBeNegativeEvidence": false,
+        "maySupportClaim": false,
+        "requiredDiagnostics": [
+          "packageVersion"
+        ],
+        "status": "diagnostic_only"
+      },
+      "expectedCandidateIds": [],
+      "family": "cve-package",
       "methodsAttempted": [
         "exact_id_match",
         "provider_range_eval"
       ],
       "methodsUsed": [],
+      "profiles": [],
+      "qualityOracle": {
+        "evaluated": false,
+        "notes": "fixture-only oracle; never emitted in runtime acquisition envelopes",
+        "offlineOnly": true
+      },
+      "queryIntent": "candidate_cve_evaluation",
+      "retrievedCandidateIds": [],
       "runtimeObservation": {
         "acquisitionStatus": "input_insufficient",
         "candidateCount": 0,
         "notes": "package present but version unknown; must not become no-hit"
       },
-      "consumerPolicy": "do_not_use_as_negative_evidence",
-      "evidenceReadinessOracle": {
-        "status": "diagnostic_only",
-        "maySupportClaim": false,
-        "mayBeNegativeEvidence": false,
-        "requiredDiagnostics": [
-          "packageVersion"
-        ]
-      },
-      "qualityOracle": {
-        "evaluated": false,
-        "offlineOnly": true,
-        "notes": "fixture-only oracle; never emitted in runtime acquisition envelopes"
-      },
-      "expectedCandidateIds": [],
-      "retrievedCandidateIds": []
+      "surface": "cveCandidateEvaluation"
     },
     {
       "caseId": "cve-keyword-only-no-result-not-no-hit",
-      "family": "cve-package",
-      "surface": "cveDiscovery",
-      "queryIntent": "cve_discovery",
+      "consumerPolicy": "do_not_use_as_negative_evidence",
       "corpusPartition": "public_vulnerability",
-      "profiles": [
-        "automotive-specialization"
-      ],
+      "evidenceReadinessOracle": {
+        "mayBeNegativeEvidence": false,
+        "maySupportClaim": false,
+        "requiredDiagnostics": [
+          "sourceCoverage",
+          "identityResolution"
+        ],
+        "status": "diagnostic_only"
+      },
+      "expectedCandidateIds": [],
+      "family": "cve-package",
       "methodsAttempted": [
         "keyword_match"
       ],
       "methodsUsed": [
         "keyword_match"
       ],
+      "profiles": [
+        "automotive-specialization"
+      ],
+      "qualityOracle": {
+        "evaluated": false,
+        "notes": "fixture-only oracle; never emitted in runtime acquisition envelopes",
+        "offlineOnly": true
+      },
+      "queryIntent": "cve_discovery",
+      "retrievedCandidateIds": [],
       "runtimeObservation": {
         "acquisitionStatus": "incomplete_acquisition",
         "candidateCount": 0,
-        "notes": "keyword-only miss lacks provider coverage proof; must not be completed_no_hit",
         "forbiddenInferences": [
           "completed_no_hit"
-        ]
+        ],
+        "notes": "keyword-only miss lacks provider coverage proof; must not be completed_no_hit"
       },
-      "consumerPolicy": "do_not_use_as_negative_evidence",
-      "evidenceReadinessOracle": {
-        "status": "diagnostic_only",
-        "maySupportClaim": false,
-        "mayBeNegativeEvidence": false,
-        "requiredDiagnostics": [
-          "sourceCoverage",
-          "identityResolution"
-        ]
-      },
-      "qualityOracle": {
-        "evaluated": false,
-        "offlineOnly": true,
-        "notes": "fixture-only oracle; never emitted in runtime acquisition envelopes"
-      },
-      "expectedCandidateIds": [],
-      "retrievedCandidateIds": []
+      "surface": "cveDiscovery"
     },
     {
       "caseId": "cve-provider-timeout-envelope",
-      "family": "cve-package",
-      "surface": "cveDiscovery",
-      "queryIntent": "cve_discovery",
+      "consumerPolicy": "do_not_use_as_negative_evidence",
       "corpusPartition": "public_vulnerability",
-      "profiles": [],
+      "evidenceReadinessOracle": {
+        "mayBeNegativeEvidence": false,
+        "maySupportClaim": false,
+        "requiredDiagnostics": [
+          "provider",
+          "retryAfter"
+        ],
+        "status": "diagnostic_only"
+      },
+      "expectedCandidateIds": [],
+      "family": "cve-package",
       "methodsAttempted": [
         "exact_id_match",
         "provider_range_eval"
@@ -183,36 +182,36 @@
       "methodsUsed": [
         "exact_id_match"
       ],
+      "profiles": [],
+      "qualityOracle": {
+        "evaluated": false,
+        "notes": "fixture-only oracle; never emitted in runtime acquisition envelopes",
+        "offlineOnly": true
+      },
+      "queryIntent": "cve_discovery",
+      "retrievedCandidateIds": [],
       "runtimeObservation": {
         "acquisitionStatus": "timeout",
         "candidateCount": 0,
         "notes": "provider timeout is acquisition debt, not a negative vulnerability finding"
       },
-      "consumerPolicy": "do_not_use_as_negative_evidence",
-      "evidenceReadinessOracle": {
-        "status": "diagnostic_only",
-        "maySupportClaim": false,
-        "mayBeNegativeEvidence": false,
-        "requiredDiagnostics": [
-          "provider",
-          "retryAfter"
-        ]
-      },
-      "qualityOracle": {
-        "evaluated": false,
-        "offlineOnly": true,
-        "notes": "fixture-only oracle; never emitted in runtime acquisition envelopes"
-      },
-      "expectedCandidateIds": [],
-      "retrievedCandidateIds": []
+      "surface": "cveDiscovery"
     },
     {
       "caseId": "cve-stale-cache-only-diagnostic",
-      "family": "cve-package",
-      "surface": "cveDiscovery",
-      "queryIntent": "cve_discovery",
+      "consumerPolicy": "do_not_use_as_negative_evidence",
       "corpusPartition": "public_vulnerability",
-      "profiles": [],
+      "evidenceReadinessOracle": {
+        "mayBeNegativeEvidence": false,
+        "maySupportClaim": false,
+        "requiredDiagnostics": [
+          "cacheAge",
+          "freshnessPolicy"
+        ],
+        "status": "diagnostic_only"
+      },
+      "expectedCandidateIds": [],
+      "family": "cve-package",
       "methodsAttempted": [
         "cache_lookup",
         "provider_range_eval"
@@ -220,36 +219,36 @@
       "methodsUsed": [
         "cache_lookup"
       ],
+      "profiles": [],
+      "qualityOracle": {
+        "evaluated": false,
+        "notes": "fixture-only oracle; never emitted in runtime acquisition envelopes",
+        "offlineOnly": true
+      },
+      "queryIntent": "cve_discovery",
+      "retrievedCandidateIds": [],
       "runtimeObservation": {
         "acquisitionStatus": "stale_cache_only",
         "candidateCount": 0,
         "notes": "stale-only source is diagnostic unless freshness policy is satisfied"
       },
-      "consumerPolicy": "do_not_use_as_negative_evidence",
-      "evidenceReadinessOracle": {
-        "status": "diagnostic_only",
-        "maySupportClaim": false,
-        "mayBeNegativeEvidence": false,
-        "requiredDiagnostics": [
-          "cacheAge",
-          "freshnessPolicy"
-        ]
-      },
-      "qualityOracle": {
-        "evaluated": false,
-        "offlineOnly": true,
-        "notes": "fixture-only oracle; never emitted in runtime acquisition envelopes"
-      },
-      "expectedCandidateIds": [],
-      "retrievedCandidateIds": []
+      "surface": "cveDiscovery"
     },
     {
       "caseId": "cve-no-hit-plus-failure-not-partial-hit",
-      "family": "cve-package",
-      "surface": "cveDiscovery",
-      "queryIntent": "cve_discovery",
+      "consumerPolicy": "do_not_use_as_negative_evidence",
       "corpusPartition": "public_vulnerability",
-      "profiles": [],
+      "evidenceReadinessOracle": {
+        "mayBeNegativeEvidence": false,
+        "maySupportClaim": false,
+        "requiredDiagnostics": [
+          "providerFailures",
+          "methodsRequiredForNoHit"
+        ],
+        "status": "diagnostic_only"
+      },
+      "expectedCandidateIds": [],
+      "family": "cve-package",
       "methodsAttempted": [
         "osv",
         "nvd",
@@ -258,40 +257,39 @@
       "methodsUsed": [
         "osv"
       ],
+      "profiles": [],
+      "qualityOracle": {
+        "evaluated": false,
+        "notes": "fixture-only oracle; never emitted in runtime acquisition envelopes",
+        "offlineOnly": true
+      },
+      "queryIntent": "cve_discovery",
+      "retrievedCandidateIds": [],
       "runtimeObservation": {
         "acquisitionStatus": "incomplete_acquisition",
         "candidateCount": 0,
-        "notes": "one provider no-hit plus another provider failure remains incomplete acquisition",
         "forbiddenInferences": [
           "partial_hit",
           "completed_no_hit"
-        ]
+        ],
+        "notes": "one provider no-hit plus another provider failure remains incomplete acquisition"
       },
-      "consumerPolicy": "do_not_use_as_negative_evidence",
-      "evidenceReadinessOracle": {
-        "status": "diagnostic_only",
-        "maySupportClaim": false,
-        "mayBeNegativeEvidence": false,
-        "requiredDiagnostics": [
-          "providerFailures",
-          "methodsRequiredForNoHit"
-        ]
-      },
-      "qualityOracle": {
-        "evaluated": false,
-        "offlineOnly": true,
-        "notes": "fixture-only oracle; never emitted in runtime acquisition envelopes"
-      },
-      "expectedCandidateIds": [],
-      "retrievedCandidateIds": []
+      "surface": "cveDiscovery"
     },
     {
       "caseId": "etl-cwe-transform-provenance",
-      "family": "etl-transform",
-      "surface": "weaknessTaxonomy",
-      "queryIntent": "weakness_context",
+      "consumerPolicy": "contextual_only",
       "corpusPartition": "weakness_taxonomy",
-      "profiles": [],
+      "evidenceReadinessOracle": {
+        "mayBeNegativeEvidence": false,
+        "maySupportClaim": false,
+        "requiredDiagnostics": [],
+        "status": "contextual_ready"
+      },
+      "expectedCandidateIds": [
+        "CWE-78"
+      ],
+      "family": "etl-transform",
       "methodsAttempted": [
         "direct_source_relation",
         "schema_normalization"
@@ -300,65 +298,63 @@
         "direct_source_relation",
         "schema_normalization"
       ],
+      "profiles": [],
+      "qualityOracle": {
+        "evaluated": true,
+        "k": 5,
+        "notes": "fixture-only oracle; never emitted in runtime acquisition envelopes",
+        "offlineOnly": true
+      },
+      "queryIntent": "weakness_context",
+      "retrievedCandidateIds": [
+        "CWE-78"
+      ],
       "runtimeObservation": {
         "acquisitionStatus": "completed_hit",
         "candidateCount": 1,
         "notes": "runtime envelope only; offline quality metrics live in qualityGate"
       },
-      "consumerPolicy": "contextual_only",
-      "evidenceReadinessOracle": {
-        "status": "contextual_ready",
-        "maySupportClaim": false,
-        "mayBeNegativeEvidence": false,
-        "requiredDiagnostics": []
-      },
-      "qualityOracle": {
-        "evaluated": true,
-        "offlineOnly": true,
-        "notes": "fixture-only oracle; never emitted in runtime acquisition envelopes",
-        "k": 5
-      },
-      "expectedCandidateIds": [
-        "CWE-78"
-      ],
-      "retrievedCandidateIds": [
-        "CWE-78"
-      ],
+      "surface": "weaknessTaxonomy",
       "transformOracle": {
-        "rawInput": {
-          "source": "cwe",
-          "id": "78",
-          "name": "OS Command Injection"
-        },
+        "freshnessExpectations": [
+          "source_version_present",
+          "retrieved_at_present"
+        ],
         "normalizedExpected": {
           "id": "CWE-78",
           "name": "OS Command Injection",
           "type": "weakness"
         },
-        "transformDiagnostics": [
-          "canonical_id_added",
-          "source_name_preserved"
-        ],
         "provenanceExpectations": [
           "source_url",
           "retrieved_at",
           "source_version"
         ],
-        "freshnessExpectations": [
-          "source_version_present",
-          "retrieved_at_present"
+        "rawInput": {
+          "id": "78",
+          "name": "OS Command Injection",
+          "source": "cwe"
+        },
+        "transformDiagnostics": [
+          "canonical_id_added",
+          "source_name_preserved"
         ]
       }
     },
     {
       "caseId": "etl-tool-rule-transform-diagnostic",
-      "family": "etl-transform",
-      "surface": "toolRuleMapping",
-      "queryIntent": "tool_rule_mapping",
+      "consumerPolicy": "diagnostic_only",
       "corpusPartition": "tool_rule",
-      "profiles": [
-        "embedded-system-specialization"
+      "evidenceReadinessOracle": {
+        "mayBeNegativeEvidence": false,
+        "maySupportClaim": false,
+        "requiredDiagnostics": [],
+        "status": "diagnostic_only"
+      },
+      "expectedCandidateIds": [
+        "rule:semgrep.c.lang.security.audit.system-command"
       ],
+      "family": "etl-transform",
       "methodsAttempted": [
         "schema_normalization",
         "curated_mapping"
@@ -367,63 +363,66 @@
         "schema_normalization",
         "curated_mapping"
       ],
+      "profiles": [
+        "embedded-system-specialization"
+      ],
+      "qualityOracle": {
+        "evaluated": true,
+        "k": 5,
+        "notes": "fixture-only oracle; never emitted in runtime acquisition envelopes",
+        "offlineOnly": true
+      },
+      "queryIntent": "tool_rule_mapping",
+      "retrievedCandidateIds": [
+        "rule:semgrep.c.lang.security.audit.system-command"
+      ],
       "runtimeObservation": {
         "acquisitionStatus": "completed_hit",
         "candidateCount": 1,
         "notes": "runtime envelope only; offline quality metrics live in qualityGate"
       },
-      "consumerPolicy": "diagnostic_only",
-      "evidenceReadinessOracle": {
-        "status": "diagnostic_only",
-        "maySupportClaim": false,
-        "mayBeNegativeEvidence": false,
-        "requiredDiagnostics": []
-      },
-      "qualityOracle": {
-        "evaluated": true,
-        "offlineOnly": true,
-        "notes": "fixture-only oracle; never emitted in runtime acquisition envelopes",
-        "k": 5
-      },
-      "expectedCandidateIds": [
-        "rule:semgrep.c.lang.security.audit.system-command"
-      ],
-      "retrievedCandidateIds": [
-        "rule:semgrep.c.lang.security.audit.system-command"
-      ],
+      "surface": "toolRuleMapping",
       "transformOracle": {
-        "rawInput": {
-          "tool": "semgrep",
-          "ruleId": "c.lang.security.audit.system-command",
-          "message": "system command"
-        },
+        "freshnessExpectations": [
+          "mapping_revision_present"
+        ],
         "normalizedExpected": {
           "id": "rule:semgrep.c.lang.security.audit.system-command",
           "mapsTo": [
             "CWE-78"
           ]
         },
-        "transformDiagnostics": [
-          "rule_namespace_added",
-          "weakness_mapping_attached"
-        ],
         "provenanceExpectations": [
           "tool",
           "rule_id",
           "mapping_source"
         ],
-        "freshnessExpectations": [
-          "mapping_revision_present"
+        "rawInput": {
+          "message": "system command",
+          "ruleId": "c.lang.security.audit.system-command",
+          "tool": "semgrep"
+        },
+        "transformDiagnostics": [
+          "rule_namespace_added",
+          "weakness_mapping_attached"
         ]
       }
     },
     {
       "caseId": "retrieval-command-exec-no-automotive-keyword",
-      "family": "threat-graphrag-retrieval",
-      "surface": "weaknessTaxonomy",
-      "queryIntent": "weakness_context",
+      "consumerPolicy": "contextual_only",
       "corpusPartition": "weakness_taxonomy",
-      "profiles": [],
+      "evidenceReadinessOracle": {
+        "mayBeNegativeEvidence": false,
+        "maySupportClaim": false,
+        "requiredDiagnostics": [],
+        "status": "contextual_ready"
+      },
+      "expectedCandidateIds": [
+        "CWE-78",
+        "CWE-77"
+      ],
+      "family": "threat-graphrag-retrieval",
       "methodsAttempted": [
         "exact_id_match",
         "curated_mapping",
@@ -433,42 +432,39 @@
         "curated_mapping",
         "constrained_embedding_rerank"
       ],
+      "profiles": [],
+      "qualityOracle": {
+        "evaluated": true,
+        "k": 5,
+        "notes": "fixture-only oracle; never emitted in runtime acquisition envelopes",
+        "offlineOnly": true
+      },
+      "queryIntent": "weakness_context",
+      "retrievedCandidateIds": [
+        "CWE-78",
+        "CWE-77"
+      ],
       "runtimeObservation": {
         "acquisitionStatus": "completed_hit",
         "candidateCount": 2,
         "notes": "command execution should retrieve generic C/C++ weakness context without automotive keywords"
       },
-      "consumerPolicy": "contextual_only",
-      "evidenceReadinessOracle": {
-        "status": "contextual_ready",
-        "maySupportClaim": false,
-        "mayBeNegativeEvidence": false,
-        "requiredDiagnostics": []
-      },
-      "qualityOracle": {
-        "evaluated": true,
-        "offlineOnly": true,
-        "notes": "fixture-only oracle; never emitted in runtime acquisition envelopes",
-        "k": 5
-      },
-      "expectedCandidateIds": [
-        "CWE-78",
-        "CWE-77"
-      ],
-      "retrievedCandidateIds": [
-        "CWE-78",
-        "CWE-77"
-      ]
+      "surface": "weaknessTaxonomy"
     },
     {
       "caseId": "retrieval-automotive-gateway-enrichment-not-vuln",
-      "family": "threat-graphrag-retrieval",
-      "surface": "profileEnrichment",
-      "queryIntent": "profile_context",
+      "consumerPolicy": "contextual_only",
       "corpusPartition": "specialization_profile",
-      "profiles": [
-        "automotive-specialization"
+      "evidenceReadinessOracle": {
+        "mayBeNegativeEvidence": false,
+        "maySupportClaim": false,
+        "requiredDiagnostics": [],
+        "status": "contextual_ready"
+      },
+      "expectedCandidateIds": [
+        "profile:automotive:gateway"
       ],
+      "family": "threat-graphrag-retrieval",
       "methodsAttempted": [
         "profile_filter",
         "curated_mapping"
@@ -477,41 +473,43 @@
         "profile_filter",
         "curated_mapping"
       ],
+      "profiles": [
+        "automotive-specialization"
+      ],
+      "qualityOracle": {
+        "evaluated": true,
+        "k": 5,
+        "notes": "fixture-only oracle; never emitted in runtime acquisition envelopes",
+        "offlineOnly": true
+      },
+      "queryIntent": "profile_context",
+      "retrievedCandidateIds": [
+        "profile:automotive:gateway"
+      ],
       "runtimeObservation": {
         "acquisitionStatus": "completed_hit",
         "candidateCount": 1,
-        "notes": "automotive profile enriches context but never creates vulnerability evidence by itself",
         "forbiddenInferences": [
           "local_support_claim"
-        ]
+        ],
+        "notes": "automotive profile enriches context but never creates vulnerability evidence by itself"
       },
-      "consumerPolicy": "contextual_only",
-      "evidenceReadinessOracle": {
-        "status": "contextual_ready",
-        "maySupportClaim": false,
-        "mayBeNegativeEvidence": false,
-        "requiredDiagnostics": []
-      },
-      "qualityOracle": {
-        "evaluated": true,
-        "offlineOnly": true,
-        "notes": "fixture-only oracle; never emitted in runtime acquisition envelopes",
-        "k": 5
-      },
-      "expectedCandidateIds": [
-        "profile:automotive:gateway"
-      ],
-      "retrievedCandidateIds": [
-        "profile:automotive:gateway"
-      ]
+      "surface": "profileEnrichment"
     },
     {
       "caseId": "retrieval-keyword-absence-not-no-hit",
-      "family": "threat-graphrag-retrieval",
-      "surface": "weaknessTaxonomy",
-      "queryIntent": "weakness_context",
+      "consumerPolicy": "contextual_only",
       "corpusPartition": "weakness_taxonomy",
-      "profiles": [],
+      "evidenceReadinessOracle": {
+        "mayBeNegativeEvidence": false,
+        "maySupportClaim": false,
+        "requiredDiagnostics": [],
+        "status": "contextual_ready"
+      },
+      "expectedCandidateIds": [
+        "CWE-78"
+      ],
+      "family": "threat-graphrag-retrieval",
       "methodsAttempted": [
         "curated_mapping",
         "embedding_search"
@@ -519,44 +517,42 @@
       "methodsUsed": [
         "curated_mapping"
       ],
+      "profiles": [],
+      "qualityOracle": {
+        "evaluated": true,
+        "k": 5,
+        "notes": "fixture-only oracle; never emitted in runtime acquisition envelopes",
+        "offlineOnly": true
+      },
+      "queryIntent": "weakness_context",
+      "retrievedCandidateIds": [
+        "CWE-78"
+      ],
       "runtimeObservation": {
         "acquisitionStatus": "completed_hit",
         "candidateCount": 1,
-        "notes": "absence of automotive keyword must never become low-confidence/no-hit verdict",
         "forbiddenInferences": [
           "completed_no_hit",
           "low_confidence_due_keyword_absence"
-        ]
+        ],
+        "notes": "absence of automotive keyword must never become low-confidence/no-hit verdict"
       },
+      "surface": "weaknessTaxonomy"
+    },
+    {
+      "caseId": "retrieval-global-embedding-noise-suppressed",
       "consumerPolicy": "contextual_only",
+      "corpusPartition": "weakness_taxonomy",
       "evidenceReadinessOracle": {
-        "status": "contextual_ready",
-        "maySupportClaim": false,
         "mayBeNegativeEvidence": false,
-        "requiredDiagnostics": []
-      },
-      "qualityOracle": {
-        "evaluated": true,
-        "offlineOnly": true,
-        "notes": "fixture-only oracle; never emitted in runtime acquisition envelopes",
-        "k": 5
+        "maySupportClaim": false,
+        "requiredDiagnostics": [],
+        "status": "contextual_ready"
       },
       "expectedCandidateIds": [
         "CWE-78"
       ],
-      "retrievedCandidateIds": [
-        "CWE-78"
-      ]
-    },
-    {
-      "caseId": "retrieval-global-embedding-noise-suppressed",
       "family": "threat-graphrag-retrieval",
-      "surface": "weaknessTaxonomy",
-      "queryIntent": "weakness_context",
-      "corpusPartition": "weakness_taxonomy",
-      "profiles": [
-        "embedded-system-specialization"
-      ],
       "methodsAttempted": [
         "global_embedding_search",
         "typed_partition_filter",
@@ -566,41 +562,39 @@
         "typed_partition_filter",
         "constrained_embedding_rerank"
       ],
+      "profiles": [
+        "embedded-system-specialization"
+      ],
+      "qualityOracle": {
+        "evaluated": true,
+        "k": 5,
+        "notes": "fixture-only oracle; never emitted in runtime acquisition envelopes",
+        "offlineOnly": true
+      },
+      "queryIntent": "weakness_context",
+      "retrievedCandidateIds": [
+        "CWE-999",
+        "CWE-78"
+      ],
       "runtimeObservation": {
         "acquisitionStatus": "completed_hit",
         "candidateCount": 2,
         "notes": "typed partition/rerank suppresses but does not hide global embedding noise in offline metrics"
       },
-      "consumerPolicy": "contextual_only",
-      "evidenceReadinessOracle": {
-        "status": "contextual_ready",
-        "maySupportClaim": false,
-        "mayBeNegativeEvidence": false,
-        "requiredDiagnostics": []
-      },
-      "qualityOracle": {
-        "evaluated": true,
-        "offlineOnly": true,
-        "notes": "fixture-only oracle; never emitted in runtime acquisition envelopes",
-        "k": 5
-      },
-      "expectedCandidateIds": [
-        "CWE-78"
-      ],
-      "retrievedCandidateIds": [
-        "CWE-999",
-        "CWE-78"
-      ]
+      "surface": "weaknessTaxonomy"
     },
     {
       "caseId": "retrieval-keyword-fp-weak-candidate",
-      "family": "threat-graphrag-retrieval",
-      "surface": "weaknessTaxonomy",
-      "queryIntent": "weakness_context",
+      "consumerPolicy": "contextual_only",
       "corpusPartition": "specialization_profile",
-      "profiles": [
-        "automotive-specialization"
-      ],
+      "evidenceReadinessOracle": {
+        "mayBeNegativeEvidence": false,
+        "maySupportClaim": false,
+        "requiredDiagnostics": [],
+        "status": "contextual_ready"
+      },
+      "expectedCandidateIds": [],
+      "family": "threat-graphrag-retrieval",
       "methodsAttempted": [
         "keyword_match",
         "profile_filter"
@@ -608,72 +602,76 @@
       "methodsUsed": [
         "keyword_match"
       ],
+      "profiles": [
+        "automotive-specialization"
+      ],
+      "qualityOracle": {
+        "evaluated": true,
+        "k": 5,
+        "notes": "fixture-only oracle; never emitted in runtime acquisition envelopes",
+        "offlineOnly": true
+      },
+      "queryIntent": "weakness_context",
+      "retrievedCandidateIds": [
+        "profile:automotive:can_bus"
+      ],
       "runtimeObservation": {
         "acquisitionStatus": "completed_hit",
         "candidateCount": 1,
         "notes": "keyword match may be useful context but is a weak candidate in the offline oracle"
       },
-      "consumerPolicy": "contextual_only",
-      "evidenceReadinessOracle": {
-        "status": "contextual_ready",
-        "maySupportClaim": false,
-        "mayBeNegativeEvidence": false,
-        "requiredDiagnostics": []
-      },
-      "qualityOracle": {
-        "evaluated": true,
-        "offlineOnly": true,
-        "notes": "fixture-only oracle; never emitted in runtime acquisition envelopes",
-        "k": 5
-      },
-      "expectedCandidateIds": [],
-      "retrievedCandidateIds": [
-        "profile:automotive:can_bus"
-      ]
+      "surface": "weaknessTaxonomy"
     },
     {
       "caseId": "retrieval-keyword-fn-offline-miss-only",
-      "family": "threat-graphrag-retrieval",
-      "surface": "weaknessTaxonomy",
-      "queryIntent": "weakness_context",
+      "consumerPolicy": "contextual_only",
       "corpusPartition": "weakness_taxonomy",
-      "profiles": [],
+      "evidenceReadinessOracle": {
+        "mayBeNegativeEvidence": false,
+        "maySupportClaim": false,
+        "requiredDiagnostics": [],
+        "status": "contextual_ready"
+      },
+      "expectedCandidateIds": [
+        "CWE-78"
+      ],
+      "family": "threat-graphrag-retrieval",
       "methodsAttempted": [
         "keyword_match"
       ],
       "methodsUsed": [
         "keyword_match"
       ],
+      "profiles": [],
+      "qualityOracle": {
+        "evaluated": true,
+        "k": 5,
+        "notes": "fixture-only oracle; never emitted in runtime acquisition envelopes",
+        "offlineOnly": true
+      },
+      "queryIntent": "weakness_context",
+      "retrievedCandidateIds": [],
       "runtimeObservation": {
         "acquisitionStatus": "completed_hit",
         "candidateCount": 0,
         "notes": "keyword miss is evaluated only by the offline quality gate; runtime reports status and candidate count only"
       },
+      "surface": "weaknessTaxonomy"
+    },
+    {
+      "caseId": "retrieval-tool-rule-cwe-context-no-local-support",
       "consumerPolicy": "contextual_only",
+      "corpusPartition": "tool_rule",
       "evidenceReadinessOracle": {
-        "status": "contextual_ready",
-        "maySupportClaim": false,
         "mayBeNegativeEvidence": false,
-        "requiredDiagnostics": []
-      },
-      "qualityOracle": {
-        "evaluated": true,
-        "offlineOnly": true,
-        "notes": "fixture-only oracle; never emitted in runtime acquisition envelopes",
-        "k": 5
+        "maySupportClaim": false,
+        "requiredDiagnostics": [],
+        "status": "contextual_ready"
       },
       "expectedCandidateIds": [
         "CWE-78"
       ],
-      "retrievedCandidateIds": []
-    },
-    {
-      "caseId": "retrieval-tool-rule-cwe-context-no-local-support",
       "family": "threat-graphrag-retrieval",
-      "surface": "toolRuleMapping",
-      "queryIntent": "tool_rule_mapping",
-      "corpusPartition": "tool_rule",
-      "profiles": [],
       "methodsAttempted": [
         "curated_mapping",
         "direct_source_relation"
@@ -682,41 +680,41 @@
         "curated_mapping",
         "direct_source_relation"
       ],
+      "profiles": [],
+      "qualityOracle": {
+        "evaluated": true,
+        "k": 5,
+        "notes": "fixture-only oracle; never emitted in runtime acquisition envelopes",
+        "offlineOnly": true
+      },
+      "queryIntent": "tool_rule_mapping",
+      "retrievedCandidateIds": [
+        "CWE-78"
+      ],
       "runtimeObservation": {
         "acquisitionStatus": "completed_hit",
         "candidateCount": 1,
-        "notes": "S4 tool-rule may retrieve CWE context; only S3/S4 local references can support a finding",
         "forbiddenInferences": [
           "local_support_claim"
-        ]
+        ],
+        "notes": "S4 tool-rule may retrieve CWE context; only S3/S4 local references can support a finding"
       },
-      "consumerPolicy": "contextual_only",
-      "evidenceReadinessOracle": {
-        "status": "contextual_ready",
-        "maySupportClaim": false,
-        "mayBeNegativeEvidence": false,
-        "requiredDiagnostics": []
-      },
-      "qualityOracle": {
-        "evaluated": true,
-        "offlineOnly": true,
-        "notes": "fixture-only oracle; never emitted in runtime acquisition envelopes",
-        "k": 5
-      },
-      "expectedCandidateIds": [
-        "CWE-78"
-      ],
-      "retrievedCandidateIds": [
-        "CWE-78"
-      ]
+      "surface": "toolRuleMapping"
     },
     {
       "caseId": "retrieval-package-identity-alias-no-nvd-keyword-only",
-      "family": "threat-graphrag-retrieval",
-      "surface": "packageIdentity",
-      "queryIntent": "package_identity_resolution",
+      "consumerPolicy": "contextual_only",
       "corpusPartition": "package_identity",
-      "profiles": [],
+      "evidenceReadinessOracle": {
+        "mayBeNegativeEvidence": false,
+        "maySupportClaim": false,
+        "requiredDiagnostics": [],
+        "status": "contextual_ready"
+      },
+      "expectedCandidateIds": [
+        "cpe:2.3:a:haxx:curl"
+      ],
+      "family": "threat-graphrag-retrieval",
       "methodsAttempted": [
         "exact_id_match",
         "alias_resolution",
@@ -726,41 +724,38 @@
         "alias_resolution",
         "cpe_lookup"
       ],
+      "profiles": [],
+      "qualityOracle": {
+        "evaluated": true,
+        "k": 5,
+        "notes": "fixture-only oracle; never emitted in runtime acquisition envelopes",
+        "offlineOnly": true
+      },
+      "queryIntent": "package_identity_resolution",
+      "retrievedCandidateIds": [
+        "cpe:2.3:a:haxx:curl"
+      ],
       "runtimeObservation": {
         "acquisitionStatus": "completed_hit",
         "candidateCount": 1,
         "notes": "repo/package/CPE aliases should not rely on NVD keyword-only matching"
       },
-      "consumerPolicy": "contextual_only",
-      "evidenceReadinessOracle": {
-        "status": "contextual_ready",
-        "maySupportClaim": false,
-        "mayBeNegativeEvidence": false,
-        "requiredDiagnostics": []
-      },
-      "qualityOracle": {
-        "evaluated": true,
-        "offlineOnly": true,
-        "notes": "fixture-only oracle; never emitted in runtime acquisition envelopes",
-        "k": 5
-      },
-      "expectedCandidateIds": [
-        "cpe:2.3:a:haxx:curl"
-      ],
-      "retrievedCandidateIds": [
-        "cpe:2.3:a:haxx:curl"
-      ]
+      "surface": "packageIdentity"
     },
     {
       "caseId": "retrieval-profile-tags-additive-context-only",
-      "family": "threat-graphrag-retrieval",
-      "surface": "profileEnrichment",
-      "queryIntent": "profile_context",
+      "consumerPolicy": "contextual_only",
       "corpusPartition": "specialization_profile",
-      "profiles": [
-        "automotive-specialization",
-        "embedded-system-specialization"
+      "evidenceReadinessOracle": {
+        "mayBeNegativeEvidence": false,
+        "maySupportClaim": false,
+        "requiredDiagnostics": [],
+        "status": "contextual_ready"
+      },
+      "expectedCandidateIds": [
+        "profile:embedded:native-c"
       ],
+      "family": "threat-graphrag-retrieval",
       "methodsAttempted": [
         "profile_filter",
         "curated_mapping"
@@ -768,43 +763,48 @@
       "methodsUsed": [
         "profile_filter"
       ],
+      "profiles": [
+        "automotive-specialization",
+        "embedded-system-specialization"
+      ],
+      "qualityOracle": {
+        "evaluated": true,
+        "k": 5,
+        "notes": "fixture-only oracle; never emitted in runtime acquisition envelopes",
+        "offlineOnly": true
+      },
+      "queryIntent": "profile_context",
+      "retrievedCandidateIds": [
+        "profile:embedded:native-c"
+      ],
       "runtimeObservation": {
         "acquisitionStatus": "completed_hit",
         "candidateCount": 1,
-        "notes": "profile tags are additive retrieval context only",
         "forbiddenInferences": [
           "vulnerability_creation_from_profile"
-        ]
+        ],
+        "notes": "profile tags are additive retrieval context only"
       },
-      "consumerPolicy": "contextual_only",
-      "evidenceReadinessOracle": {
-        "status": "contextual_ready",
-        "maySupportClaim": false,
-        "mayBeNegativeEvidence": false,
-        "requiredDiagnostics": []
-      },
-      "qualityOracle": {
-        "evaluated": true,
-        "offlineOnly": true,
-        "notes": "fixture-only oracle; never emitted in runtime acquisition envelopes",
-        "k": 5
-      },
-      "expectedCandidateIds": [
-        "profile:embedded:native-c"
-      ],
-      "retrievedCandidateIds": [
-        "profile:embedded:native-c"
-      ]
+      "surface": "profileEnrichment"
     },
     {
       "caseId": "code-dangerous-caller-hit",
-      "family": "code-graph",
-      "surface": "dangerousCallerTraversal",
-      "queryIntent": "code_context",
+      "consumerPolicy": "s3_may_derive_local_support_if_refs_validate",
       "corpusPartition": "code_graph",
-      "profiles": [
-        "embedded-system-specialization"
+      "evidenceReadinessOracle": {
+        "mayBeNegativeEvidence": false,
+        "maySupportClaim": true,
+        "requiredDiagnostics": [
+          "symbolId",
+          "fileRef",
+          "lineRange"
+        ],
+        "status": "local_support_refs_ready"
+      },
+      "expectedCandidateIds": [
+        "function:postJson"
       ],
+      "family": "code-graph",
       "methodsAttempted": [
         "graph_expansion",
         "callsite_traversal"
@@ -812,223 +812,1320 @@
       "methodsUsed": [
         "graph_expansion",
         "callsite_traversal"
+      ],
+      "profiles": [
+        "embedded-system-specialization"
+      ],
+      "qualityOracle": {
+        "evaluated": true,
+        "k": 5,
+        "notes": "fixture-only oracle; never emitted in runtime acquisition envelopes",
+        "offlineOnly": true
+      },
+      "queryIntent": "code_context",
+      "retrievedCandidateIds": [
+        "function:postJson"
       ],
       "runtimeObservation": {
         "acquisitionStatus": "completed_hit",
         "candidateCount": 1,
         "notes": "S5 may provide refs that S3 can validate against local target evidence"
       },
-      "consumerPolicy": "s3_may_derive_local_support_if_refs_validate",
-      "evidenceReadinessOracle": {
-        "status": "local_support_refs_ready",
-        "maySupportClaim": true,
-        "mayBeNegativeEvidence": false,
-        "requiredDiagnostics": [
-          "symbolId",
-          "fileRef",
-          "lineRange"
-        ]
-      },
-      "qualityOracle": {
-        "evaluated": true,
-        "offlineOnly": true,
-        "notes": "fixture-only oracle; never emitted in runtime acquisition envelopes",
-        "k": 5
-      },
-      "expectedCandidateIds": [
-        "function:postJson"
-      ],
-      "retrievedCandidateIds": [
-        "function:postJson"
-      ]
+      "surface": "dangerousCallerTraversal"
     },
     {
       "caseId": "code-projection-debt-empty-not-no-caller",
-      "family": "code-graph",
-      "surface": "dangerousCallerTraversal",
-      "queryIntent": "code_context",
+      "consumerPolicy": "do_not_use_as_negative_evidence",
       "corpusPartition": "code_graph",
-      "profiles": [],
+      "evidenceReadinessOracle": {
+        "mayBeNegativeEvidence": false,
+        "maySupportClaim": false,
+        "requiredDiagnostics": [
+          "projectionState",
+          "methodsRequiredForNoHit"
+        ],
+        "status": "diagnostic_only"
+      },
+      "expectedCandidateIds": [],
+      "family": "code-graph",
       "methodsAttempted": [
         "graph_expansion"
       ],
       "methodsUsed": [],
+      "profiles": [],
+      "qualityOracle": {
+        "evaluated": false,
+        "notes": "fixture-only oracle; never emitted in runtime acquisition envelopes",
+        "offlineOnly": true
+      },
+      "queryIntent": "code_context",
+      "retrievedCandidateIds": [],
       "runtimeObservation": {
         "acquisitionStatus": "incomplete_acquisition",
         "candidateCount": 0,
-        "notes": "empty projection caused by projection debt must not imply no dangerous caller",
         "forbiddenInferences": [
           "completed_no_hit"
-        ]
+        ],
+        "notes": "empty projection caused by projection debt must not imply no dangerous caller"
       },
-      "consumerPolicy": "do_not_use_as_negative_evidence",
-      "evidenceReadinessOracle": {
-        "status": "diagnostic_only",
-        "maySupportClaim": false,
-        "mayBeNegativeEvidence": false,
-        "requiredDiagnostics": [
-          "projectionState",
-          "methodsRequiredForNoHit"
-        ]
-      },
-      "qualityOracle": {
-        "evaluated": false,
-        "offlineOnly": true,
-        "notes": "fixture-only oracle; never emitted in runtime acquisition envelopes"
-      },
-      "expectedCandidateIds": [],
-      "retrievedCandidateIds": []
+      "surface": "dangerousCallerTraversal"
     },
     {
       "caseId": "evidence-contextual-only-slot",
-      "family": "s3-evidence-slot",
-      "surface": "evidenceReadiness",
-      "queryIntent": "consumer_policy_example",
+      "consumerPolicy": "contextual_only",
       "corpusPartition": "contract_policy",
-      "profiles": [],
+      "evidenceReadinessOracle": {
+        "mayBeNegativeEvidence": false,
+        "maySupportClaim": false,
+        "requiredDiagnostics": [],
+        "status": "contextual_ready"
+      },
+      "expectedCandidateIds": [
+        "policy:contextual_only"
+      ],
+      "family": "s3-evidence-slot",
       "methodsAttempted": [
         "contract_validation"
       ],
       "methodsUsed": [
         "contract_validation"
+      ],
+      "profiles": [],
+      "qualityOracle": {
+        "evaluated": false,
+        "notes": "fixture-only oracle; never emitted in runtime acquisition envelopes",
+        "offlineOnly": true
+      },
+      "queryIntent": "consumer_policy_example",
+      "retrievedCandidateIds": [
+        "policy:contextual_only"
       ],
       "runtimeObservation": {
         "acquisitionStatus": "completed_hit",
         "candidateCount": 1,
         "notes": "S3 can cite as background context but not as vulnerability support"
       },
-      "consumerPolicy": "contextual_only",
-      "evidenceReadinessOracle": {
-        "status": "contextual_ready",
-        "maySupportClaim": false,
-        "mayBeNegativeEvidence": false,
-        "requiredDiagnostics": []
-      },
-      "qualityOracle": {
-        "evaluated": false,
-        "offlineOnly": true,
-        "notes": "fixture-only oracle; never emitted in runtime acquisition envelopes"
-      },
-      "expectedCandidateIds": [
-        "policy:contextual_only"
-      ],
-      "retrievedCandidateIds": [
-        "policy:contextual_only"
-      ]
+      "surface": "evidenceReadiness"
     },
     {
       "caseId": "evidence-diagnostic-only-slot",
-      "family": "s3-evidence-slot",
-      "surface": "evidenceReadiness",
-      "queryIntent": "consumer_policy_example",
+      "consumerPolicy": "diagnostic_only",
       "corpusPartition": "contract_policy",
-      "profiles": [],
+      "evidenceReadinessOracle": {
+        "mayBeNegativeEvidence": false,
+        "maySupportClaim": false,
+        "requiredDiagnostics": [],
+        "status": "diagnostic_only"
+      },
+      "expectedCandidateIds": [
+        "policy:diagnostic_only"
+      ],
+      "family": "s3-evidence-slot",
       "methodsAttempted": [
         "contract_validation"
       ],
       "methodsUsed": [
         "contract_validation"
+      ],
+      "profiles": [],
+      "qualityOracle": {
+        "evaluated": false,
+        "notes": "fixture-only oracle; never emitted in runtime acquisition envelopes",
+        "offlineOnly": true
+      },
+      "queryIntent": "consumer_policy_example",
+      "retrievedCandidateIds": [
+        "policy:diagnostic_only"
       ],
       "runtimeObservation": {
         "acquisitionStatus": "incomplete_acquisition",
         "candidateCount": 1,
         "notes": "S3 can surface acquisition/readiness debt only"
       },
-      "consumerPolicy": "diagnostic_only",
-      "evidenceReadinessOracle": {
-        "status": "diagnostic_only",
-        "maySupportClaim": false,
-        "mayBeNegativeEvidence": false,
-        "requiredDiagnostics": []
-      },
-      "qualityOracle": {
-        "evaluated": false,
-        "offlineOnly": true,
-        "notes": "fixture-only oracle; never emitted in runtime acquisition envelopes"
-      },
-      "expectedCandidateIds": [
-        "policy:diagnostic_only"
-      ],
-      "retrievedCandidateIds": [
-        "policy:diagnostic_only"
-      ]
+      "surface": "evidenceReadiness"
     },
     {
       "caseId": "evidence-scoped-no-hit-slot",
-      "family": "s3-evidence-slot",
-      "surface": "evidenceReadiness",
-      "queryIntent": "consumer_policy_example",
+      "consumerPolicy": "scoped_no_hit_record_only",
       "corpusPartition": "contract_policy",
-      "profiles": [],
+      "evidenceReadinessOracle": {
+        "mayBeNegativeEvidence": true,
+        "maySupportClaim": false,
+        "requiredDiagnostics": [
+          "scopeKey",
+          "methodsUsed",
+          "providerSnapshot"
+        ],
+        "status": "ready_for_scoped_no_hit"
+      },
+      "expectedCandidateIds": [],
+      "family": "s3-evidence-slot",
       "methodsAttempted": [
         "contract_validation"
       ],
       "methodsUsed": [
         "contract_validation"
       ],
+      "profiles": [],
+      "qualityOracle": {
+        "evaluated": false,
+        "notes": "fixture-only oracle; never emitted in runtime acquisition envelopes",
+        "offlineOnly": true
+      },
+      "queryIntent": "consumer_policy_example",
+      "retrievedCandidateIds": [],
       "runtimeObservation": {
         "acquisitionStatus": "completed_no_hit",
         "candidateCount": 0,
         "notes": "negative evidence is allowed only for the exact scoped record named by diagnostics"
       },
-      "consumerPolicy": "scoped_no_hit_record_only",
-      "evidenceReadinessOracle": {
-        "status": "ready_for_scoped_no_hit",
-        "maySupportClaim": false,
-        "mayBeNegativeEvidence": true,
-        "requiredDiagnostics": [
-          "scopeKey",
-          "methodsUsed",
-          "providerSnapshot"
-        ]
-      },
-      "qualityOracle": {
-        "evaluated": false,
-        "offlineOnly": true,
-        "notes": "fixture-only oracle; never emitted in runtime acquisition envelopes"
-      },
-      "expectedCandidateIds": [],
-      "retrievedCandidateIds": []
+      "surface": "evidenceReadiness"
     },
     {
       "caseId": "evidence-s3-derived-local-support-slot",
-      "family": "s3-evidence-slot",
-      "surface": "evidenceReadiness",
-      "queryIntent": "consumer_policy_example",
+      "consumerPolicy": "s3_may_derive_local_support_if_refs_validate",
       "corpusPartition": "contract_policy",
-      "profiles": [],
+      "evidenceReadinessOracle": {
+        "mayBeNegativeEvidence": false,
+        "maySupportClaim": true,
+        "requiredDiagnostics": [
+          "refType",
+          "targetLocalValidationRequired"
+        ],
+        "status": "local_support_refs_ready"
+      },
+      "expectedCandidateIds": [
+        "policy:s3_may_derive_local_support_if_refs_validate"
+      ],
+      "family": "s3-evidence-slot",
       "methodsAttempted": [
         "contract_validation"
       ],
       "methodsUsed": [
         "contract_validation"
+      ],
+      "profiles": [],
+      "qualityOracle": {
+        "evaluated": false,
+        "notes": "fixture-only oracle; never emitted in runtime acquisition envelopes",
+        "offlineOnly": true
+      },
+      "queryIntent": "consumer_policy_example",
+      "retrievedCandidateIds": [
+        "policy:s3_may_derive_local_support_if_refs_validate"
       ],
       "runtimeObservation": {
         "acquisitionStatus": "completed_hit",
         "candidateCount": 1,
         "notes": "S3 may derive support only after validating returned refs against target-local evidence"
       },
-      "consumerPolicy": "s3_may_derive_local_support_if_refs_validate",
-      "evidenceReadinessOracle": {
-        "status": "local_support_refs_ready",
-        "maySupportClaim": true,
-        "mayBeNegativeEvidence": false,
-        "requiredDiagnostics": [
-          "refType",
-          "targetLocalValidationRequired"
-        ]
+      "surface": "evidenceReadiness"
+    },
+    {
+      "answerabilityOracle": {
+        "adversarial": false,
+        "component": {
+          "name": "openssl",
+          "purl": "pkg:generic/openssl@1.0.1f",
+          "version": "1.0.1f"
+        },
+        "expectedAnswer": {
+          "answerPacketFields": [
+            "schemaVersion",
+            "verdictAuthority",
+            "queryContext.sourceContext",
+            "evidence.sourceCodeKg",
+            "qualityGate",
+            "scoreVector",
+            "reasoningPath",
+            "uncertainty",
+            "followUpAffordances",
+            "forbiddenInferences"
+          ],
+          "followUpAffordances": [],
+          "forbiddenInferences": [
+            "s5_final_security_verdict",
+            "s5_clean_pass",
+            "s5_accepted_claim",
+            "s5_exploitability_judgment",
+            "complete_project_safety"
+          ],
+          "requiredInputs": [],
+          "schemaVersion": "s5-judge-answer-v1",
+          "status": "complete",
+          "verdict": "affected",
+          "verdictAuthority": "s5_evidence_grounded_knowledge_verdict_not_s3_final_security_verdict"
+        },
+        "languageScope": [
+          "c",
+          "cpp",
+          "native"
+        ],
+        "negativeAssertions": [],
+        "requeryControls": {},
+        "scenario": "OpenSSL 1.0.1f Heartbleed reachable C code",
+        "sourceCodeKgRequired": true,
+        "sourceContext": {
+          "analysisArtifactSetId": "src-analysis-heartbleed-101f",
+          "buildContextId": "src-build-heartbleed-101f",
+          "repositorySnapshotId": "src-snapshot-heartbleed-101f",
+          "requiredSourceEvidence": [
+            "snippet-heartbleed-101f",
+            "node-heartbleed-101f"
+          ],
+          "sourceCodeKgRequired": true
+        },
+        "threatKbRequired": true
       },
-      "qualityOracle": {
-        "evaluated": false,
-        "offlineOnly": true,
-        "notes": "fixture-only oracle; never emitted in runtime acquisition envelopes"
+      "caseId": "answer-native-heartbleed-affected-clear",
+      "consumerPolicy": "contextual_only",
+      "corpusPartition": "public_vulnerability",
+      "evidenceReadinessOracle": {
+        "mayBeNegativeEvidence": false,
+        "maySupportClaim": false,
+        "requiredDiagnostics": [
+          "sourceCodeKg",
+          "threatKb",
+          "judgeAnswerPacket"
+        ],
+        "status": "judge_answer_ready"
       },
       "expectedCandidateIds": [
-        "policy:s3_may_derive_local_support_if_refs_validate"
+        "CVE-2014-0160",
+        "CWE-126"
       ],
+      "family": "answerability-native",
+      "methodsAttempted": [
+        "source_kg_context",
+        "package_identity",
+        "version_range_eval",
+        "threat_kb_graph"
+      ],
+      "methodsUsed": [
+        "source_kg_context",
+        "package_identity",
+        "version_range_eval",
+        "threat_kb_graph"
+      ],
+      "profiles": [
+        "native-c-cpp-core"
+      ],
+      "qualityOracle": {
+        "evaluated": true,
+        "k": 5,
+        "notes": "answerability-native fixture; expected answer packet shape, not runtime TP/FP/FN truth",
+        "offlineOnly": true
+      },
+      "queryIntent": "affectedness_answer",
       "retrievedCandidateIds": [
-        "policy:s3_may_derive_local_support_if_refs_validate"
-      ]
+        "CVE-2014-0160",
+        "CWE-126"
+      ],
+      "runtimeObservation": {
+        "acquisitionStatus": "completed_hit",
+        "candidateCount": 2,
+        "notes": "C/C++ native answerability oracle for OpenSSL 1.0.1f Heartbleed reachable C code"
+      },
+      "surface": "judgeAnswer"
+    },
+    {
+      "answerabilityOracle": {
+        "adversarial": false,
+        "component": {
+          "name": "openssl",
+          "purl": "pkg:generic/openssl@1.0.1g",
+          "version": "1.0.1g"
+        },
+        "expectedAnswer": {
+          "answerPacketFields": [
+            "schemaVersion",
+            "verdictAuthority",
+            "queryContext.sourceContext",
+            "evidence.sourceCodeKg",
+            "qualityGate",
+            "scoreVector",
+            "reasoningPath",
+            "uncertainty",
+            "followUpAffordances",
+            "forbiddenInferences"
+          ],
+          "followUpAffordances": [],
+          "forbiddenInferences": [
+            "s5_final_security_verdict",
+            "s5_clean_pass",
+            "s5_accepted_claim",
+            "s5_exploitability_judgment",
+            "complete_project_safety"
+          ],
+          "requiredInputs": [],
+          "schemaVersion": "s5-judge-answer-v1",
+          "status": "complete",
+          "verdict": "not_affected",
+          "verdictAuthority": "s5_evidence_grounded_knowledge_verdict_not_s3_final_security_verdict"
+        },
+        "languageScope": [
+          "c",
+          "cpp",
+          "native"
+        ],
+        "negativeAssertions": [
+          "risk_signal_not_affectedness_proof",
+          "keyword_vector_no_hit_not_negative_evidence"
+        ],
+        "requeryControls": {},
+        "scenario": "OpenSSL 1.0.1g patched Heartbleed range exclusion",
+        "sourceCodeKgRequired": true,
+        "sourceContext": {
+          "analysisArtifactSetId": "src-analysis-heartbleed-101g",
+          "buildContextId": "src-build-heartbleed-101g",
+          "repositorySnapshotId": "src-snapshot-heartbleed-101g",
+          "requiredSourceEvidence": [
+            "snippet-heartbleed-101g",
+            "node-heartbleed-101g"
+          ],
+          "sourceCodeKgRequired": true
+        },
+        "threatKbRequired": true
+      },
+      "caseId": "answer-native-heartbleed-patched-not-affected",
+      "consumerPolicy": "scoped_no_hit_record_only",
+      "corpusPartition": "public_vulnerability",
+      "evidenceReadinessOracle": {
+        "mayBeNegativeEvidence": true,
+        "maySupportClaim": false,
+        "requiredDiagnostics": [
+          "sourceCodeKg",
+          "threatKb",
+          "judgeAnswerPacket"
+        ],
+        "status": "judge_answer_ready"
+      },
+      "expectedCandidateIds": [],
+      "family": "answerability-native",
+      "methodsAttempted": [
+        "source_kg_context",
+        "package_identity",
+        "version_range_eval",
+        "threat_kb_graph"
+      ],
+      "methodsUsed": [
+        "source_kg_context",
+        "package_identity",
+        "version_range_eval",
+        "threat_kb_graph"
+      ],
+      "profiles": [
+        "native-c-cpp-core"
+      ],
+      "qualityOracle": {
+        "evaluated": true,
+        "k": 5,
+        "notes": "answerability-native fixture; expected answer packet shape, not runtime TP/FP/FN truth",
+        "offlineOnly": true
+      },
+      "queryIntent": "affectedness_answer",
+      "retrievedCandidateIds": [],
+      "runtimeObservation": {
+        "acquisitionStatus": "completed_no_hit",
+        "candidateCount": 0,
+        "notes": "patched version range exclusion is scoped to CVE-2014-0160 and is not a clean pass"
+      },
+      "surface": "judgeAnswer"
+    },
+    {
+      "answerabilityOracle": {
+        "adversarial": true,
+        "component": {
+          "name": "openssl-fips-fork",
+          "version": "1.0.1f"
+        },
+        "expectedAnswer": {
+          "answerPacketFields": [
+            "schemaVersion",
+            "verdictAuthority",
+            "queryContext.sourceContext",
+            "evidence.sourceCodeKg",
+            "qualityGate",
+            "scoreVector",
+            "reasoningPath",
+            "uncertainty",
+            "followUpAffordances",
+            "forbiddenInferences"
+          ],
+          "followUpAffordances": [
+            "source_component_identity_resolution"
+          ],
+          "forbiddenInferences": [
+            "s5_final_security_verdict",
+            "s5_clean_pass",
+            "s5_accepted_claim",
+            "s5_exploitability_judgment",
+            "complete_project_safety"
+          ],
+          "requiredInputs": [
+            "component.identity"
+          ],
+          "schemaVersion": "s5-judge-answer-v1",
+          "status": "requires_requery",
+          "verdict": "unknown",
+          "verdictAuthority": "s5_evidence_grounded_knowledge_verdict_not_s3_final_security_verdict"
+        },
+        "languageScope": [
+          "c",
+          "cpp",
+          "native"
+        ],
+        "negativeAssertions": [
+          "identity_ambiguity_must_not_overclaim",
+          "cpe_product_match_not_package_identity_proof",
+          "lazy_unknown_forbidden"
+        ],
+        "requeryControls": {},
+        "scenario": "OpenSSL fork exposes conflicting CPE/PURL/source identity",
+        "sourceCodeKgRequired": true,
+        "sourceContext": {
+          "analysisArtifactSetId": "src-analysis-identity-ambiguous",
+          "buildContextId": "src-build-identity-ambiguous",
+          "repositorySnapshotId": "src-snapshot-identity-ambiguous",
+          "requiredSourceEvidence": [
+            "snippet-identity-ambiguous",
+            "node-identity-ambiguous"
+          ],
+          "sourceCodeKgRequired": true
+        },
+        "threatKbRequired": true
+      },
+      "caseId": "answer-native-identity-ambiguous-unknown",
+      "consumerPolicy": "diagnostic_only",
+      "corpusPartition": "public_vulnerability",
+      "evidenceReadinessOracle": {
+        "mayBeNegativeEvidence": false,
+        "maySupportClaim": false,
+        "requiredDiagnostics": [
+          "sourceCodeKg",
+          "threatKb",
+          "judgeAnswerPacket"
+        ],
+        "status": "judge_answer_requires_followup"
+      },
+      "expectedCandidateIds": [],
+      "family": "answerability-native",
+      "methodsAttempted": [
+        "source_kg_context",
+        "package_identity",
+        "cpe_lookup",
+        "purl_lookup"
+      ],
+      "methodsUsed": [
+        "source_kg_context",
+        "package_identity",
+        "cpe_lookup",
+        "purl_lookup"
+      ],
+      "profiles": [
+        "native-c-cpp-core"
+      ],
+      "qualityOracle": {
+        "evaluated": false,
+        "notes": "answerability-native diagnostic fixture; not part of offline retrieval metric aggregation",
+        "offlineOnly": true
+      },
+      "queryIntent": "identity_resolution_answer",
+      "retrievedCandidateIds": [
+        "cpe:2.3:a:openssl:openssl:*",
+        "pkg:generic/openssl"
+      ],
+      "runtimeObservation": {
+        "acquisitionStatus": "conflicting_evidence",
+        "candidateCount": 2,
+        "notes": "C/C++ native answerability oracle for OpenSSL fork exposes conflicting CPE/PURL/source identity"
+      },
+      "surface": "judgeAnswer"
+    },
+    {
+      "answerabilityOracle": {
+        "adversarial": true,
+        "component": {
+          "name": "not-openssl-compat",
+          "version": "1.0.1f"
+        },
+        "expectedAnswer": {
+          "answerPacketFields": [
+            "schemaVersion",
+            "verdictAuthority",
+            "queryContext.sourceContext",
+            "evidence.sourceCodeKg",
+            "qualityGate",
+            "scoreVector",
+            "reasoningPath",
+            "uncertainty",
+            "followUpAffordances",
+            "forbiddenInferences"
+          ],
+          "followUpAffordances": [],
+          "forbiddenInferences": [
+            "s5_final_security_verdict",
+            "s5_clean_pass",
+            "s5_accepted_claim",
+            "s5_exploitability_judgment",
+            "complete_project_safety"
+          ],
+          "requiredInputs": [],
+          "schemaVersion": "s5-judge-answer-v1",
+          "status": "complete",
+          "verdict": "not_affected",
+          "verdictAuthority": "s5_evidence_grounded_knowledge_verdict_not_s3_final_security_verdict"
+        },
+        "languageScope": [
+          "c",
+          "cpp",
+          "native"
+        ],
+        "negativeAssertions": [
+          "cpe_product_match_not_package_identity_proof",
+          "risk_signal_not_affectedness_proof"
+        ],
+        "requeryControls": {},
+        "scenario": "CPE product candidate does not match vendored package identity",
+        "sourceCodeKgRequired": true,
+        "sourceContext": {
+          "analysisArtifactSetId": "src-analysis-cpe-fp",
+          "buildContextId": "src-build-cpe-fp",
+          "repositorySnapshotId": "src-snapshot-cpe-fp",
+          "requiredSourceEvidence": [
+            "snippet-cpe-fp",
+            "node-cpe-fp"
+          ],
+          "sourceCodeKgRequired": true
+        },
+        "threatKbRequired": true
+      },
+      "caseId": "answer-native-cpe-false-positive-negative",
+      "consumerPolicy": "scoped_no_hit_record_only",
+      "corpusPartition": "public_vulnerability",
+      "evidenceReadinessOracle": {
+        "mayBeNegativeEvidence": true,
+        "maySupportClaim": false,
+        "requiredDiagnostics": [
+          "sourceCodeKg",
+          "threatKb",
+          "judgeAnswerPacket"
+        ],
+        "status": "judge_answer_ready"
+      },
+      "expectedCandidateIds": [],
+      "family": "answerability-native",
+      "methodsAttempted": [
+        "source_kg_context",
+        "cpe_lookup",
+        "package_identity"
+      ],
+      "methodsUsed": [
+        "source_kg_context",
+        "cpe_lookup",
+        "package_identity"
+      ],
+      "profiles": [
+        "native-c-cpp-core"
+      ],
+      "qualityOracle": {
+        "evaluated": true,
+        "k": 5,
+        "notes": "answerability-native fixture; expected answer packet shape, not runtime TP/FP/FN truth",
+        "offlineOnly": true
+      },
+      "queryIntent": "affectedness_answer",
+      "retrievedCandidateIds": [
+        "cpe:2.3:a:openssl:openssl:*"
+      ],
+      "runtimeObservation": {
+        "acquisitionStatus": "completed_no_hit",
+        "candidateCount": 1,
+        "notes": "CPE/product similarity is rejected as affectedness proof without package/source identity"
+      },
+      "surface": "judgeAnswer"
+    },
+    {
+      "answerabilityOracle": {
+        "adversarial": true,
+        "component": {
+          "name": "openssl",
+          "version": "1.0.1e-2+deb7u7"
+        },
+        "expectedAnswer": {
+          "answerPacketFields": [
+            "schemaVersion",
+            "verdictAuthority",
+            "queryContext.sourceContext",
+            "evidence.sourceCodeKg",
+            "qualityGate",
+            "scoreVector",
+            "reasoningPath",
+            "uncertainty",
+            "followUpAffordances",
+            "forbiddenInferences"
+          ],
+          "followUpAffordances": [
+            "source_diff_or_distro_backport_check"
+          ],
+          "forbiddenInferences": [
+            "s5_final_security_verdict",
+            "s5_clean_pass",
+            "s5_accepted_claim",
+            "s5_exploitability_judgment",
+            "complete_project_safety"
+          ],
+          "requiredInputs": [
+            "distro.patchStatus",
+            "backportEvidence"
+          ],
+          "schemaVersion": "s5-judge-answer-v1",
+          "status": "requires_requery",
+          "verdict": "unknown",
+          "verdictAuthority": "s5_evidence_grounded_knowledge_verdict_not_s3_final_security_verdict"
+        },
+        "languageScope": [
+          "c",
+          "cpp",
+          "native"
+        ],
+        "negativeAssertions": [
+          "distro_backport_not_upstream_version_proof",
+          "stale_evidence_not_proof",
+          "lazy_unknown_forbidden"
+        ],
+        "requeryControls": {},
+        "scenario": "Debian/RHEL OpenSSL reports vulnerable upstream version but may include backported fix",
+        "sourceCodeKgRequired": true,
+        "sourceContext": {
+          "analysisArtifactSetId": "src-analysis-distro-backport",
+          "buildContextId": "src-build-distro-backport",
+          "repositorySnapshotId": "src-snapshot-distro-backport",
+          "requiredSourceEvidence": [
+            "snippet-distro-backport",
+            "node-distro-backport"
+          ],
+          "sourceCodeKgRequired": true
+        },
+        "threatKbRequired": true
+      },
+      "caseId": "answer-native-distro-backport-unknown",
+      "consumerPolicy": "diagnostic_only",
+      "corpusPartition": "public_vulnerability",
+      "evidenceReadinessOracle": {
+        "mayBeNegativeEvidence": false,
+        "maySupportClaim": false,
+        "requiredDiagnostics": [
+          "sourceCodeKg",
+          "threatKb",
+          "judgeAnswerPacket"
+        ],
+        "status": "judge_answer_requires_followup"
+      },
+      "expectedCandidateIds": [
+        "CVE-2014-0160"
+      ],
+      "family": "answerability-native",
+      "methodsAttempted": [
+        "source_kg_context",
+        "package_identity",
+        "version_range_eval",
+        "distro_backport_check"
+      ],
+      "methodsUsed": [
+        "source_kg_context",
+        "package_identity",
+        "version_range_eval",
+        "distro_backport_check"
+      ],
+      "profiles": [
+        "native-c-cpp-core"
+      ],
+      "qualityOracle": {
+        "evaluated": false,
+        "notes": "answerability-native diagnostic fixture; not part of offline retrieval metric aggregation",
+        "offlineOnly": true
+      },
+      "queryIntent": "affectedness_answer",
+      "retrievedCandidateIds": [
+        "CVE-2014-0160"
+      ],
+      "runtimeObservation": {
+        "acquisitionStatus": "incomplete_acquisition",
+        "candidateCount": 1,
+        "notes": "C/C++ native answerability oracle for Debian/RHEL OpenSSL reports vulnerable upstream version but may include backported fix"
+      },
+      "surface": "judgeAnswer"
+    },
+    {
+      "answerabilityOracle": {
+        "adversarial": true,
+        "component": {
+          "name": "vendored-openssl",
+          "version": "1.0.1f"
+        },
+        "expectedAnswer": {
+          "answerPacketFields": [
+            "schemaVersion",
+            "verdictAuthority",
+            "queryContext.sourceContext",
+            "evidence.sourceCodeKg",
+            "qualityGate",
+            "scoreVector",
+            "reasoningPath",
+            "uncertainty",
+            "followUpAffordances",
+            "forbiddenInferences"
+          ],
+          "followUpAffordances": [
+            "source_diff_or_vendored_patch_check"
+          ],
+          "forbiddenInferences": [
+            "s5_final_security_verdict",
+            "s5_clean_pass",
+            "s5_accepted_claim",
+            "s5_exploitability_judgment",
+            "complete_project_safety"
+          ],
+          "requiredInputs": [
+            "sourceDiff",
+            "patchHashEvidence"
+          ],
+          "schemaVersion": "s5-judge-answer-v1",
+          "status": "requires_requery",
+          "verdict": "unknown",
+          "verdictAuthority": "s5_evidence_grounded_knowledge_verdict_not_s3_final_security_verdict"
+        },
+        "languageScope": [
+          "c",
+          "cpp",
+          "native"
+        ],
+        "negativeAssertions": [
+          "vendored_source_requires_diff_or_hash_evidence",
+          "keyword_vector_no_hit_not_negative_evidence",
+          "lazy_unknown_forbidden"
+        ],
+        "requeryControls": {},
+        "scenario": "Vendored OpenSSL source may have cherry-picked Heartbleed patch despite old version string",
+        "sourceCodeKgRequired": true,
+        "sourceContext": {
+          "analysisArtifactSetId": "src-analysis-vendored-patch",
+          "buildContextId": "src-build-vendored-patch",
+          "repositorySnapshotId": "src-snapshot-vendored-patch",
+          "requiredSourceEvidence": [
+            "snippet-vendored-patch",
+            "node-vendored-patch"
+          ],
+          "sourceCodeKgRequired": true
+        },
+        "threatKbRequired": true
+      },
+      "caseId": "answer-native-vendored-source-patch-unknown",
+      "consumerPolicy": "diagnostic_only",
+      "corpusPartition": "public_vulnerability",
+      "evidenceReadinessOracle": {
+        "mayBeNegativeEvidence": false,
+        "maySupportClaim": false,
+        "requiredDiagnostics": [
+          "sourceCodeKg",
+          "threatKb",
+          "judgeAnswerPacket"
+        ],
+        "status": "judge_answer_requires_followup"
+      },
+      "expectedCandidateIds": [
+        "CVE-2014-0160"
+      ],
+      "family": "answerability-native",
+      "methodsAttempted": [
+        "source_kg_context",
+        "source_diff",
+        "version_range_eval"
+      ],
+      "methodsUsed": [
+        "source_kg_context",
+        "source_diff",
+        "version_range_eval"
+      ],
+      "profiles": [
+        "native-c-cpp-core"
+      ],
+      "qualityOracle": {
+        "evaluated": false,
+        "notes": "answerability-native diagnostic fixture; not part of offline retrieval metric aggregation",
+        "offlineOnly": true
+      },
+      "queryIntent": "affectedness_answer",
+      "retrievedCandidateIds": [
+        "CVE-2014-0160"
+      ],
+      "runtimeObservation": {
+        "acquisitionStatus": "incomplete_acquisition",
+        "candidateCount": 1,
+        "notes": "C/C++ native answerability oracle for Vendored OpenSSL source may have cherry-picked Heartbleed patch despite old version string"
+      },
+      "surface": "judgeAnswer"
+    },
+    {
+      "answerabilityOracle": {
+        "adversarial": true,
+        "component": {
+          "name": "linux-kernel",
+          "version": "5.10.0"
+        },
+        "expectedAnswer": {
+          "answerPacketFields": [
+            "schemaVersion",
+            "verdictAuthority",
+            "queryContext.sourceContext",
+            "evidence.sourceCodeKg",
+            "qualityGate",
+            "scoreVector",
+            "reasoningPath",
+            "uncertainty",
+            "followUpAffordances",
+            "forbiddenInferences"
+          ],
+          "followUpAffordances": [
+            "build_config_enrichment"
+          ],
+          "forbiddenInferences": [
+            "s5_final_security_verdict",
+            "s5_clean_pass",
+            "s5_accepted_claim",
+            "s5_exploitability_judgment",
+            "complete_project_safety"
+          ],
+          "requiredInputs": [
+            "buildConfig.CONFIG_*",
+            "reachabilityEvidence"
+          ],
+          "schemaVersion": "s5-judge-answer-v1",
+          "status": "requires_requery",
+          "verdict": "unknown",
+          "verdictAuthority": "s5_evidence_grounded_knowledge_verdict_not_s3_final_security_verdict"
+        },
+        "languageScope": [
+          "c",
+          "cpp",
+          "native"
+        ],
+        "negativeAssertions": [
+          "build_config_required_for_reachability",
+          "lazy_unknown_forbidden"
+        ],
+        "requeryControls": {},
+        "scenario": "Linux kernel vulnerable code path depends on CONFIG option not proven in build",
+        "sourceCodeKgRequired": true,
+        "sourceContext": {
+          "analysisArtifactSetId": "src-analysis-kernel-config",
+          "buildContextId": "src-build-kernel-config",
+          "repositorySnapshotId": "src-snapshot-kernel-config",
+          "requiredSourceEvidence": [
+            "snippet-kernel-config",
+            "node-kernel-config"
+          ],
+          "sourceCodeKgRequired": true
+        },
+        "threatKbRequired": true
+      },
+      "caseId": "answer-native-kernel-config-dependent-unknown",
+      "consumerPolicy": "diagnostic_only",
+      "corpusPartition": "public_vulnerability",
+      "evidenceReadinessOracle": {
+        "mayBeNegativeEvidence": false,
+        "maySupportClaim": false,
+        "requiredDiagnostics": [
+          "sourceCodeKg",
+          "threatKb",
+          "judgeAnswerPacket"
+        ],
+        "status": "judge_answer_requires_followup"
+      },
+      "expectedCandidateIds": [
+        "CVE-KERNEL-CONFIG-FIXTURE"
+      ],
+      "family": "answerability-native",
+      "methodsAttempted": [
+        "source_kg_context",
+        "build_config_check",
+        "threat_kb_graph"
+      ],
+      "methodsUsed": [
+        "source_kg_context",
+        "build_config_check",
+        "threat_kb_graph"
+      ],
+      "profiles": [
+        "native-c-cpp-core"
+      ],
+      "qualityOracle": {
+        "evaluated": false,
+        "notes": "answerability-native diagnostic fixture; not part of offline retrieval metric aggregation",
+        "offlineOnly": true
+      },
+      "queryIntent": "affectedness_answer",
+      "retrievedCandidateIds": [
+        "CVE-KERNEL-CONFIG-FIXTURE"
+      ],
+      "runtimeObservation": {
+        "acquisitionStatus": "incomplete_acquisition",
+        "candidateCount": 1,
+        "notes": "C/C++ native answerability oracle for Linux kernel vulnerable code path depends on CONFIG option not proven in build"
+      },
+      "surface": "judgeAnswer"
+    },
+    {
+      "answerabilityOracle": {
+        "adversarial": true,
+        "component": {
+          "name": "openssl",
+          "version": "1.0.1f"
+        },
+        "expectedAnswer": {
+          "answerPacketFields": [
+            "schemaVersion",
+            "verdictAuthority",
+            "queryContext.sourceContext",
+            "evidence.sourceCodeKg",
+            "qualityGate",
+            "scoreVector",
+            "reasoningPath",
+            "uncertainty",
+            "followUpAffordances",
+            "forbiddenInferences"
+          ],
+          "followUpAffordances": [
+            "discover_other_candidates"
+          ],
+          "forbiddenInferences": [
+            "s5_final_security_verdict",
+            "s5_clean_pass",
+            "s5_accepted_claim",
+            "s5_exploitability_judgment",
+            "complete_project_safety"
+          ],
+          "requiredInputs": [],
+          "schemaVersion": "s5-judge-answer-v1",
+          "status": "requires_requery",
+          "verdict": "unknown",
+          "verdictAuthority": "s5_evidence_grounded_knowledge_verdict_not_s3_final_security_verdict"
+        },
+        "languageScope": [
+          "c",
+          "cpp",
+          "native"
+        ],
+        "negativeAssertions": [
+          "excluded_cve_must_not_resurrect",
+          "risk_signal_not_affectedness_proof"
+        ],
+        "requeryControls": {
+          "answerMode": "alternatives_without_excluded",
+          "exclude": [
+            "CVE-2014-0160"
+          ],
+          "forceContext": {},
+          "prefer": []
+        },
+        "scenario": "S3 excludes CVE-2014-0160 after proving patched/local mismatch; S5 must not resurrect it",
+        "sourceCodeKgRequired": true,
+        "sourceContext": {
+          "analysisArtifactSetId": "src-analysis-exclude-heartbleed",
+          "buildContextId": "src-build-exclude-heartbleed",
+          "repositorySnapshotId": "src-snapshot-exclude-heartbleed",
+          "requiredSourceEvidence": [
+            "snippet-exclude-heartbleed",
+            "node-exclude-heartbleed"
+          ],
+          "sourceCodeKgRequired": true
+        },
+        "threatKbRequired": true
+      },
+      "caseId": "answer-native-requery-exclude-no-resurrection",
+      "consumerPolicy": "diagnostic_only",
+      "corpusPartition": "public_vulnerability",
+      "evidenceReadinessOracle": {
+        "mayBeNegativeEvidence": false,
+        "maySupportClaim": false,
+        "requiredDiagnostics": [
+          "sourceCodeKg",
+          "threatKb",
+          "judgeAnswerPacket"
+        ],
+        "status": "judge_answer_requires_followup"
+      },
+      "expectedCandidateIds": [],
+      "family": "answerability-native",
+      "methodsAttempted": [
+        "source_kg_context",
+        "version_range_eval",
+        "requery_control_exclude"
+      ],
+      "methodsUsed": [
+        "source_kg_context",
+        "version_range_eval",
+        "requery_control_exclude"
+      ],
+      "profiles": [
+        "native-c-cpp-core"
+      ],
+      "qualityOracle": {
+        "evaluated": false,
+        "notes": "answerability-native diagnostic fixture; not part of offline retrieval metric aggregation",
+        "offlineOnly": true
+      },
+      "queryIntent": "affectedness_answer",
+      "retrievedCandidateIds": [],
+      "runtimeObservation": {
+        "acquisitionStatus": "incomplete_acquisition",
+        "candidateCount": 0,
+        "notes": "C/C++ native answerability oracle for S3 excludes CVE-2014-0160 after proving patched/local mismatch; S5 must not resurrect it"
+      },
+      "surface": "judgeAnswer"
+    },
+    {
+      "answerabilityOracle": {
+        "adversarial": false,
+        "component": {
+          "name": "curl",
+          "version": "7.68.0"
+        },
+        "expectedAnswer": {
+          "answerPacketFields": [
+            "schemaVersion",
+            "verdictAuthority",
+            "queryContext.sourceContext",
+            "evidence.sourceCodeKg",
+            "qualityGate",
+            "scoreVector",
+            "reasoningPath",
+            "uncertainty",
+            "followUpAffordances",
+            "forbiddenInferences"
+          ],
+          "followUpAffordances": [],
+          "forbiddenInferences": [
+            "s5_final_security_verdict",
+            "s5_clean_pass",
+            "s5_accepted_claim",
+            "s5_exploitability_judgment",
+            "complete_project_safety"
+          ],
+          "requiredInputs": [],
+          "schemaVersion": "s5-judge-answer-v1",
+          "status": "complete",
+          "verdict": "affected",
+          "verdictAuthority": "s5_evidence_grounded_knowledge_verdict_not_s3_final_security_verdict"
+        },
+        "languageScope": [
+          "c",
+          "cpp",
+          "native"
+        ],
+        "negativeAssertions": [
+          "keyword_vector_no_hit_not_negative_evidence"
+        ],
+        "requeryControls": {
+          "answerMode": "evidence_grounded",
+          "exclude": [],
+          "forceContext": {},
+          "prefer": [
+            "sourceCodeKg",
+            "localReachability"
+          ]
+        },
+        "scenario": "Prefer local Source KG reachability/package evidence over weak global package keyword",
+        "sourceCodeKgRequired": true,
+        "sourceContext": {
+          "analysisArtifactSetId": "src-analysis-prefer-source",
+          "buildContextId": "src-build-prefer-source",
+          "repositorySnapshotId": "src-snapshot-prefer-source",
+          "requiredSourceEvidence": [
+            "snippet-prefer-source",
+            "node-prefer-source"
+          ],
+          "sourceCodeKgRequired": true
+        },
+        "threatKbRequired": true
+      },
+      "caseId": "answer-native-prefer-source-policy",
+      "consumerPolicy": "contextual_only",
+      "corpusPartition": "public_vulnerability",
+      "evidenceReadinessOracle": {
+        "mayBeNegativeEvidence": false,
+        "maySupportClaim": false,
+        "requiredDiagnostics": [
+          "sourceCodeKg",
+          "threatKb",
+          "judgeAnswerPacket"
+        ],
+        "status": "judge_answer_ready"
+      },
+      "expectedCandidateIds": [
+        "CVE-2021-CURL-NATIVE-FIXTURE"
+      ],
+      "family": "answerability-native",
+      "methodsAttempted": [
+        "source_kg_context",
+        "prefer_source_context",
+        "package_identity"
+      ],
+      "methodsUsed": [
+        "source_kg_context",
+        "prefer_source_context",
+        "package_identity"
+      ],
+      "profiles": [
+        "native-c-cpp-core"
+      ],
+      "qualityOracle": {
+        "evaluated": true,
+        "k": 5,
+        "notes": "answerability-native fixture; expected answer packet shape, not runtime TP/FP/FN truth",
+        "offlineOnly": true
+      },
+      "queryIntent": "affectedness_answer",
+      "retrievedCandidateIds": [
+        "CVE-2021-CURL-NATIVE-FIXTURE"
+      ],
+      "runtimeObservation": {
+        "acquisitionStatus": "completed_hit",
+        "candidateCount": 1,
+        "notes": "C/C++ native answerability oracle for Prefer local Source KG reachability/package evidence over weak global package keyword"
+      },
+      "surface": "judgeAnswer"
+    },
+    {
+      "answerabilityOracle": {
+        "adversarial": true,
+        "component": {
+          "name": "libxml2",
+          "version": "2.9.10"
+        },
+        "expectedAnswer": {
+          "answerPacketFields": [
+            "schemaVersion",
+            "verdictAuthority",
+            "queryContext.sourceContext",
+            "evidence.sourceCodeKg",
+            "qualityGate",
+            "scoreVector",
+            "reasoningPath",
+            "uncertainty",
+            "followUpAffordances",
+            "forbiddenInferences"
+          ],
+          "followUpAffordances": [
+            "resolve_conflicting_global_candidate"
+          ],
+          "forbiddenInferences": [
+            "s5_final_security_verdict",
+            "s5_clean_pass",
+            "s5_accepted_claim",
+            "s5_exploitability_judgment",
+            "complete_project_safety"
+          ],
+          "requiredInputs": [],
+          "schemaVersion": "s5-judge-answer-v1",
+          "status": "requires_requery",
+          "verdict": "conflicting",
+          "verdictAuthority": "s5_evidence_grounded_knowledge_verdict_not_s3_final_security_verdict"
+        },
+        "languageScope": [
+          "c",
+          "cpp",
+          "native"
+        ],
+        "negativeAssertions": [
+          "keyword_vector_no_hit_not_negative_evidence",
+          "identity_ambiguity_must_not_overclaim"
+        ],
+        "requeryControls": {
+          "answerMode": "strict_target_context",
+          "exclude": [],
+          "forceContext": {
+            "repositorySnapshotId": "src-snapshot-force-context",
+            "targetId": "re100:xml-parser"
+          },
+          "prefer": [
+            "targetContext"
+          ]
+        },
+        "scenario": "Force build target/source context so global embedding/keyword noise cannot dominate",
+        "sourceCodeKgRequired": true,
+        "sourceContext": {
+          "analysisArtifactSetId": "src-analysis-force-context",
+          "buildContextId": "src-build-force-context",
+          "repositorySnapshotId": "src-snapshot-force-context",
+          "requiredSourceEvidence": [
+            "snippet-force-context",
+            "node-force-context"
+          ],
+          "sourceCodeKgRequired": true
+        },
+        "threatKbRequired": true
+      },
+      "caseId": "answer-native-force-context-over-global",
+      "consumerPolicy": "diagnostic_only",
+      "corpusPartition": "public_vulnerability",
+      "evidenceReadinessOracle": {
+        "mayBeNegativeEvidence": false,
+        "maySupportClaim": false,
+        "requiredDiagnostics": [
+          "sourceCodeKg",
+          "threatKb",
+          "judgeAnswerPacket"
+        ],
+        "status": "judge_answer_requires_followup"
+      },
+      "expectedCandidateIds": [
+        "CVE-FORCED-CONTEXT-FIXTURE"
+      ],
+      "family": "answerability-native",
+      "methodsAttempted": [
+        "source_kg_context",
+        "force_context",
+        "constrained_retrieval"
+      ],
+      "methodsUsed": [
+        "source_kg_context",
+        "force_context",
+        "constrained_retrieval"
+      ],
+      "profiles": [
+        "native-c-cpp-core"
+      ],
+      "qualityOracle": {
+        "evaluated": true,
+        "k": 5,
+        "notes": "answerability-native fixture; expected answer packet shape, not runtime TP/FP/FN truth",
+        "offlineOnly": true
+      },
+      "queryIntent": "affectedness_answer",
+      "retrievedCandidateIds": [
+        "CVE-FORCED-CONTEXT-FIXTURE",
+        "GLOBAL-NOISE-CVE"
+      ],
+      "runtimeObservation": {
+        "acquisitionStatus": "conflicting_evidence",
+        "candidateCount": 2,
+        "notes": "C/C++ native answerability oracle for Force build target/source context so global embedding/keyword noise cannot dominate"
+      },
+      "surface": "judgeAnswer"
     }
-  ]
+  ],
+  "description": "Fixture-only oracle separating runtime acquisition stability, evidence readiness, and offline retrieval quality. Runtime envelopes must not expose TP/FP/FN metrics.",
+  "gateModel": {
+    "answerabilityNative": "C/C++ native Judge answer packets validate verdict/status, Source Code KG evidence, Threat KB affectedness, controls, and grounded unknown semantics.",
+    "evidenceReadiness": "consumer policies determine whether S3/S4 may use returned material as context, diagnostics, scoped negative evidence, or local-support references",
+    "judgeAnswerability": "Expected answer packets are S5 evidence-grounded knowledge verdicts, not S3 final vulnerability/security verdicts.",
+    "nativeNegativeCases": "Adversarial cases prevent risk-signal proof, keyword/vector no-hit proof, CPE false positives, stale evidence, distro/backport, vendored source, and excluded-CVE resurrection overclaims.",
+    "qualityGate": "offline-only retrieval/transform metrics over expectedCandidateIds and retrievedCandidateIds",
+    "systemStability": "manifest loads, schema validates, and acquisition statuses remain contract vocabulary"
+  },
+  "goldenSetVersion": "golden-set-v1",
+  "schemaVersion": "s5-golden-set-v1",
+  "title": "S5 Golden Set v1 for acquisition/readiness/GraphRAG quality gates"
 }

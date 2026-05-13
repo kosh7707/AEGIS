@@ -64,11 +64,15 @@ def test_clean_ready_top_level_contract_is_local_static_ready() -> None:
     assert summary["contractLocation"] == "top-level"
     assert summary["systemStability"] == "pass"
     assert summary["evidenceReadiness"] == "ready"
+    assert summary["claimSupportReadiness"] == "pass"
     assert summary["qualityEvaluation"] == "not_evaluated"
     assert summary["localStaticEvidenceReady"] is True
     assert summary["toolAnomalyReasonCodes"] == []
     assert set(summary["notProvidedSurfaces"]) == REQUIRED_NOT_PROVIDED_SURFACES
     assert "absence-of-vulnerability-from-empty-findings" in summary["mustNotSupportAlone"]
+    assert {"absence-of-vulnerability", "cwe-absence"}.issubset(summary["unsupportedClaims"])
+    assert summary["claimSupportStatuses"]["absence-of-vulnerability"] == "unsupported"
+    assert summary["claimSupportStatuses"]["reported-finding-positive-evidence"] == "not_applicable"
     _assert_no_forbidden_output_keys(summary)
 
 
@@ -77,6 +81,8 @@ def test_failed_tool_contract_is_degraded_partial_not_locally_ready() -> None:
 
     assert summary["systemStability"] == "degraded"
     assert summary["evidenceReadiness"] == "partial"
+    assert summary["claimSupportReadiness"] == "partial"
+    assert "LOCAL_ARTIFACT_DEGRADED" in summary["claimSupportReasonCodes"]
     assert summary["localStaticEvidenceReady"] is False
     assert summary["toolAnomalyReasonCodes"] == ["TOOL_FAILED:scan-build"]
     assert summary["toolMatrixStatuses"]["scan-build"] == "failed"
@@ -89,6 +95,7 @@ def test_missing_tool_metadata_contract_is_degraded_partial_not_locally_ready() 
 
     assert summary["systemStability"] == "degraded"
     assert summary["evidenceReadiness"] == "partial"
+    assert summary["claimSupportReadiness"] == "partial"
     assert summary["localStaticEvidenceReady"] is False
     assert summary["toolAnomalyReasonCodes"] == [
         "TOOL_NOT_RECORDED:cppcheck",
@@ -106,8 +113,10 @@ def test_policy_failure_contract_is_failed_not_ready() -> None:
 
     assert summary["systemStability"] == "fail"
     assert summary["evidenceReadiness"] == "not_ready"
+    assert summary["claimSupportReadiness"] == "fail"
     assert summary["localStaticEvidenceReady"] is False
     assert "POLICY_VIOLATION" in summary["systemReasonCodes"]
+    assert "POLICY_VIOLATION" in summary["claimSupportReasonCodes"]
     assert summary["toolAnomalyReasonCodes"] == ["TOOL_BLOCKING_SKIP:semgrep"]
     _assert_no_forbidden_output_keys(summary)
 
@@ -119,6 +128,7 @@ def test_allowed_skip_nested_contract_remains_pass_ready() -> None:
     assert summary["contractLocation"] == "scan.staticEvidenceContract"
     assert summary["systemStability"] == "pass"
     assert summary["evidenceReadiness"] == "ready"
+    assert summary["claimSupportReadiness"] == "pass"
     assert summary["localStaticEvidenceReady"] is True
     assert summary["toolAnomalyReasonCodes"] == []
     assert summary["toolConsumerPolicies"]["clang-tidy"] == "not_requested_or_not_applicable"
@@ -152,6 +162,7 @@ def test_absent_contract_does_not_infer_readiness_from_success_flag() -> None:
     assert summary["contractLocation"] == "missing"
     assert summary["systemStability"] == "unknown"
     assert summary["evidenceReadiness"] == "not_ready"
+    assert summary["claimSupportReadiness"] == "unknown"
     assert summary["qualityEvaluation"] == "unknown"
     assert summary["localStaticEvidenceReady"] is False
     assert summary["toolAnomalyReasonCodes"] == []
@@ -167,6 +178,7 @@ def test_malformed_contract_does_not_infer_readiness_from_success_flag() -> None
     assert summary["contractLocation"] == "malformed"
     assert summary["systemStability"] == "unknown"
     assert summary["evidenceReadiness"] == "not_ready"
+    assert summary["claimSupportReadiness"] == "unknown"
     assert summary["localStaticEvidenceReady"] is False
     _assert_no_forbidden_output_keys(summary)
 

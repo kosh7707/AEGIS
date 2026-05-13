@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 
 import neo4j
 from fastapi import FastAPI, Request
-from fastapi.exceptions import HTTPException
+from fastapi.exceptions import HTTPException, RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse, Response
@@ -29,6 +29,7 @@ from app.routers import (
     contracts_api,
     cve_api,
     project_memory_api,
+    source_kg_api,
     target_context_api,
 )
 from app.target_context_service import TargetContextService
@@ -158,6 +159,7 @@ async def lifespan(_app: FastAPI):
     target_context_api.set_code_assembler(code_assembler)
     target_context_api.set_knowledge_assembler(assembler)
     target_context_api.set_nvd_client(nvd_client)
+    source_kg_api.set_ledger_repository(ledger_repository)
 
     logger.info("Knowledge Base 초기화 완료")
 
@@ -222,6 +224,26 @@ async def _http_exception_handler(request: Request, exc: HTTPException):
     )
 
 
+@app.exception_handler(RequestValidationError)
+async def _request_validation_exception_handler(request: Request, exc: RequestValidationError):
+    """Pydantic/FastAPI validation errors in the S5 observability error envelope."""
+    request_id = request.headers.get("x-request-id")
+    detail = str(exc)
+    return JSONResponse(
+        status_code=422,
+        content={
+            "success": False,
+            "error": detail,
+            "errorDetail": {
+                "code": "INVALID_INPUT",
+                "message": detail,
+                "requestId": request_id,
+                "retryable": False,
+            },
+        },
+    )
+
+
 app.add_middleware(_RequestIdMiddleware)
 app.add_middleware(
     CORSMiddleware,
@@ -236,6 +258,7 @@ app.include_router(code_graph_api.router)
 app.include_router(contracts_api.router)
 app.include_router(cve_api.router)
 app.include_router(project_memory_api.router)
+app.include_router(source_kg_api.router)
 app.include_router(target_context_api.router)
 
 

@@ -19,8 +19,10 @@ from app.config import settings
 from app.context import set_request_id
 from app.errors import (
     InvalidSdkProfileError,
+    InvalidScanToolError,
     NoFilesError,
     PolicyViolationError,
+    RequiredToolUnavailableError,
     SastRunnerError,
     SdkNotFoundError,
 )
@@ -32,7 +34,7 @@ from app.scanner.build_runner import BuildRunner
 from app.scanner.evidence import enrich_findings_evidence, project_libraries_evidence
 from app.scanner.static_evidence_contract import build_static_evidence_contract
 from app.scanner.include_resolver import IncludeResolver
-from app.scanner.orchestrator import ScanOrchestrator
+from app.scanner.orchestrator import ALL_TOOLS, ScanOrchestrator
 from app.scanner.sca_service import analyze_libraries, identify_libraries
 from app.scanner.sdk_resolver import profile_sdk_id, sdk_reference_exists
 from app.scanner.ruleset_selector import resolve_rulesets
@@ -155,6 +157,24 @@ def _validate_sdk_profile(profile) -> None:
         "sdkResolutionMode='non-registered' with sdkDescriptor for caller-resolved SDKs, "
         "or sdkResolutionMode='none' / omit sdkId for no-SDK analysis.",
     )
+
+
+def _required_scan_tools(tools: list[str] | None) -> list[str]:
+    """Return the authoritative required tool set for this request."""
+    return list(tools or ALL_TOOLS)
+
+
+def _validate_scan_tools(tools: list[str] | None) -> None:
+    if tools is None:
+        return
+    unknown = sorted(set(tools) - set(ALL_TOOLS))
+    if unknown:
+        raise InvalidScanToolError(
+            "Unknown SAST tool(s): "
+            + ", ".join(unknown)
+            + ". Allowed tools: "
+            + ", ".join(ALL_TOOLS),
+        )
 
 
 def _scan_validation_error_response(
@@ -449,20 +469,114 @@ async def _run_scan_core(
             )
 
             # 1. 멀티 도구 병렬 실행
-            findings, execution = await orchestrator.run(
-                scan_dir=scan_dir,
-                source_files=source_files,
-                profile=bp,
-                rulesets=rulesets,
-                compile_commands=body.compile_commands,
-                tools=body.options.tools,
-                timeout=timeout,
-                third_party_paths=body.third_party_paths,
-                on_progress=on_progress,
-                on_file_progress=on_file_progress,
-                on_runtime_state=on_runtime_state,
-            )
+            try:
+                findings, execution = await orchestrator.run(
+                    scan_dir=scan_dir,
+                    source_files=source_files,
+                    profile=bp,
+                    rulesets=rulesets,
+                    compile_commands=body.compile_commands,
+                    tools=body.options.tools,
+                    timeout=timeout,
+                    third_party_paths=body.third_party_paths,
+                    on_progress=on_progress,
+                    on_file_progress=on_file_progress,
+                    on_runtime_state=on_runtime_state,
+                )
+            except RequiredToolUnavailableError as exc:
+                elapsed_ms = int((time.perf_counter() - t0) * 1000)
+                execution = exc.execution
+                failed_contract = build_static_evidence_contract(
+                    success=False,
+                    provenance=body.provenance,
+                    findings=[],
+                    execution=execution,
+                    code_graph=None,
+                    sca=None,
+                    policy_failure_reason_codes=["REQUIRED_TOOL_UNAVAILABLE"],
+                )
+                failed_response = ScanResponse(
+                    success=False,
+                    scanId=scan_id,
+                    status="failed",
+                    provenance=body.provenance,
+                    findings=[],
+                    stats=ScanStats(
+                        filesScanned=len(source_files),
+                        rulesRun=0,
+                        findingsTotal=0,
+                        elapsedMs=elapsed_ms,
+                    ),
+                    execution=execution,
+                    staticEvidenceContract=failed_contract,
+                    error=exc.message,
+                    errorDetail=ErrorDetail(
+                        code=exc.code,
+                        message=exc.message,
+                        requestId=request_id,
+                        retryable=exc.retryable,
+                    ),
+                )
+                raise PolicyViolationError(
+                    exc.message,
+                    scan_response=failed_response,
+                    code=exc.code,
+                ) from exc
             findings = enrich_findings_evidence(findings)
+
+            policy_violation = orchestrator.evaluate_policy(
+                execution,
+                required_tools=_required_scan_tools(body.options.tools),
+            )
+            if policy_violation:
+                elapsed_ms = int((time.perf_counter() - t0) * 1000)
+                failed_contract = build_static_evidence_contract(
+                    success=False,
+                    provenance=body.provenance,
+                    findings=findings,
+                    execution=execution,
+                    code_graph=None,
+                    sca=None,
+                    policy_failure_reason_codes=["POLICY_VIOLATION", str(policy_violation["code"])],
+                )
+                failed_response = ScanResponse(
+                    success=False,
+                    scanId=scan_id,
+                    status="failed",
+                    provenance=body.provenance,
+                    findings=findings,
+                    stats=ScanStats(
+                        filesScanned=len(source_files),
+                        rulesRun=len(execution.tools_run),
+                        findingsTotal=len(findings),
+                        elapsedMs=elapsed_ms,
+                    ),
+                    execution=execution,
+                    staticEvidenceContract=failed_contract,
+                    error=policy_violation["message"],
+                    errorDetail=ErrorDetail(
+                        code=policy_violation["code"],
+                        message=policy_violation["message"],
+                        requestId=request_id,
+                        retryable=False,
+                    ),
+                )
+                logger.warning(
+                    "Policy violation: %s",
+                    policy_violation["message"],
+                    extra={
+                        "requestId": request_id,
+                        "scanId": scan_id,
+                        "omittedTools": policy_violation.get("omittedTools", []),
+                        "unstableTools": policy_violation.get("unstableTools", []),
+                        "policyReasons": policy_violation["policyReasons"],
+                    },
+                )
+                raise PolicyViolationError(
+                    policy_violation["message"],
+                    scan_response=failed_response,
+                    code=policy_violation["code"],
+                )
 
             # 2. projectPath 모드: codeGraph + SCA
             code_graph_result = None
@@ -513,47 +627,6 @@ async def _run_scan_core(
             sca=sca_result,
         ),
     )
-
-    policy_violation = orchestrator.evaluate_policy(execution)
-    if policy_violation:
-        failed_contract = build_static_evidence_contract(
-            success=False,
-            provenance=body.provenance,
-            findings=findings,
-            execution=execution,
-            code_graph=code_graph_result,
-            sca=sca_result,
-            policy_failure_reason_codes=["POLICY_VIOLATION", str(policy_violation["code"])],
-        )
-        failed_response = scan_response.model_copy(
-            update={
-                "success": False,
-                "status": "failed",
-                "error": policy_violation["message"],
-                "error_detail": ErrorDetail(
-                    code=policy_violation["code"],
-                    message=policy_violation["message"],
-                    request_id=request_id,
-                    retryable=False,
-                ),
-                "static_evidence_contract": failed_contract,
-            },
-        )
-        logger.warning(
-            "Policy violation: %s",
-            policy_violation["message"],
-            extra={
-                "requestId": request_id,
-                "scanId": scan_id,
-                "omittedTools": policy_violation["omittedTools"],
-                "policyReasons": policy_violation["policyReasons"],
-            },
-        )
-        raise PolicyViolationError(
-            policy_violation["message"],
-            scan_response=failed_response,
-            code=policy_violation["code"],
-        )
 
     _log_scan_execution_summary(
         request_id=request_id,
@@ -743,6 +816,7 @@ def _scan_streaming(
                     by_alias=True,
                     exclude_none=True,
                 )
+            static_contract = exc.scan_response.static_evidence_contract
             yield _json.dumps({
                 "type": "error",
                 "code": exc.code,
@@ -751,6 +825,7 @@ def _scan_streaming(
                 "requestId": request_id,
                 "scanId": exc.scan_response.scan_id,
                 "execution": execution_payload,
+                "staticEvidenceContract": static_contract,
                 "timestamp": _now_ms(),
             }, ensure_ascii=False) + "\n"
 
@@ -824,6 +899,7 @@ async def scan(request: Request, body: ScanRequest, response: Response) -> ScanR
             for f in body.files:
                 _validate_path(f.path)
             _validate_sdk_profile(body.build_profile)
+            _validate_scan_tools(body.options.tools)
         except SastRunnerError as exc:
             return _scan_validation_error_response(
                 body=body,
@@ -871,6 +947,7 @@ async def scan(request: Request, body: ScanRequest, response: Response) -> ScanR
             for f in body.files:
                 _validate_path(f.path)
             _validate_sdk_profile(body.build_profile)
+            _validate_scan_tools(body.options.tools)
         except SastRunnerError as exc:
             return _scan_validation_error_response(
                 body=body,
@@ -894,6 +971,7 @@ async def scan(request: Request, body: ScanRequest, response: Response) -> ScanR
         for f in body.files:
             _validate_path(f.path)
         _validate_sdk_profile(body.build_profile)
+        _validate_scan_tools(body.options.tools)
         request_summary_tracker.register(request_id, endpoint="scan")
 
         rulesets = resolve_rulesets(
@@ -1166,6 +1244,7 @@ async def build_and_analyze(
     scan_profile = body.scan_profile
     try:
         _validate_sdk_profile(scan_profile)
+        _validate_scan_tools(body.options.tools)
     except SastRunnerError as exc:
         return _error_response(request_id, exc, response)
 

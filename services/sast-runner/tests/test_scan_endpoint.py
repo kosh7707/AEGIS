@@ -9,6 +9,7 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 from app.main import app
+from app.scanner.orchestrator import ALL_TOOLS
 
 
 @pytest.fixture
@@ -953,6 +954,29 @@ def _parse_ndjson(text: str) -> list[dict]:
     return events
 
 
+def _execution_with_bad_tool(bad_tool: str, **bad_result_kwargs):
+    from app.schemas.response import (
+        ExecutionReport,
+        FindingsFilterInfo,
+        SdkResolutionInfo,
+        ToolExecutionResult,
+    )
+
+    tool_results = {
+        tool: ToolExecutionResult(status="ok", findings_count=0, elapsed_ms=10)
+        for tool in ALL_TOOLS
+    }
+    tool_results[bad_tool] = ToolExecutionResult(**bad_result_kwargs)
+    return ExecutionReport(
+        toolsRun=list(ALL_TOOLS),
+        toolResults=tool_results,
+        sdk=SdkResolutionInfo(resolved=False),
+        filtering=FindingsFilterInfo(beforeFilter=0, afterFilter=0),
+        degraded=bad_result_kwargs.get("degraded", False),
+        degradeReasons=bad_result_kwargs.get("degrade_reasons", []),
+    )
+
+
 @pytest.mark.asyncio
 async def test_scan_ndjson_streaming_basic(client: AsyncClient, mock_semgrep_runner) -> None:
     """NDJSON Accept → 스트리밍 응답, progress + result 이벤트 검증."""
@@ -1213,6 +1237,46 @@ async def test_scan_ndjson_with_invalid_sdk_id_returns_json_domain_error(
 
 
 @pytest.mark.asyncio
+async def test_scan_invalid_options_tool_returns_caller_error_not_system_instability(
+    client: AsyncClient,
+) -> None:
+    resp = await client.post(
+        "/v1/scan",
+        json={
+            "scanId": "invalid-tool-id",
+            "projectId": "proj-test",
+            "files": [{"path": "src/main.c", "content": "int main(void) { return 0; }"}],
+            "options": {"tools": ["not-a-tool"]},
+        },
+    )
+
+    data = resp.json()
+    assert resp.status_code == 400
+    assert data["success"] is False
+    assert data["errorDetail"]["code"] == "SCAN_TOOL_INVALID"
+
+
+@pytest.mark.asyncio
+async def test_scan_ndjson_invalid_options_tool_returns_json_domain_error(
+    client: AsyncClient,
+) -> None:
+    resp = await client.post(
+        "/v1/scan",
+        headers={"Accept": "application/x-ndjson"},
+        json={
+            "scanId": "invalid-tool-id-stream",
+            "projectId": "proj-test",
+            "files": [{"path": "src/main.c", "content": "int main(void) { return 0; }"}],
+            "options": {"tools": ["not-a-tool"]},
+        },
+    )
+
+    assert resp.status_code == 400
+    assert "application/json" in resp.headers.get("content-type", "")
+    assert resp.json()["errorDetail"]["code"] == "SCAN_TOOL_INVALID"
+
+
+@pytest.mark.asyncio
 async def test_scan_policy_violation_returns_503_with_execution(client: AsyncClient) -> None:
     from unittest.mock import AsyncMock, patch
 
@@ -1259,9 +1323,139 @@ async def test_scan_policy_violation_returns_503_with_execution(client: AsyncCli
     assert resp.status_code == 503
     assert data["success"] is False
     assert data["status"] == "failed"
-    assert data["errorDetail"]["code"] == "DISALLOWED_TOOL_ENVIRONMENT_DRIFT"
+    assert data["errorDetail"]["code"] == "REQUIRED_TOOL_EXECUTION_INCOMPLETE"
     assert data["execution"]["toolResults"]["semgrep"]["status"] == "skipped"
     assert data["execution"]["toolResults"]["semgrep"]["skipReason"] == "environment-drift"
+    assert data["staticEvidenceContract"]["gates"]["systemStability"]["status"] == "fail"
+
+
+@pytest.mark.parametrize("bad_tool", ALL_TOOLS)
+@pytest.mark.parametrize(
+    "bad_result_kwargs",
+    [
+        {"status": "failed", "findings_count": 0, "elapsed_ms": 10, "skip_reason": "runner crashed"},
+        {"status": "partial", "findings_count": 1, "elapsed_ms": 10, "timed_out_files": 1},
+        {"status": "ok", "findings_count": 1, "elapsed_ms": 10, "degraded": True, "degrade_reasons": ["bad-output"]},
+    ],
+)
+@pytest.mark.asyncio
+async def test_scan_execution_incomplete_for_any_required_tool_returns_503_with_contract(
+    client: AsyncClient,
+    bad_tool: str,
+    bad_result_kwargs: dict,
+) -> None:
+    from app.schemas.response import (
+        ExecutionReport,
+        FindingsFilterInfo,
+        SdkResolutionInfo,
+        ToolExecutionResult,
+    )
+
+    tool_results = {
+        tool: ToolExecutionResult(status="ok", findings_count=0, elapsed_ms=10)
+        for tool in ALL_TOOLS
+    }
+    tool_results[bad_tool] = ToolExecutionResult(**bad_result_kwargs)
+    execution = ExecutionReport(
+        toolsRun=list(ALL_TOOLS),
+        toolResults=tool_results,
+        sdk=SdkResolutionInfo(resolved=False),
+        filtering=FindingsFilterInfo(beforeFilter=0, afterFilter=0),
+        degraded=bad_result_kwargs.get("degraded", False),
+        degradeReasons=bad_result_kwargs.get("degrade_reasons", []),
+    )
+
+    with patch("app.routers.scan.orchestrator.run", AsyncMock(return_value=([], execution))):
+        resp = await client.post(
+            "/v1/scan",
+            json={
+                "scanId": "policy-execution-incomplete",
+                "projectId": "proj-test",
+                "files": [{"path": "src/main.c", "content": "int main() { return 0; }"}],
+            },
+        )
+
+    data = resp.json()
+    assert resp.status_code == 503
+    assert data["success"] is False
+    assert data["errorDetail"]["code"] == "REQUIRED_TOOL_EXECUTION_INCOMPLETE"
+    assert data["execution"]["toolResults"][bad_tool]["status"] == bad_result_kwargs["status"]
+    assert data["staticEvidenceContract"]["gates"]["systemStability"]["status"] == "fail"
+    assert data["staticEvidenceContract"]["gates"]["evidenceReadiness"]["status"] == "not_ready"
+    assert data["staticEvidenceContract"]["gates"]["claimSupportReadiness"]["status"] == "fail"
+    assert "REQUIRED_TOOL_EXECUTION_INCOMPLETE" in data["staticEvidenceContract"]["gates"]["systemStability"]["reasonCodes"]
+
+
+@pytest.mark.asyncio
+async def test_scan_ndjson_execution_incomplete_emits_error_with_contract(
+    client: AsyncClient,
+) -> None:
+    execution = _execution_with_bad_tool(
+        "clang-tidy",
+        status="failed",
+        findings_count=0,
+        elapsed_ms=10,
+        skip_reason="runner crashed",
+    )
+
+    with patch("app.routers.scan.orchestrator.run", AsyncMock(return_value=([], execution))):
+        resp = await client.post(
+            "/v1/scan",
+            headers={"Accept": "application/x-ndjson"},
+            json={
+                "scanId": "policy-execution-incomplete-stream",
+                "projectId": "proj-test",
+                "files": [{"path": "src/main.c", "content": "int main() { return 0; }"}],
+            },
+        )
+
+    events = _parse_ndjson(resp.text)
+    assert not [e for e in events if e["type"] == "result"]
+    error_event = [e for e in events if e["type"] == "error"][0]
+    assert error_event["code"] == "REQUIRED_TOOL_EXECUTION_INCOMPLETE"
+    assert error_event["execution"]["toolResults"]["clang-tidy"]["status"] == "failed"
+    assert error_event["staticEvidenceContract"]["gates"]["systemStability"]["status"] == "fail"
+
+
+@pytest.mark.asyncio
+async def test_scan_async_ownership_execution_incomplete_result_preserves_contract(
+    client: AsyncClient,
+) -> None:
+    request_id = "req-execution-incomplete-async"
+    execution = _execution_with_bad_tool(
+        "scan-build",
+        status="partial",
+        findings_count=1,
+        elapsed_ms=10,
+        timed_out_files=1,
+    )
+
+    with patch("app.routers.scan.orchestrator.run", AsyncMock(return_value=([], execution))):
+        accepted = await client.post(
+            "/v1/scan",
+            headers={"Prefer": "respond-async", "X-Request-Id": request_id},
+            json={
+                "scanId": "policy-execution-incomplete-async",
+                "projectId": "proj-test",
+                "files": [{"path": "src/main.c", "content": "int main() { return 0; }"}],
+            },
+        )
+        assert accepted.status_code == 202
+
+        result = None
+        for _ in range(20):
+            result = await client.get(f"/v1/requests/{request_id}/result")
+            if result.status_code == 200:
+                break
+            await asyncio.sleep(0.02)
+
+    assert result is not None
+    assert result.status_code == 200
+    data = result.json()["result"]
+    assert data["success"] is False
+    assert data["errorDetail"]["code"] == "REQUIRED_TOOL_EXECUTION_INCOMPLETE"
+    assert data["execution"]["toolResults"]["scan-build"]["status"] == "partial"
+    assert data["staticEvidenceContract"]["gates"]["systemStability"]["status"] == "fail"
 
 
 @pytest.mark.asyncio
@@ -1305,9 +1499,96 @@ async def test_scan_ndjson_policy_violation_error_includes_execution(client: Asy
 
     events = _parse_ndjson(resp.text)
     error_event = [e for e in events if e["type"] == "error"][0]
-    assert error_event["code"] == "DISALLOWED_TOOL_ENVIRONMENT_DRIFT"
+    assert error_event["code"] == "REQUIRED_TOOL_EXECUTION_INCOMPLETE"
     assert error_event["retryable"] is False
     assert error_event["execution"]["toolResults"]["semgrep"]["skipReason"] == "environment-drift"
+
+
+@pytest.mark.parametrize("missing_tool", ALL_TOOLS)
+@pytest.mark.asyncio
+async def test_scan_required_tool_preflight_failure_returns_contract_and_runs_no_tools(
+    client: AsyncClient,
+    caplog: pytest.LogCaptureFixture,
+    missing_tool: str,
+) -> None:
+    """어떤 required tool이 죽어도 실행 전 fail-closed 하고 실패 contract를 반환한다."""
+    caplog.set_level("ERROR", logger="aegis-sast-runner")
+    availability = {
+        tool: {"available": True, "version": "1.0.0", "probeReason": None}
+        for tool in ALL_TOOLS
+    }
+    availability[missing_tool] = {
+        "available": False,
+        "version": None,
+        "probeReason": "environment-drift",
+        "expectedExecutablePath": f"/svc/bin/{missing_tool}",
+    }
+    router_orchestrator = __import__("app.routers.scan", fromlist=["orchestrator"]).orchestrator
+
+    with (
+        patch.object(router_orchestrator, "check_tools", AsyncMock(return_value=availability)),
+        patch.object(router_orchestrator, "_run_semgrep", AsyncMock(return_value=[])) as semgrep,
+        patch.object(router_orchestrator, "_run_cppcheck", AsyncMock(return_value=[])) as cppcheck,
+        patch.object(router_orchestrator, "_run_flawfinder", AsyncMock(return_value=[])) as flawfinder,
+        patch.object(router_orchestrator, "_run_clangtidy", AsyncMock(return_value=[])) as clangtidy,
+        patch.object(router_orchestrator, "_run_scanbuild", AsyncMock(return_value=[])) as scanbuild,
+        patch.object(router_orchestrator, "_run_gcc_analyzer", AsyncMock(return_value=[])) as gcc_analyzer,
+    ):
+        resp = await client.post(
+            "/v1/scan",
+            json={
+                "scanId": "required-tool-preflight-sync",
+                "projectId": "proj-test",
+                "files": [{"path": "src/main.c", "content": "int main() { return 0; }"}],
+            },
+        )
+
+    data = resp.json()
+    assert resp.status_code == 503
+    assert data["success"] is False
+    assert data["errorDetail"]["code"] == "REQUIRED_TOOL_UNAVAILABLE"
+    assert data["execution"]["toolsRun"] == []
+    assert data["execution"]["toolResults"][missing_tool]["skipReason"] == "environment-drift"
+    assert data["staticEvidenceContract"]["gates"]["systemStability"]["status"] == "fail"
+    assert "REQUIRED_TOOL_UNAVAILABLE" in data["staticEvidenceContract"]["gates"]["systemStability"]["reasonCodes"]
+    for runner in (semgrep, cppcheck, flawfinder, clangtidy, scanbuild, gcc_analyzer):
+        assert runner.await_count == 0
+    assert "Required SAST tool preflight failed" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_scan_ndjson_required_tool_preflight_failure_includes_contract(
+    client: AsyncClient,
+) -> None:
+    from app.scanner.orchestrator import ALL_TOOLS
+
+    availability = {
+        tool: {"available": True, "version": "1.0.0", "probeReason": None}
+        for tool in ALL_TOOLS
+    }
+    availability["semgrep"] = {
+        "available": False,
+        "version": None,
+        "probeReason": "environment-drift",
+    }
+    router_orchestrator = __import__("app.routers.scan", fromlist=["orchestrator"]).orchestrator
+
+    with patch.object(router_orchestrator, "check_tools", AsyncMock(return_value=availability)):
+        resp = await client.post(
+            "/v1/scan",
+            headers={"Accept": "application/x-ndjson"},
+            json={
+                "scanId": "required-tool-preflight-stream",
+                "projectId": "proj-test",
+                "files": [{"path": "src/main.c", "content": "int main() { return 0; }"}],
+            },
+        )
+
+    events = _parse_ndjson(resp.text)
+    error_event = [e for e in events if e["type"] == "error"][0]
+    assert error_event["code"] == "REQUIRED_TOOL_UNAVAILABLE"
+    assert error_event["execution"]["toolResults"]["semgrep"]["skipReason"] == "environment-drift"
+    assert error_event["staticEvidenceContract"]["gates"]["systemStability"]["status"] == "fail"
 
 
 @pytest.mark.asyncio
@@ -1773,3 +2054,127 @@ async def test_build_and_analyze_policy_violation_preserves_build_evidence(clien
     assert data["scan"]["success"] is False
     assert data["scan"]["execution"]["toolResults"]["semgrep"]["skipReason"] == "environment-drift"
     assert data["errorDetail"]["code"] == "DISALLOWED_TOOL_ENVIRONMENT_DRIFT"
+
+
+@pytest.mark.asyncio
+async def test_build_and_analyze_required_tool_preflight_failure_preserves_build_evidence(
+    client: AsyncClient,
+) -> None:
+    from app.scanner.orchestrator import ALL_TOOLS
+    from app.schemas.response import BuildEvidence, BuildResponse
+
+    build = BuildResponse(
+        success=True,
+        buildEvidence=BuildEvidence(
+            requestedBuildCommand="make",
+            effectiveBuildCommand="make",
+            buildDir="/tmp/project",
+            compileCommandsPath="/tmp/project/compile_commands.json",
+            entries=1,
+            userEntries=1,
+            exitCode=0,
+            buildOutput="ok",
+            wrapWithBear=True,
+            timeoutSeconds=600,
+            elapsedMs=10,
+        ),
+        readiness={
+            "status": "ready",
+            "compileCommandsReady": True,
+            "quickEligible": True,
+            "summary": "compile_commands.json contains user-target entries and the build exited successfully.",
+        },
+    )
+    availability = {
+        tool: {"available": True, "version": "1.0.0", "probeReason": None}
+        for tool in ALL_TOOLS
+    }
+    availability["semgrep"] = {
+        "available": False,
+        "version": None,
+        "probeReason": "environment-drift",
+    }
+    router_orchestrator = __import__("app.routers.scan", fromlist=["orchestrator"]).orchestrator
+
+    with (
+        patch("pathlib.Path.is_dir", return_value=True),
+        patch("app.routers.scan.build_runner.build", AsyncMock(return_value=build.model_dump(by_alias=True, exclude_none=True))),
+        patch.object(router_orchestrator, "check_tools", AsyncMock(return_value=availability)),
+    ):
+        resp = await client.post(
+            "/v1/build-and-analyze",
+            json={
+                "projectPath": "/tmp/project",
+                "buildCommand": "make",
+                "projectId": "proj-test",
+            },
+        )
+
+    data = resp.json()
+    assert resp.status_code == 503
+    assert data["success"] is False
+    assert data["build"]["readiness"]["status"] == "ready"
+    assert data["scan"]["success"] is False
+    assert data["scan"]["errorDetail"]["code"] == "REQUIRED_TOOL_UNAVAILABLE"
+    assert data["scan"]["staticEvidenceContract"]["gates"]["systemStability"]["status"] == "fail"
+    assert data["staticEvidenceContract"]["gates"]["systemStability"]["status"] == "fail"
+
+
+@pytest.mark.asyncio
+async def test_build_and_analyze_execution_incomplete_preserves_build_evidence_and_failed_contract(
+    client: AsyncClient,
+) -> None:
+    from app.schemas.response import BuildEvidence, BuildResponse
+
+    build = BuildResponse(
+        success=True,
+        buildEvidence=BuildEvidence(
+            requestedBuildCommand="make",
+            effectiveBuildCommand="make",
+            buildDir="/tmp/project",
+            compileCommandsPath="/tmp/project/compile_commands.json",
+            entries=1,
+            userEntries=1,
+            exitCode=0,
+            buildOutput="ok",
+            wrapWithBear=True,
+            timeoutSeconds=600,
+            elapsedMs=10,
+        ),
+        readiness={
+            "status": "ready",
+            "compileCommandsReady": True,
+            "quickEligible": True,
+            "summary": "compile_commands.json contains user-target entries and the build exited successfully.",
+        },
+    )
+    execution = _execution_with_bad_tool(
+        "gcc-fanalyzer",
+        status="failed",
+        findings_count=0,
+        elapsed_ms=10,
+        skip_reason="nonzero exit",
+    )
+
+    with (
+        patch("pathlib.Path.is_dir", return_value=True),
+        patch("app.routers.scan.build_runner.build", AsyncMock(return_value=build.model_dump(by_alias=True, exclude_none=True))),
+        patch("app.routers.scan.orchestrator.run", AsyncMock(return_value=([], execution))),
+    ):
+        resp = await client.post(
+            "/v1/build-and-analyze",
+            json={
+                "projectPath": "/tmp/project",
+                "buildCommand": "make",
+                "projectId": "proj-test",
+            },
+        )
+
+    data = resp.json()
+    assert resp.status_code == 503
+    assert data["success"] is False
+    assert data["build"]["readiness"]["status"] == "ready"
+    assert data["scan"]["success"] is False
+    assert data["scan"]["errorDetail"]["code"] == "REQUIRED_TOOL_EXECUTION_INCOMPLETE"
+    assert data["scan"]["execution"]["toolResults"]["gcc-fanalyzer"]["status"] == "failed"
+    assert data["staticEvidenceContract"]["gates"]["systemStability"]["status"] == "fail"

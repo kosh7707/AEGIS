@@ -9,20 +9,36 @@
     "dataFlow": true,
     "codeGraph": {
       "functions": [
-        {"name": "main", "file": "src/main.c", "line": 1, "calls": ["copy_input"]},
-        {"name": "copy_input", "file": "src/main.c", "line": 4, "calls": ["strcpy"]}
+        {
+          "name": "main",
+          "file": "src/main.c",
+          "line": 1,
+          "calls": [
+            "copy_input"
+          ]
+        },
+        {
+          "name": "copy_input",
+          "file": "src/main.c",
+          "line": 4,
+          "calls": [
+            "strcpy"
+          ]
+        }
       ]
     }
   },
   "requiredResponseSurfaces": [
     "findings[].metadata.evidenceResolution",
     "staticEvidenceContract.coverage.structuralCodeGraph",
-    "staticEvidenceContract.toolEvidenceMatrix"
+    "staticEvidenceContract.toolEvidenceMatrix",
+    "staticEvidenceContract.claimBoundaryMatrix"
   ],
   "expectedContractPaths": {
     "staticEvidenceContract.coverage.structuralCodeGraph.status": "provided",
     "staticEvidenceContract.coverage.structuralCodeGraph.graphKind": "structural-callgraph",
     "staticEvidenceContract.coverage.structuralCodeGraph.semanticRetrieval": "not_provided",
-    "staticEvidenceContract.coverage.structuralCodeGraph.graphRag": "not_provided"
+    "staticEvidenceContract.coverage.structuralCodeGraph.graphRag": "not_provided",
+    "staticEvidenceContract.claimBoundaryMatrix.semantic-graph-completeness.supportStatus": "unsupported"
   }
 }

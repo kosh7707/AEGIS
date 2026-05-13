@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 from app.clients.kb_error_utils import is_kb_timeout_error
 from app.clients.s4_ownership import S4OwnershipError, S4OwnershipUnsupported, post_and_wait_s4_ownership
 from app.agent_runtime.observability import agent_log
+from app.core.s4_static_evidence import extract_static_evidence_contract, summarize_static_evidence_contract
 from app.runtime.request_summary import request_summary_tracker
 
 if TYPE_CHECKING:
@@ -123,6 +124,14 @@ def _record_sast_success(result: "Phase1Result") -> None:
     result.sast_failure_detail = {}
 
 
+def _record_sast_static_evidence(result: "Phase1Result", *payloads: dict) -> None:
+    contract = extract_static_evidence_contract(*payloads)
+    summary = summarize_static_evidence_contract(contract)
+    result.sast_static_evidence_contract = contract
+    result.sast_static_evidence_diagnostics = summary
+    result.sast_static_evidence_ready = bool(summary.get("ready"))
+
+
 async def run_build_and_analyze(
     sast_client: "httpx.AsyncClient",
     timeout_budget_ms: int,
@@ -230,6 +239,9 @@ async def run_build_and_analyze(
             result.build_failure_detail = failure_detail
 
     if status_code >= 400:
+        if isinstance(data, dict):
+            scan_payload = data.get("scan") if isinstance(data.get("scan"), dict) else {}
+            _record_sast_static_evidence(result, scan_payload, data)
         failure_detail = _sast_failure_detail(
             data if isinstance(data, dict) else None,
             status_code=status_code,
@@ -248,6 +260,8 @@ async def run_build_and_analyze(
         return None
 
     if not data.get("success", True):
+        scan_payload = data.get("scan") if isinstance(data.get("scan"), dict) else {}
+        _record_sast_static_evidence(result, scan_payload, data)
         _record_sast_failure(
             result,
             _sast_failure_detail(
@@ -283,6 +297,7 @@ async def run_build_and_analyze(
             level=logging.WARNING,
         )
         return None
+    _record_sast_static_evidence(result, scan_data, data)
     result.sast_findings = scan_data.get("findings", [])
     result.sast_stats = scan_data.get("stats", {})
     result.sast_duration_ms = scan_data.get("execution", {}).get("elapsedMs", 0)
@@ -521,6 +536,7 @@ async def run_sast(
         if tool_result.success:
             data = json.loads(tool_result.content)
             if data.get("success") is False:
+                _record_sast_static_evidence(result, data)
                 _record_sast_failure(
                     result,
                     _sast_failure_detail(
@@ -536,6 +552,7 @@ async def run_sast(
                     level=logging.WARNING,
                 )
                 return result
+            _record_sast_static_evidence(result, data)
             result.sast_findings = data.get("findings", [])
             result.sast_stats = data.get("stats", {})
             _record_sast_success(result)
@@ -559,6 +576,8 @@ async def run_sast(
                 payload = json.loads(tool_result.content) if tool_result.content else None
             except json.JSONDecodeError:
                 payload = {"message": tool_result.content}
+            if isinstance(payload, dict):
+                _record_sast_static_evidence(result, payload.get("detail", {}) if isinstance(payload.get("detail"), dict) else {}, payload)
             _record_sast_failure(
                 result,
                 _sast_failure_detail(

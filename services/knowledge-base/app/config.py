@@ -26,8 +26,10 @@ class Settings(BaseSettings):
     memory_limit_per_project: int = 1000
     ledger_url: str = "sqlite:///data/s5-ledger.sqlite"
     target_context_store_file: str = "data/target-contexts.json"
+    scoring_policy_path: str = "config/scoring-policy-v1.json"
+    default_scoring_profile: str = "balanced"
 
-    model_config = {"env_prefix": "AEGIS_KB_", "env_file": ".env"}
+    model_config = {"env_prefix": "AEGIS_KB_", "env_file": ".env", "extra": "ignore"}
 
 
 settings = Settings()

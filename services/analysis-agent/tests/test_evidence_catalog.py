@@ -247,6 +247,94 @@ def test_sast_failure_emits_operational_not_no_findings():
     assert entry.ref_id not in {ref["refId"] for ref in catalog.as_evidence_refs()}
 
 
+def test_sast_required_tool_failure_is_operational_system_stability_not_negative_evidence():
+    catalog = EvidenceCatalog()
+
+    catalog.ingest_phase1_result(Phase1Result(
+        sast_findings=[],
+        sast_scan_attempted=True,
+        sast_scan_completed=False,
+        sast_failure_detail={
+            "code": "REQUIRED_TOOL_EXECUTION_INCOMPLETE",
+            "message": "required tool scan-build did not complete",
+            "statusCode": 503,
+        },
+    ))
+
+    assert catalog.negative_ref_ids() == set()
+    operational_refs = catalog.operational_ref_ids()
+    assert len(operational_refs) == 1
+    entry = catalog.get(next(iter(operational_refs)))
+    assert entry is not None
+    assert entry.tool_arguments == {
+        "phase": "phase1",
+        "findingCount": 0,
+        "failureCode": "REQUIRED_TOOL_EXECUTION_INCOMPLETE",
+        "statusCode": 503,
+    }
+    assert entry.evidence_class == "operational"
+    assert "sast_scan_failed" in entry.roles
+    assert "sast_contract_failure" not in entry.roles
+    assert entry.ref_id not in catalog.final_ref_ids()
+    assert entry.ref_id not in {ref["refId"] for ref in catalog.as_evidence_refs()}
+
+
+def test_sast_static_evidence_not_ready_suppresses_no_findings_negative_evidence():
+    catalog = EvidenceCatalog()
+
+    catalog.ingest_phase1_result(Phase1Result(
+        sast_findings=[],
+        sast_scan_attempted=True,
+        sast_scan_completed=True,
+        sast_static_evidence_ready=False,
+        sast_static_evidence_diagnostics={
+            "systemStability": "degraded",
+            "evidenceReadiness": "partial",
+            "claimSupportReadiness": "partial",
+            "hasClaimBoundaryMatrix": True,
+            "hasToolEvidenceMatrix": True,
+            "reasonCodes": ["TOOL_EXECUTION_PARTIAL"],
+        },
+    ))
+
+    assert catalog.negative_ref_ids() == set()
+    operational = [catalog.get(ref) for ref in catalog.operational_ref_ids()]
+    assert len(operational) == 1
+    entry = operational[0]
+    assert entry is not None
+    assert entry.source_tool == "sast.staticEvidenceContract"
+    assert "sast_static_evidence_not_ready" in entry.roles
+    assert entry.tool_arguments["systemStability"] == "degraded"
+    assert entry.tool_arguments["evidenceReadiness"] == "partial"
+    assert entry.tool_arguments["claimSupportReadiness"] == "partial"
+    assert entry.ref_id not in catalog.final_ref_ids()
+    assert entry.ref_id not in {ref["refId"] for ref in catalog.as_evidence_refs()}
+
+
+def test_sast_partial_tools_suppress_no_findings_negative_evidence():
+    catalog = EvidenceCatalog()
+
+    catalog.ingest_phase1_result(Phase1Result(
+        sast_findings=[],
+        sast_scan_attempted=True,
+        sast_scan_completed=True,
+        sast_partial_tools=["scan-build"],
+        sast_timed_out_files=2,
+    ))
+
+    assert catalog.negative_ref_ids() == set()
+    operational = [catalog.get(ref) for ref in catalog.operational_ref_ids()]
+    assert len(operational) == 1
+    entry = operational[0]
+    assert entry is not None
+    assert entry.source_tool == "sast"
+    assert "sast_partial_tools" in entry.roles
+    assert entry.tool_arguments["partialTools"] == ["scan-build"]
+    assert entry.tool_arguments["timedOutFiles"] == 2
+    assert entry.ref_id not in catalog.final_ref_ids()
+    assert entry.ref_id not in {ref["refId"] for ref in catalog.as_evidence_refs()}
+
+
 def test_cve_no_hits_requires_completed_eligible_lookup():
     catalog = EvidenceCatalog()
 

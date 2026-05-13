@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.errors import ScanTimeoutError, SemgrepNotAvailableError
+from app.errors import ScanTimeoutError, SemgrepNotAvailableError, ToolOutputInvalidError
 from app.scanner.semgrep_runner import SemgrepRunner
 
 
@@ -30,6 +30,23 @@ def _make_proc_mock(returncode: int, stdout: bytes = b"", stderr: bytes = b""):
 # ---------------------------------------------------------------------------
 
 class TestBuildCommand:
+    def test_uses_service_toolchain_executable_for_scan_command(self, runner, tmp_path):
+        """PATH drift가 있어도 S4 venv의 canonical semgrep 실행 파일을 사용한다."""
+        semgrep_bin = tmp_path / "semgrep"
+        semgrep_bin.write_text("#!/bin/sh\n", encoding="utf-8")
+
+        with (
+            patch("app.scanner.semgrep_runner.service_toolchain_executable", return_value=semgrep_bin),
+            patch("app.config.settings") as mock_settings,
+        ):
+            mock_settings.custom_rules_dir = None
+            mock_settings.semgrep_per_rule_timeout = 5
+            mock_settings.semgrep_max_target_bytes = 1_000_000
+
+            cmd = runner._build_command(tmp_path, ["p/c"])
+
+        assert cmd[0] == str(semgrep_bin)
+
     def test_basic_command_structure(self, runner, tmp_path):
         """기본 rulesets로 올바른 CLI 인자를 조립하는지 확인."""
         with patch("app.config.settings") as mock_settings:
@@ -39,13 +56,27 @@ class TestBuildCommand:
 
             cmd = runner._build_command(tmp_path, ["p/c", "p/security-audit"])
 
-        assert cmd[0] == "semgrep"
+        assert Path(cmd[0]).name == "semgrep"
         assert cmd[1] == "scan"
         assert "--config" in cmd
         assert "p/c" in cmd
         assert "p/security-audit" in cmd
         assert "--sarif" in cmd
         assert str(tmp_path) == cmd[-1]
+
+    def test_falls_back_to_path_when_service_toolchain_executable_is_absent(self, runner, tmp_path):
+        """canonical executable이 없을 때만 PATH의 semgrep 이름으로 fallback한다."""
+        with (
+            patch("app.scanner.semgrep_runner.service_toolchain_executable", return_value=None),
+            patch("app.config.settings") as mock_settings,
+        ):
+            mock_settings.custom_rules_dir = None
+            mock_settings.semgrep_per_rule_timeout = 5
+            mock_settings.semgrep_max_target_bytes = 1_000_000
+
+            cmd = runner._build_command(tmp_path, ["p/c"])
+
+        assert cmd[0] == "semgrep"
 
     def test_custom_rules_dir_absolute_exists(self, runner, tmp_path):
         """절대 경로의 커스텀 룰 디렉토리가 추가되는지 확인."""
@@ -138,6 +169,23 @@ class TestBuildCommand:
 # ---------------------------------------------------------------------------
 
 class TestCheckAvailable:
+    @pytest.mark.asyncio
+    async def test_check_available_uses_service_toolchain_executable(self, runner, tmp_path):
+        """가용성 probe도 PATH의 semgrep이 아니라 canonical executable을 직접 실행한다."""
+        semgrep_bin = tmp_path / "semgrep"
+        semgrep_bin.write_text("#!/bin/sh\n", encoding="utf-8")
+        proc = _make_proc_mock(0, stdout=b"1.156.0\n")
+
+        with (
+            patch("app.scanner.semgrep_runner.service_toolchain_executable", return_value=semgrep_bin),
+            patch("asyncio.create_subprocess_exec", return_value=proc) as exec_mock,
+        ):
+            available, version = await runner.check_available()
+
+        assert available is True
+        assert version == "1.156.0"
+        assert exec_mock.call_args.args[0] == str(semgrep_bin)
+
     @pytest.mark.asyncio
     async def test_available(self, runner):
         """semgrep --version이 정상이면 (True, version) 반환."""
@@ -271,8 +319,8 @@ class TestRun:
         assert result == EMPTY_SARIF
 
     @pytest.mark.asyncio
-    async def test_json_decode_error(self, runner, tmp_path):
-        """stdout가 유효하지 않은 JSON → 빈 SARIF 구조 반환."""
+    async def test_json_decode_error_is_system_stability_failure(self, runner, tmp_path):
+        """stdout가 유효하지 않은 JSON이면 정상 응답으로 취급하지 않고 실패한다."""
         check_proc = _make_proc_mock(0, stdout=b"1.45.0\n")
         run_proc = _make_proc_mock(1, stdout=b"ERROR: invalid config\n", stderr=b"err")
 
@@ -291,9 +339,8 @@ class TestRun:
                 mock_settings.semgrep_per_rule_timeout = 5
                 mock_settings.semgrep_max_target_bytes = 1_000_000
 
-                result = await runner.run(tmp_path, ["p/c"])
-
-        assert result == EMPTY_SARIF
+                with pytest.raises(ToolOutputInvalidError):
+                    await runner.run(tmp_path, ["p/c"])
 
     @pytest.mark.asyncio
     async def test_timeout_raises_scan_timeout_error(self, runner, tmp_path):

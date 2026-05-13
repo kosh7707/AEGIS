@@ -15,13 +15,19 @@
     "staticEvidenceContract.gates.qualityEvaluation",
     "staticEvidenceContract.coverage",
     "staticEvidenceContract.claimBoundaries",
-    "staticEvidenceContract.toolEvidenceMatrix"
+    "staticEvidenceContract.toolEvidenceMatrix",
+    "staticEvidenceContract.gates.claimSupportReadiness",
+    "staticEvidenceContract.claimBoundaryMatrix"
   ],
   "expectedContractPaths": {
     "staticEvidenceContract.gates.systemStability.status": "pass",
     "staticEvidenceContract.gates.evidenceReadiness.status": "ready",
     "staticEvidenceContract.gates.qualityEvaluation.status": "not_evaluated",
-    "staticEvidenceContract.toolEvidenceMatrix.semgrep.consumerPolicy": "local_tool_execution_state_only_not_vulnerability_verdict"
+    "staticEvidenceContract.toolEvidenceMatrix.semgrep.consumerPolicy": "local_tool_execution_state_only_not_vulnerability_verdict",
+    "staticEvidenceContract.gates.claimSupportReadiness.status": "pass",
+    "staticEvidenceContract.claimBoundaryMatrix.local-static-artifact.supportStatus": "supported",
+    "staticEvidenceContract.claimBoundaryMatrix.absence-of-vulnerability.supportStatus": "unsupported",
+    "staticEvidenceContract.claimBoundaryMatrix.cwe-absence.consumerPolicy": "do_not_use_as_negative_evidence"
   },
   "forbiddenVerdictKeys": [
     "vulnerable",

@@ -30,6 +30,14 @@ def extract_cwes(finding: SastFinding) -> set[str]:
     cwes: set[str] = set()
     meta = finding.metadata or {}
 
+    # metadata.cweId: "CWE-78" (S4 standard representative CWE)
+    cwe_id = meta.get("cweId")
+    if isinstance(cwe_id, str):
+        normalized = cwe_id.upper().strip()
+        if not normalized.startswith("CWE-"):
+            normalized = f"CWE-{normalized}"
+        cwes.add(normalized)
+
     # metadata.cwe: ["CWE-78"] 또는 ["CWE-120", "CWE-242"]
     for cwe in meta.get("cwe", []):
         if isinstance(cwe, str):
@@ -38,6 +46,18 @@ def extract_cwes(finding: SastFinding) -> set[str]:
             if not normalized.startswith("CWE-"):
                 normalized = f"CWE-{normalized}"
             cwes.add(normalized)
+
+    # metadata.evidenceResolution.cwe.id: deterministic evidence projection
+    evidence_resolution = meta.get("evidenceResolution")
+    if isinstance(evidence_resolution, dict):
+        cwe_info = evidence_resolution.get("cwe")
+        if isinstance(cwe_info, dict):
+            cwe = cwe_info.get("id")
+            if isinstance(cwe, str):
+                normalized = cwe.upper().strip()
+                if not normalized.startswith("CWE-"):
+                    normalized = f"CWE-{normalized}"
+                cwes.add(normalized)
 
     return cwes
 

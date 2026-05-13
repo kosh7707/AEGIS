@@ -194,6 +194,40 @@ class EvidenceCatalog:
             self.add(_entry_from_request_ref(ref))
 
     def ingest_phase1_result(self, result: Phase1Result) -> None:
+        if result.sast_static_evidence_ready is False:
+            diagnostics = result.sast_static_evidence_diagnostics or {}
+            attempted = {
+                "phase": "phase1",
+                "findingCount": len(result.sast_findings),
+                "systemStability": diagnostics.get("systemStability"),
+                "evidenceReadiness": diagnostics.get("evidenceReadiness"),
+                "claimSupportReadiness": diagnostics.get("claimSupportReadiness"),
+                "hasClaimBoundaryMatrix": diagnostics.get("hasClaimBoundaryMatrix"),
+                "hasToolEvidenceMatrix": diagnostics.get("hasToolEvidenceMatrix"),
+            }
+            reason_codes = diagnostics.get("reasonCodes")
+            if reason_codes:
+                attempted["reasonCodes"] = list(reason_codes)
+            self.add_operational(
+                "sast.staticEvidenceContract",
+                {key: value for key, value in attempted.items() if value is not None},
+                "not_ready",
+                roles=("operational_status", "sast_static_evidence_not_ready"),
+            )
+
+        if result.sast_partial_tools and not result.sast_failure_detail:
+            self.add_operational(
+                "sast",
+                {
+                    "phase": "phase1",
+                    "findingCount": len(result.sast_findings),
+                    "partialTools": list(result.sast_partial_tools),
+                    "timedOutFiles": result.sast_timed_out_files,
+                },
+                "partial_tools",
+                roles=("operational_status", "sast_partial_tools"),
+            )
+
         if result.sast_failure_detail:
             attempted = {
                 "phase": "phase1",
@@ -214,7 +248,12 @@ class EvidenceCatalog:
                 str(code or result.sast_failure_detail.get("message") or "scan_failed"),
                 roles=tuple(roles),
             )
-        elif result.sast_scan_completed and not result.sast_findings:
+        elif (
+            result.sast_scan_completed
+            and not result.sast_findings
+            and result.sast_static_evidence_ready is not False
+            and not result.sast_partial_tools
+        ):
             self.add_negative(
                 "sast",
                 {"phase": "phase1", "findingCount": 0},

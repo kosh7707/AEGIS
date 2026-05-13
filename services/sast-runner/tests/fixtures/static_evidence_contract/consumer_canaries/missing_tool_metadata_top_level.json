@@ -23,6 +23,144 @@
       ],
       "negativeEvidencePolicy": "empty-or-missing-s4-evidence-is-not-negative-security-evidence"
     },
+    "claimBoundaryMatrix": [
+      {
+        "claimId": "local-static-artifact",
+        "claimType": "local-static-observation",
+        "consumerPolicy": "use_only_with_missing_surface_metadata",
+        "evidenceRefs": [
+          "coverage.staticToolExecution"
+        ],
+        "partialSurfaces": [
+          "staticToolExecution"
+        ],
+        "reasonCodes": [
+          "NORMALIZED_EVIDENCE_PARTIAL"
+        ],
+        "summary": "S4 local static artifact exists, but normalized evidence surfaces are partial.",
+        "supportStatus": "partially_supported"
+      },
+      {
+        "claimId": "reported-finding-positive-evidence",
+        "claimType": "positive-local-static-finding",
+        "consumerPolicy": "no_reported_finding_to_support",
+        "evidenceRefs": [
+          "coverage.sastFindings",
+          "findings[]"
+        ],
+        "reasonCodes": [
+          "NO_REPORTED_FINDINGS"
+        ],
+        "summary": "No reported finding exists to support a positive local finding claim.",
+        "supportStatus": "not_applicable"
+      },
+      {
+        "claimId": "absence-of-vulnerability",
+        "claimType": "negative-security-claim",
+        "consumerPolicy": "do_not_use_as_negative_evidence",
+        "evidenceRefs": [
+          "claimBoundaries.negativeEvidencePolicy",
+          "coverage.sastFindings"
+        ],
+        "reasonCodes": [
+          "EMPTY_OR_MISSING_S4_EVIDENCE_IS_NOT_NEGATIVE_EVIDENCE"
+        ],
+        "summary": "S4 local static evidence cannot support a vulnerability-absence claim.",
+        "supportStatus": "unsupported"
+      },
+      {
+        "claimId": "cwe-absence",
+        "claimType": "negative-cwe-claim",
+        "consumerPolicy": "do_not_use_as_negative_evidence",
+        "evidenceRefs": [
+          "coverage.findingCweMapping",
+          "claimBoundaries.negativeEvidencePolicy"
+        ],
+        "reasonCodes": [
+          "CWE_COVERAGE_IS_NOT_ABSENCE_EVIDENCE"
+        ],
+        "summary": "CWE mapping on reported findings cannot support a CWE absence claim.",
+        "supportStatus": "unsupported"
+      },
+      {
+        "claimId": "build-configuration-dependent-negative-claim",
+        "claimType": "build-context-negative-claim",
+        "consumerPolicy": "do_not_use_as_negative_evidence",
+        "evidenceRefs": [
+          "coverage.targetMetadata"
+        ],
+        "reasonCodes": [
+          "BUILD_CONTEXT_IS_NOT_NEGATIVE_EVIDENCE"
+        ],
+        "summary": "Target metadata may bound observations but cannot prove build-configuration-dependent absence.",
+        "supportStatus": "unsupported"
+      },
+      {
+        "claimId": "runtime-behavior",
+        "claimType": "out-of-scope-claim",
+        "consumerPolicy": "do_not_use_as_negative_evidence",
+        "evidenceRefs": [
+          "coverage.runtimeBehavior"
+        ],
+        "reasonCodes": [
+          "RUNTIME_NOT_ANALYZED"
+        ],
+        "summary": "Runtime behavior is outside this local static artifact.",
+        "supportStatus": "unsupported"
+      },
+      {
+        "claimId": "external-vulnerability-affectedness",
+        "claimType": "out-of-scope-claim",
+        "consumerPolicy": "do_not_use_as_negative_evidence",
+        "evidenceRefs": [
+          "coverage.externalVulnerabilityKnowledge"
+        ],
+        "reasonCodes": [
+          "EXTERNAL_KNOWLEDGE_NOT_QUERIED"
+        ],
+        "summary": "External vulnerability affectedness is outside this local static artifact.",
+        "supportStatus": "unsupported"
+      },
+      {
+        "claimId": "semantic-graph-completeness",
+        "claimType": "out-of-scope-claim",
+        "consumerPolicy": "do_not_use_as_negative_evidence",
+        "evidenceRefs": [
+          "coverage.semanticGraphRetrieval"
+        ],
+        "reasonCodes": [
+          "SEMANTIC_RETRIEVAL_NOT_PERFORMED"
+        ],
+        "summary": "Semantic graph completeness is outside this local static artifact.",
+        "supportStatus": "unsupported"
+      },
+      {
+        "claimId": "exploitability-judgment",
+        "claimType": "out-of-scope-claim",
+        "consumerPolicy": "do_not_use_as_negative_evidence",
+        "evidenceRefs": [
+          "coverage.exploitabilityJudgment"
+        ],
+        "reasonCodes": [
+          "EXPLOITABILITY_NOT_JUDGED"
+        ],
+        "summary": "Exploitability judgment is outside this local static artifact.",
+        "supportStatus": "unsupported"
+      },
+      {
+        "claimId": "final-security-verdict",
+        "claimType": "out-of-scope-claim",
+        "consumerPolicy": "do_not_use_as_negative_evidence",
+        "evidenceRefs": [
+          "coverage.finalSecurityVerdict"
+        ],
+        "reasonCodes": [
+          "FINAL_VERDICT_NOT_PROVIDED"
+        ],
+        "summary": "Final security judgment is outside this local static artifact.",
+        "supportStatus": "unsupported"
+      }
+    ],
     "coverage": {
       "exploitabilityJudgment": {
         "consumerPolicy": "do_not_use_as_negative_evidence",
@@ -215,6 +353,17 @@
       }
     ],
     "gates": {
+      "claimSupportReadiness": {
+        "consumerPolicy": "not_a_quality_score_not_a_security_verdict",
+        "partialSurfaces": [
+          "staticToolExecution"
+        ],
+        "reasonCodes": [
+          "LOCAL_ARTIFACT_DEGRADED",
+          "NORMALIZED_EVIDENCE_PARTIAL"
+        ],
+        "status": "partial"
+      },
       "evidenceReadiness": {
         "consumerPolicy": "do_not_use_as_negative_evidence",
         "partialSurfaces": [

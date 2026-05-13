@@ -5,7 +5,8 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from app.scanner.orchestrator import ScanOrchestrator, _filter_user_code_findings, _is_third_party, _is_user_path, _parse_version
+from app.errors import RequiredToolUnavailableError
+from app.scanner.orchestrator import ALL_TOOLS, ScanOrchestrator, _filter_user_code_findings, _is_third_party, _is_user_path, _parse_version
 from app.schemas.request import BuildProfile, SdkDescriptor
 from app.schemas.response import (
     ExecutionReport,
@@ -35,6 +36,31 @@ def _make_finding(
         message="test finding",
         location=SastFindingLocation(file=file, line=1),
         dataFlow=data_flow,
+    )
+
+
+def _available_all_tools() -> dict[str, dict]:
+    return {
+        "semgrep": {"available": True, "version": "1.45.0", "probeReason": None},
+        "cppcheck": {"available": True, "version": "2.13.0", "probeReason": None},
+        "flawfinder": {"available": True, "version": "2.0.19", "probeReason": None},
+        "clang-tidy": {"available": True, "version": "18.1.3", "probeReason": None},
+        "scan-build": {"available": True, "version": "18.1.3", "probeReason": None},
+        "gcc-fanalyzer": {"available": True, "version": "13.3.0", "probeReason": None},
+    }
+
+
+def _execution_all_ok() -> ExecutionReport:
+    return ExecutionReport(
+        toolsRun=list(ALL_TOOLS),
+        toolResults={
+            tool: ToolExecutionResult(status="ok", findings_count=0, elapsed_ms=10)
+            for tool in ALL_TOOLS
+        },
+        sdk=SdkResolutionInfo(resolved=False),
+        filtering=FindingsFilterInfo(beforeFilter=0, afterFilter=0),
+        degraded=False,
+        degradeReasons=[],
     )
 
 
@@ -176,6 +202,160 @@ class TestSelectTools:
 
 
 class TestPolicyHelpers:
+    @pytest.mark.parametrize("missing_tool", ALL_TOOLS)
+    @pytest.mark.asyncio
+    async def test_required_tool_unavailable_fails_closed_before_any_tool_runs(
+        self,
+        orchestrator,
+        caplog,
+        missing_tool: str,
+    ):
+        """기본 full-current-six scan은 어떤 required tool 하나가 꺼져도 나머지를 실행하지 않는다."""
+        caplog.set_level("ERROR", logger="aegis-sast-runner")
+        available = _available_all_tools()
+        available[missing_tool] = {
+            "available": False,
+            "version": None,
+            "probeReason": "environment-drift",
+            "expectedExecutablePath": f"/svc/bin/{missing_tool}",
+        }
+
+        with (
+            patch.object(orchestrator, "check_tools", AsyncMock(return_value=available)),
+            patch.object(orchestrator, "_run_semgrep", AsyncMock(return_value=[])) as semgrep,
+            patch.object(orchestrator, "_run_cppcheck", AsyncMock(return_value=[])) as cppcheck,
+            patch.object(orchestrator, "_run_flawfinder", AsyncMock(return_value=[])) as flawfinder,
+            patch.object(orchestrator, "_run_clangtidy", AsyncMock(return_value=[])) as clangtidy,
+            patch.object(orchestrator, "_run_scanbuild", AsyncMock(return_value=[])) as scanbuild,
+            patch.object(orchestrator, "_run_gcc_analyzer", AsyncMock(return_value=[])) as gcc_analyzer,
+        ):
+            with pytest.raises(RequiredToolUnavailableError) as exc_info:
+                await orchestrator.run(
+                    scan_dir=Path("/tmp/test"),
+                    source_files=["main.c"],
+                    profile=None,
+                    rulesets=[],
+                )
+
+        assert exc_info.value.code == "REQUIRED_TOOL_UNAVAILABLE"
+        assert missing_tool in exc_info.value.message
+        for runner in (semgrep, cppcheck, flawfinder, clangtidy, scanbuild, gcc_analyzer):
+            assert runner.await_count == 0
+        assert "Required SAST tool preflight failed" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_explicit_subset_requires_only_requested_tools(self, orchestrator):
+        """명시적 subset은 허용하되 full-current-six 품질 결과로 승격하지 않는다."""
+        available = {
+            "semgrep": {"available": False, "version": None, "probeReason": "environment-drift"},
+            "cppcheck": {"available": True, "version": "2.13.0", "probeReason": None},
+            "flawfinder": {"available": False, "version": None, "probeReason": "runtime-tool-missing"},
+            "clang-tidy": {"available": False, "version": None, "probeReason": "runtime-tool-missing"},
+            "scan-build": {"available": False, "version": None, "probeReason": "runtime-tool-missing"},
+            "gcc-fanalyzer": {"available": False, "version": None, "probeReason": "runtime-tool-missing"},
+        }
+
+        with (
+            patch.object(orchestrator, "check_tools", AsyncMock(return_value=available)),
+            patch.object(orchestrator, "_run_cppcheck", AsyncMock(return_value=[])),
+        ):
+            _findings, execution = await orchestrator.run(
+                scan_dir=Path("/tmp/test"),
+                source_files=["main.c"],
+                profile=None,
+                rulesets=[],
+                tools=["cppcheck"],
+            )
+
+        assert execution.tools_run == ["cppcheck"]
+        assert execution.tool_results["cppcheck"].status == "ok"
+        assert execution.tool_results["semgrep"].skip_reason == "operator-requested-subset"
+
+    @pytest.mark.parametrize("bad_tool", ALL_TOOLS)
+    @pytest.mark.parametrize(
+        ("bad_result", "expected_code"),
+        [
+            (
+                ToolExecutionResult(status="failed", findings_count=0, elapsed_ms=10, skip_reason="runner crashed"),
+                "REQUIRED_TOOL_EXECUTION_INCOMPLETE",
+            ),
+            (
+                ToolExecutionResult(status="partial", findings_count=1, elapsed_ms=10, timed_out_files=1),
+                "REQUIRED_TOOL_EXECUTION_INCOMPLETE",
+            ),
+            (
+                ToolExecutionResult(status="ok", findings_count=1, elapsed_ms=10, degraded=True, degrade_reasons=["bad-output"]),
+                "REQUIRED_TOOL_EXECUTION_INCOMPLETE",
+            ),
+        ],
+    )
+    def test_evaluate_policy_blocks_any_requested_tool_non_normal_execution(
+        self,
+        orchestrator,
+        bad_tool: str,
+        bad_result: ToolExecutionResult,
+        expected_code: str,
+    ):
+        execution = _execution_all_ok()
+        execution.tool_results[bad_tool] = bad_result
+
+        policy = orchestrator.evaluate_policy(execution, required_tools=list(ALL_TOOLS))
+
+        assert policy["code"] == expected_code
+        assert bad_tool in policy["unstableTools"]
+        assert bad_tool in policy["message"]
+
+    def test_evaluate_policy_blocks_requested_tool_missing_result(self, orchestrator):
+        execution = _execution_all_ok()
+        del execution.tool_results["scan-build"]
+
+        policy = orchestrator.evaluate_policy(execution, required_tools=list(ALL_TOOLS))
+
+        assert policy["code"] == "REQUIRED_TOOL_EXECUTION_INCOMPLETE"
+        assert policy["unstableTools"] == ["scan-build"]
+
+    def test_evaluate_policy_uses_explicit_required_tools_not_tools_run_observation(
+        self,
+        orchestrator,
+    ):
+        execution = _execution_all_ok()
+        execution.tools_run = ["cppcheck"]
+        del execution.tool_results["semgrep"]
+
+        policy = orchestrator.evaluate_policy(execution, required_tools=list(ALL_TOOLS))
+
+        assert policy["code"] == "REQUIRED_TOOL_EXECUTION_INCOMPLETE"
+        assert "semgrep" in policy["unstableTools"]
+
+    def test_evaluate_policy_allows_unrequested_operator_subset_but_blocks_requested_failure(
+        self,
+        orchestrator,
+    ):
+        execution = ExecutionReport(
+            toolsRun=["cppcheck"],
+            toolResults={
+                "semgrep": ToolExecutionResult(
+                    status="skipped",
+                    findings_count=0,
+                    elapsed_ms=0,
+                    skip_reason="operator-requested-subset",
+                ),
+                "cppcheck": ToolExecutionResult(
+                    status="failed",
+                    findings_count=0,
+                    elapsed_ms=10,
+                    skip_reason="nonzero exit",
+                ),
+            },
+            sdk=SdkResolutionInfo(resolved=False),
+            filtering=FindingsFilterInfo(beforeFilter=0, afterFilter=0),
+        )
+
+        policy = orchestrator.evaluate_policy(execution, required_tools=["cppcheck"])
+
+        assert policy["code"] == "REQUIRED_TOOL_EXECUTION_INCOMPLETE"
+        assert policy["unstableTools"] == ["cppcheck"]
+
     def test_build_health_policy(self, orchestrator):
         policy = orchestrator.build_health_policy({
             "semgrep": {"available": False, "version": None, "probeReason": "environment-drift"},
@@ -504,6 +684,7 @@ class TestProgressCallback:
                 source_files=["main.c"],
                 profile=None,
                 rulesets=["p/c"],
+                tools=["semgrep", "flawfinder"],
                 on_progress=on_progress,
             )
 
@@ -544,6 +725,7 @@ class TestProgressCallback:
                 source_files=["main.c"],
                 profile=None,
                 rulesets=["p/c"],
+                tools=["semgrep", "flawfinder"],
                 on_progress=on_progress,
             )
 
@@ -571,6 +753,7 @@ class TestProgressCallback:
                 source_files=["main.c"],
                 profile=None,
                 rulesets=["p/c"],
+                tools=["flawfinder"],
                 on_progress=None,
             )
         assert execution.tools_run == ["flawfinder"]
@@ -599,6 +782,7 @@ class TestProgressCallback:
                 source_files=["main.c"],
                 profile=None,
                 rulesets=["p/c"],
+                tools=["semgrep"],
                 on_progress=on_progress,
             )
 
@@ -639,6 +823,7 @@ class TestProgressCallback:
                 source_files=["main.c"],
                 profile=None,
                 rulesets=["p/c"],
+                tools=["gcc-fanalyzer"],
                 on_file_progress=on_file_progress,
             )
 
@@ -692,6 +877,7 @@ class TestProgressCallback:
                 source_files=["main.c"],
                 profile=None,
                 rulesets=["p/c"],
+                tools=["gcc-fanalyzer"],
             )
 
         tool = execution.tool_results["gcc-fanalyzer"]

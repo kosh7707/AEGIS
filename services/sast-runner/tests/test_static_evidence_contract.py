@@ -104,6 +104,9 @@ def _assert_static_evidence_contract_minimum(contract: dict[str, Any]) -> None:
     assert quality["status"] == oracle["qualityEvaluationDefault"]["status"]
     assert oracle["qualityEvaluationDefault"]["reasonCode"] in quality["reasonCodes"]
     assert quality["consumerPolicy"] == oracle["qualityEvaluationDefault"]["consumerPolicy"]
+    claim_support = gates["claimSupportReadiness"]
+    assert claim_support["status"] in oracle["allowedClaimSupportReadinessStatuses"]
+    assert claim_support["consumerPolicy"] == oracle["claimSupportReadinessDefaultPolicy"]
 
     coverage = contract["coverage"]
     missing_coverage = sorted(set(oracle["requiredCoverageSurfaces"]) - set(coverage))
@@ -134,6 +137,24 @@ def _assert_static_evidence_contract_minimum(contract: dict[str, Any]) -> None:
     assert boundaries["negativeEvidencePolicy"] == oracle["negativeEvidencePolicy"]
     assert "absence-of-vulnerability-from-empty-findings" in boundaries["mustNotSupportAlone"]
     assert "final-security-verdict" in boundaries["mustNotSupportAlone"]
+
+    claim_matrix = contract["claimBoundaryMatrix"]
+    assert isinstance(claim_matrix, list)
+    claim_by_id = {entry["claimId"]: entry for entry in claim_matrix}
+    assert len(claim_by_id) == len(claim_matrix)
+    missing_claims = sorted(set(oracle["requiredClaimBoundaryClaims"]) - set(claim_by_id))
+    assert not missing_claims, f"missing claim-boundary entries: {missing_claims}"
+    allowed_claim_statuses = set(oracle["allowedClaimSupportStatuses"])
+    for claim_id, entry in claim_by_id.items():
+        assert entry["claimType"], f"claimType is required for {claim_id}"
+        assert entry["supportStatus"] in allowed_claim_statuses
+        assert entry["consumerPolicy"], f"consumerPolicy is required for {claim_id}"
+        assert isinstance(entry["reasonCodes"], list)
+        assert isinstance(entry["evidenceRefs"], list)
+    assert claim_by_id["absence-of-vulnerability"]["supportStatus"] == "unsupported"
+    assert claim_by_id["absence-of-vulnerability"]["consumerPolicy"] == "do_not_use_as_negative_evidence"
+    assert claim_by_id["cwe-absence"]["supportStatus"] == "unsupported"
+    assert claim_by_id["cwe-absence"]["consumerPolicy"] == "do_not_use_as_negative_evidence"
 
     matrix = contract["toolEvidenceMatrix"]
     assert [entry["toolId"] for entry in matrix] == oracle["requiredToolEvidenceOrder"]
@@ -932,6 +953,7 @@ async def test_scan_success_with_failed_tool_exposes_degraded_partial_contract(
     assert contract["gates"]["systemStability"]["status"] == "degraded"
     assert contract["coverage"]["staticToolExecution"]["status"] == "partial"
     assert contract["gates"]["evidenceReadiness"]["status"] == "partial"
+    assert contract["gates"]["claimSupportReadiness"]["status"] == "partial"
 
 
 @pytest.mark.asyncio
@@ -971,6 +993,7 @@ async def test_build_and_analyze_success_with_failed_tool_exposes_degraded_parti
     assert data["staticEvidenceContract"]["gates"]["systemStability"]["status"] == "degraded"
     assert data["staticEvidenceContract"]["coverage"]["staticToolExecution"]["status"] == "partial"
     assert data["scan"]["staticEvidenceContract"]["gates"]["evidenceReadiness"]["status"] == "partial"
+    assert data["staticEvidenceContract"]["gates"]["claimSupportReadiness"]["status"] == "partial"
 
 
 @pytest.mark.asyncio
@@ -1006,6 +1029,7 @@ async def test_policy_violation_marks_system_stability_failed(
     assert "DISALLOWED_TOOL_OMISSION" in stability["reasonCodes"]
     assert stability["consumerPolicy"] == "do_not_treat_as_successful_artifact"
     assert data["staticEvidenceContract"]["gates"]["evidenceReadiness"]["status"] == "not_ready"
+    assert data["staticEvidenceContract"]["gates"]["claimSupportReadiness"]["status"] == "fail"
     assert [entry["toolId"] for entry in data["staticEvidenceContract"]["toolEvidenceMatrix"]] == ALL_TOOLS
 
 
@@ -1043,6 +1067,7 @@ async def test_async_scan_policy_violation_has_failed_contract(
     assert "POLICY_VIOLATION" in stability["reasonCodes"]
     assert "DISALLOWED_TOOL_OMISSION" in stability["reasonCodes"]
     assert data["staticEvidenceContract"]["gates"]["evidenceReadiness"]["status"] == "not_ready"
+    assert data["staticEvidenceContract"]["gates"]["claimSupportReadiness"]["status"] == "fail"
     matrix = {entry["toolId"]: entry for entry in data["staticEvidenceContract"]["toolEvidenceMatrix"]}
     assert matrix["semgrep"]["skipReason"] == "environment-drift"
     assert matrix["semgrep"]["consumerPolicy"] == "blocks_successful_artifact"
@@ -1099,6 +1124,7 @@ async def test_build_and_analyze_policy_violation_has_top_level_failed_contract(
     assert "POLICY_VIOLATION" in stability["reasonCodes"]
     assert "DISALLOWED_TOOL_OMISSION" in stability["reasonCodes"]
     assert data["staticEvidenceContract"]["gates"]["evidenceReadiness"]["status"] == "not_ready"
+    assert data["staticEvidenceContract"]["gates"]["claimSupportReadiness"]["status"] == "fail"
 
 
 @pytest.mark.asyncio
@@ -1145,6 +1171,7 @@ async def test_async_build_and_analyze_policy_violation_has_top_level_failed_con
     assert "POLICY_VIOLATION" in stability["reasonCodes"]
     assert "DISALLOWED_TOOL_OMISSION" in stability["reasonCodes"]
     assert data["staticEvidenceContract"]["gates"]["evidenceReadiness"]["status"] == "not_ready"
+    assert data["staticEvidenceContract"]["gates"]["claimSupportReadiness"]["status"] == "fail"
 
 
 def test_static_evidence_contract_helper_is_s4_only_and_side_effect_free() -> None:

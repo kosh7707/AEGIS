@@ -13,6 +13,8 @@ from app.projections.ledger_projection import (
     SCOPE_KEY,
     LedgerProjectionRebuilder,
     build_projection_bundle,
+    validate_projection_bundle,
+    write_projection_bundle,
 )
 
 
@@ -53,19 +55,36 @@ def test_projection_bundle_is_derived_from_ledger_rows_with_source_hash(tmp_path
     assert bundle.projection_version == PROJECTION_VERSION
     assert bundle.source_hash.startswith("sha256:")
     assert len(bundle.neo4j_records) == 7  # 1 CWE + 3 advisory/CVE-context + 3 CAPEC/ATT&CK attack records
-    assert len(bundle.qdrant_payloads) == 1 + 3 + 3 + 6 + 1 + 20
+    assert len(bundle.qdrant_payloads) == 43
+    assert len(bundle.projection_nodes) == 22
+    assert len(bundle.projection_edges) == 40
     assert {record["ledger_id"] for record in bundle.neo4j_records} >= {"CWE-78", "advisory:OSV:OSV-2026-CURL-0001"}
     assert all(record["projection_source_hash"] == bundle.source_hash for record in bundle.neo4j_records)
     assert all(payload["sourceHash"] == bundle.source_hash for payload in bundle.qdrant_payloads)
     assert all(payload["projectionVersion"] == PROJECTION_VERSION for payload in bundle.qdrant_payloads)
+    assert bundle.manifest["schemaVersion"] == "s5-projection-bundle-manifest-v1"
+    assert bundle.manifest["productionWriteEnabled"] is False
+    assert bundle.manifest["counts"] == {
+        "nodes": 22,
+        "edges": 40,
+        "textChunks": 43,
+        "neo4jCompatibilityRecords": 7,
+    }
+    assert bundle.manifest["coverageProfilesBySourceKind"]["CWE"] == ["fixture_slice"]
     assert {payload["corpusPartition"] for payload in bundle.qdrant_payloads} >= {
         "weakness_taxonomy",
         "public_vulnerability_knowledge",
         "attack_pattern",
         "tool_rule_mapping",
         "package_identity",
+        "product_identity",
+        "source_component_identity",
+        "affectedness",
+        "risk_signal",
         "relation_provenance",
     }
+    qa = validate_projection_bundle(bundle)
+    assert qa["qualityGate"] == "accepted"
 
 
 def test_projection_source_hash_is_stable_across_idempotent_ingest(tmp_path):
@@ -78,6 +97,25 @@ def test_projection_source_hash_is_stable_across_idempotent_ingest(tmp_path):
     assert first.source_hash == second.source_hash
     assert first.neo4j_records == second.neo4j_records
     assert first.qdrant_payloads == second.qdrant_payloads
+    assert first.manifest == second.manifest
+
+
+def test_projection_bundle_writer_emits_dry_run_files_without_production_write(tmp_path):
+    repo = _repo(tmp_path)
+    out_dir = tmp_path / "bundle"
+
+    report = write_projection_bundle(repo, out_dir)
+
+    assert report["schemaVersion"] == "s5-projection-bundle-write-report-v1"
+    assert report["productionWriteEnabled"] is False
+    assert report["qaReport"]["qualityGate"] == "accepted"
+    assert (out_dir / "manifest.json").exists()
+    assert (out_dir / "nodes.jsonl").read_text(encoding="utf-8").count("\n") == 22
+    assert (out_dir / "edges.jsonl").read_text(encoding="utf-8").count("\n") == 40
+    assert (out_dir / "text_chunks.jsonl").read_text(encoding="utf-8").count("\n") == 43
+    stored = repo.fetch_all("projection_bundle_manifest")
+    assert len(stored) == 1
+    assert stored[0]["production_write_enabled"] == 0
 
 
 def test_rebuilder_sends_only_ledger_derived_data_to_projection_adapters(tmp_path):

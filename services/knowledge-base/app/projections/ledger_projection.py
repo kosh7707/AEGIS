@@ -10,6 +10,7 @@ import hashlib
 import json
 import time
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Protocol
 
 from app.ledger.repository import SQLiteLedgerRepository
@@ -35,6 +36,9 @@ class LedgerProjectionBundle:
     projection_version: str
     neo4j_records: list[dict[str, Any]]
     qdrant_payloads: list[dict[str, Any]]
+    projection_nodes: list[dict[str, Any]]
+    projection_edges: list[dict[str, Any]]
+    manifest: dict[str, Any]
 
 
 class ProjectionRebuildError(RuntimeError):
@@ -61,6 +65,14 @@ def _hash_rows(rows_by_table: dict[str, list[dict[str, Any]]]) -> str:
     }
     payload = json.dumps(canonical, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return "sha256:" + hashlib.sha256(payload).hexdigest()
+
+
+def _canonical_jsonl(records: list[dict[str, Any]]) -> str:
+    return "\n".join(json.dumps(record, ensure_ascii=False, sort_keys=True, separators=(",", ":")) for record in records) + ("\n" if records else "")
+
+
+def _checksum_records(records: list[dict[str, Any]]) -> str:
+    return "sha256:" + hashlib.sha256(_canonical_jsonl(records).encode("utf-8")).hexdigest()
 
 
 def _text_parts(*values: Any) -> str:
@@ -261,45 +273,268 @@ def _package_payload(row: dict[str, Any], *, source_hash: str) -> dict[str, Any]
     )
 
 
+def _product_payload(row: dict[str, Any], *, source_hash: str) -> dict[str, Any]:
+    qualifiers = _loads(row.get("qualifiers_json"), {})
+    return _base_payload(
+        ledger_id=row["product_identity_id"],
+        source_hash=source_hash,
+        corpus_partition="product_identity",
+        record_type="product_identity",
+        title=row.get("product") or row["product_identity_id"],
+        text=_text_parts(row.get("vendor"), row.get("product"), row.get("version"), row.get("cpe"), qualifiers),
+        metadata={
+            "productIdentityId": row["product_identity_id"],
+            "vendor": row.get("vendor"),
+            "product": row.get("product"),
+            "version": row.get("version"),
+            "cpe": row.get("cpe"),
+            "matchCriteriaId": row.get("match_criteria_id"),
+            "qualifiers": qualifiers,
+        },
+    )
+
+
+def _source_component_payload(row: dict[str, Any], *, source_hash: str) -> dict[str, Any]:
+    qualifiers = _loads(row.get("qualifiers_json"), {})
+    return _base_payload(
+        ledger_id=row["source_component_identity_id"],
+        source_hash=source_hash,
+        corpus_partition="source_component_identity",
+        record_type="source_component_identity",
+        title=row.get("repo_url") or row["source_component_identity_id"],
+        text=_text_parts(row.get("repo_url"), row.get("commit_id"), row.get("source_path"), row.get("fingerprint"), qualifiers),
+        metadata={
+            "sourceComponentIdentityId": row["source_component_identity_id"],
+            "repoUrl": row.get("repo_url"),
+            "commitId": row.get("commit_id"),
+            "sourcePath": row.get("source_path"),
+            "fingerprint": row.get("fingerprint"),
+            "qualifiers": qualifiers,
+        },
+    )
+
+
+def _coverage_profiles(source_artifacts: list[dict[str, Any]]) -> dict[str, list[str]]:
+    profiles: dict[str, set[str]] = {}
+    for row in source_artifacts:
+        metadata = _loads(row.get("metadata_json"), {})
+        source_name = str(row.get("source_name") or "")
+        profile = str(metadata.get("coverageProfile") or "")
+        if source_name and profile:
+            profiles.setdefault(source_name, set()).add(profile)
+    return {key: sorted(value) for key, value in sorted(profiles.items())}
+
+
+def _affectedness_payload(row: dict[str, Any], *, source_hash: str) -> dict[str, Any]:
+    range_data = _loads(row.get("range_json"), {})
+    qualifiers = _loads(row.get("qualifiers_json"), {})
+    return _base_payload(
+        ledger_id=row["affectedness_id"],
+        source_hash=source_hash,
+        corpus_partition="affectedness",
+        record_type="affectedness_record",
+        title=f"{row['advisory_id']} affects {row['subject_id']}",
+        text=_text_parts(row["advisory_id"], row["subject_kind"], row["subject_id"], row.get("introduced"), row.get("fixed"), range_data, qualifiers),
+        metadata={
+            "affectednessId": row["affectedness_id"],
+            "advisoryId": row["advisory_id"],
+            "subjectKind": row["subject_kind"],
+            "subjectId": row["subject_id"],
+            "affectednessStatus": row["affectedness_status"],
+            "introduced": row.get("introduced"),
+            "fixed": row.get("fixed"),
+            "range": range_data,
+            "qualifiers": qualifiers,
+            "confidence": row.get("confidence"),
+            "decisionState": row.get("decision_state"),
+        },
+    )
+
+
+def _risk_signal_payload(row: dict[str, Any], *, source_hash: str) -> dict[str, Any]:
+    payload = _loads(row.get("payload_json"), {})
+    return _base_payload(
+        ledger_id=row["risk_signal_id"],
+        source_hash=source_hash,
+        corpus_partition="risk_signal",
+        record_type="risk_signal",
+        title=f"{row['signal_kind']} {row.get('advisory_id') or row['risk_signal_id']}",
+        text=_text_parts(row["signal_kind"], row.get("signal_date"), row.get("signal_value"), row.get("source_kind"), payload),
+        metadata={
+            "riskSignalId": row["risk_signal_id"],
+            "advisoryId": row.get("advisory_id"),
+            "signalKind": row["signal_kind"],
+            "signalDate": row.get("signal_date"),
+            "signalValue": row.get("signal_value"),
+            "sourceKind": row.get("source_kind"),
+            "payload": payload,
+        },
+    )
+
+
+def _conflict_payload(row: dict[str, Any], *, source_hash: str) -> dict[str, Any]:
+    values = _loads(row.get("conflicting_values_json"), [])
+    evidence = _loads(row.get("evidence_json"), {})
+    return _base_payload(
+        ledger_id=row["conflict_record_id"],
+        source_hash=source_hash,
+        corpus_partition="conflict_evidence",
+        record_type="conflict_record",
+        title=f"{row['conflict_kind']} {row['subject_id']}",
+        text=_text_parts(row["conflict_kind"], row["subject_id"], row.get("status"), values),
+        metadata={
+            "conflictRecordId": row["conflict_record_id"],
+            "conflictKind": row["conflict_kind"],
+            "subjectId": row["subject_id"],
+            "status": row.get("status"),
+            "conflictingValues": values,
+            "evidence": evidence,
+            "consumerPolicy": "conflicting_evidence_not_negative_evidence",
+            "negativeEvidenceAllowed": False,
+            "forbiddenEffects": ["clean_pass", "negative_evidence", "s3_final_security_verdict"],
+        },
+    )
+
+
+def _node(record_id: str, record_type: str, **properties: Any) -> dict[str, Any]:
+    return {"id": record_id, "type": record_type, "properties": properties}
+
+
+def _edge(edge_id: str, source_id: str, predicate: str, target_id: str, **properties: Any) -> dict[str, Any]:
+    return {"id": edge_id, "source": source_id, "predicate": predicate, "target": target_id, "properties": properties}
+
+
 def build_projection_bundle(repo: SQLiteLedgerRepository) -> LedgerProjectionBundle:
     """Build deterministic Neo4j/Qdrant projection input from ledger rows."""
     repo.initialize()
     tables = {
+        "source_artifact": repo.fetch_all("source_artifact"),
         "weakness": repo.fetch_all("weakness"),
         "vulnerability_advisory": repo.fetch_all("vulnerability_advisory"),
         "attack_pattern": repo.fetch_all("attack_pattern"),
         "tool_rule": repo.fetch_all("tool_rule"),
         "package_identity": repo.fetch_all("package_identity"),
+        "product_identity": repo.fetch_all("product_identity"),
+        "source_component_identity": repo.fetch_all("source_component_identity"),
+        "affectedness_record": repo.fetch_all("affectedness_record"),
+        "risk_signal": repo.fetch_all("risk_signal"),
+        "identity_alias": repo.fetch_all("identity_alias"),
         "relation_record": repo.fetch_all("relation_record"),
         "transform_decision": repo.fetch_all("transform_decision"),
+        "unresolved_reference": repo.fetch_all("unresolved_reference"),
+        "conflict_record": repo.fetch_all("conflict_record"),
     }
     source_hash = _hash_rows(tables)
     relation_rows = tables["relation_record"]
     neo4j_records: list[dict[str, Any]] = []
     qdrant_payloads: list[dict[str, Any]] = []
+    projection_nodes: list[dict[str, Any]] = []
+    projection_edges: list[dict[str, Any]] = []
 
     for row in tables["weakness"]:
         record, payload = _weakness_record(row, relation_rows=relation_rows, source_hash=source_hash)
         neo4j_records.append(record)
         qdrant_payloads.append(payload)
+        projection_nodes.append(_node(row["weakness_id"], "weakness", externalId=row.get("external_id"), taxonomyFamily=row.get("taxonomy_family"), sourceHash=source_hash))
 
     for row in tables["vulnerability_advisory"]:
         record, payload = _advisory_record(row, relation_rows=relation_rows, source_hash=source_hash)
         neo4j_records.append(record)
         qdrant_payloads.append(payload)
+        projection_nodes.append(_node(row["advisory_id"], "advisory", externalId=row.get("external_id"), sourceKind=row.get("source_kind"), sourceHash=source_hash))
 
     for row in tables["attack_pattern"]:
         record, payload = _attack_pattern_record(row, relation_rows=relation_rows, source_hash=source_hash)
         neo4j_records.append(record)
         qdrant_payloads.append(payload)
+        projection_nodes.append(_node(row["attack_pattern_id"], "attack_pattern", externalId=row.get("external_id"), sourceKind=row.get("source_kind"), sourceHash=source_hash))
 
     for row in tables["tool_rule"]:
         qdrant_payloads.append(_tool_payload(row, relation_rows=relation_rows, source_hash=source_hash))
+        projection_nodes.append(_node(row["tool_rule_id"], "tool_rule", toolName=row.get("tool_name"), ruleId=row.get("rule_id"), sourceHash=source_hash))
 
     for row in tables["package_identity"]:
         qdrant_payloads.append(_package_payload(row, source_hash=source_hash))
+        projection_nodes.append(_node(row["package_identity_id"], "package_identity", canonicalName=row.get("canonical_name"), ecosystem=row.get("ecosystem"), purl=row.get("purl"), cpe=row.get("cpe"), sourceHash=source_hash))
+
+    for row in tables["product_identity"]:
+        qdrant_payloads.append(_product_payload(row, source_hash=source_hash))
+        projection_nodes.append(_node(row["product_identity_id"], "product_identity", vendor=row.get("vendor"), product=row.get("product"), cpe=row.get("cpe"), sourceHash=source_hash))
+
+    for row in tables["source_component_identity"]:
+        qdrant_payloads.append(_source_component_payload(row, source_hash=source_hash))
+        projection_nodes.append(_node(row["source_component_identity_id"], "source_component_identity", repoUrl=row.get("repo_url"), sourceHash=source_hash))
+
+    for row in tables["affectedness_record"]:
+        qdrant_payloads.append(_affectedness_payload(row, source_hash=source_hash))
+        projection_nodes.append(_node(row["affectedness_id"], "affectedness_record", advisoryId=row.get("advisory_id"), subjectKind=row.get("subject_kind"), subjectId=row.get("subject_id"), sourceHash=source_hash))
+        projection_edges.append(_edge(
+            f"edge:{row['affectedness_id']}:advisory",
+            row["affectedness_id"],
+            "ASSERTS_AFFECTEDNESS_FOR",
+            row["advisory_id"],
+            evidence={"ledgerTable": "affectedness_record", "ledgerId": row["affectedness_id"]},
+            sourceHash=source_hash,
+        ))
+        projection_edges.append(_edge(
+            f"edge:{row['affectedness_id']}:subject",
+            row["advisory_id"],
+            "AFFECTS_SUBJECT",
+            row["subject_id"],
+            evidence={"ledgerTable": "affectedness_record", "ledgerId": row["affectedness_id"]},
+            sourceHash=source_hash,
+        ))
+
+    for row in tables["risk_signal"]:
+        qdrant_payloads.append(_risk_signal_payload(row, source_hash=source_hash))
+        projection_nodes.append(_node(row["risk_signal_id"], "risk_signal", advisoryId=row.get("advisory_id"), signalKind=row.get("signal_kind"), signalDate=row.get("signal_date"), sourceHash=source_hash))
+        if row.get("advisory_id"):
+            projection_edges.append(_edge(
+                f"edge:{row['risk_signal_id']}:advisory",
+                row["risk_signal_id"],
+                "SIGNAL_FOR",
+                row["advisory_id"],
+                evidence={"ledgerTable": "risk_signal", "ledgerId": row["risk_signal_id"]},
+                sourceHash=source_hash,
+            ))
+
+    for row in tables["conflict_record"]:
+        values = _loads(row.get("conflicting_values_json"), [])
+        evidence = _loads(row.get("evidence_json"), {})
+        qdrant_payloads.append(_conflict_payload(row, source_hash=source_hash))
+        projection_nodes.append(_node(
+            row["conflict_record_id"],
+            "conflict_record",
+            conflictKind=row.get("conflict_kind"),
+            subjectId=row.get("subject_id"),
+            status=row.get("status"),
+            consumerPolicy="conflicting_evidence_not_negative_evidence",
+            negativeEvidenceAllowed=False,
+            sourceHash=source_hash,
+        ))
+        projection_edges.append(_edge(
+            f"edge:{row['conflict_record_id']}:subject",
+            row["conflict_record_id"],
+            "CONFLICTS_ON",
+            row["subject_id"],
+            evidence={"ledgerTable": "conflict_record", "ledgerId": row["conflict_record_id"], "conflictEvidence": evidence, "conflictingValues": values},
+            consumerPolicy="conflicting_evidence_not_negative_evidence",
+            negativeEvidenceAllowed=False,
+            sourceHash=source_hash,
+        ))
 
     for rel in relation_rows:
+        provenance = _loads(rel.get("provenance_json"), {})
+        projection_edges.append(_edge(
+            rel["relation_record_id"],
+            rel["subject_id"],
+            rel["predicate"],
+            rel["object_id"],
+            evidence={"ledgerTable": "relation_record", "ledgerId": rel["relation_record_id"], "provenance": provenance},
+            method=rel["method"],
+            consumerPolicy=rel["consumer_policy"],
+            sourceHash=source_hash,
+        ))
         qdrant_payloads.append(_base_payload(
             ledger_id=rel["relation_record_id"],
             source_hash=source_hash,
@@ -313,16 +548,134 @@ def build_projection_bundle(repo: SQLiteLedgerRepository) -> LedgerProjectionBun
                 "objectId": rel["object_id"],
                 "method": rel["method"],
                 "consumerPolicy": rel["consumer_policy"],
-                "provenance": _loads(rel.get("provenance_json"), {}),
+                "provenance": provenance,
             },
         ))
+
+    for row in tables["identity_alias"]:
+        projection_edges.append(_edge(
+            row["identity_alias_id"],
+            row["subject_id"],
+            row["relation_semantics"],
+            row["alias_id"],
+            evidence={"ledgerTable": "identity_alias", "ledgerId": row["identity_alias_id"], "provenance": _loads(row.get("provenance_json"), {})},
+            confidence=row.get("confidence"),
+            sourceHash=source_hash,
+        ))
+
+    projection_nodes = sorted(projection_nodes, key=lambda item: (item["type"], item["id"]))
+    projection_edges = sorted(projection_edges, key=lambda item: (item["predicate"], item["id"]))
+    qdrant_payloads = sorted(qdrant_payloads, key=lambda item: (item.get("corpusPartition", ""), item.get("ledgerId", "")))
+    checksums = {
+        "nodes": _checksum_records(projection_nodes),
+        "edges": _checksum_records(projection_edges),
+        "textChunks": _checksum_records(qdrant_payloads),
+    }
+    manifest = {
+        "schemaVersion": "s5-projection-bundle-manifest-v1",
+        "projectionVersion": PROJECTION_VERSION,
+        "scopeKey": SCOPE_KEY,
+        "sourceHash": source_hash,
+        "productionWriteEnabled": False,
+        "coverageProfilesBySourceKind": _coverage_profiles(tables["source_artifact"]),
+        "counts": {
+            "nodes": len(projection_nodes),
+            "edges": len(projection_edges),
+            "textChunks": len(qdrant_payloads),
+            "neo4jCompatibilityRecords": len(neo4j_records),
+        },
+        "checksums": checksums,
+    }
 
     return LedgerProjectionBundle(
         source_hash=source_hash,
         projection_version=PROJECTION_VERSION,
         neo4j_records=sorted(neo4j_records, key=lambda item: (item.get("source", ""), item.get("id", ""), item.get("ledger_id", ""))),
-        qdrant_payloads=sorted(qdrant_payloads, key=lambda item: (item.get("corpusPartition", ""), item.get("ledgerId", ""))),
+        qdrant_payloads=qdrant_payloads,
+        projection_nodes=projection_nodes,
+        projection_edges=projection_edges,
+        manifest=manifest,
     )
+
+
+def validate_projection_bundle(bundle: LedgerProjectionBundle) -> dict[str, Any]:
+    checksums = {
+        "nodes": _checksum_records(bundle.projection_nodes),
+        "edges": _checksum_records(bundle.projection_edges),
+        "textChunks": _checksum_records(bundle.qdrant_payloads),
+    }
+    issues: list[dict[str, Any]] = []
+    for key, actual in checksums.items():
+        expected = bundle.manifest.get("checksums", {}).get(key)
+        if expected != actual:
+            issues.append({"code": "PROJECTION_BUNDLE_CHECKSUM_MISMATCH", "severity": "hard", "artifact": key, "expected": expected, "actual": actual})
+    expected_counts = bundle.manifest.get("counts", {})
+    actual_counts = {
+        "nodes": len(bundle.projection_nodes),
+        "edges": len(bundle.projection_edges),
+        "textChunks": len(bundle.qdrant_payloads),
+        "neo4jCompatibilityRecords": len(bundle.neo4j_records),
+    }
+    for key, actual in actual_counts.items():
+        if expected_counts.get(key) != actual:
+            issues.append({"code": "PROJECTION_BUNDLE_COUNT_MISMATCH", "severity": "hard", "artifact": key, "expected": expected_counts.get(key), "actual": actual})
+    for edge in bundle.projection_edges:
+        evidence = edge.get("properties", {}).get("evidence")
+        if not evidence or not evidence.get("ledgerId"):
+            issues.append({"code": "PROJECTION_EDGE_WITHOUT_EVIDENCE", "severity": "hard", "edgeId": edge.get("id")})
+    return {
+        "schemaVersion": "s5-projection-bundle-qa-report-v1",
+        "qualityGate": "rejected" if issues else "accepted",
+        "hardFail": bool(issues),
+        "issues": issues,
+        "counts": actual_counts,
+        "checksums": checksums,
+    }
+
+
+def write_projection_bundle(
+    repo: SQLiteLedgerRepository,
+    out_dir: str | Path,
+    *,
+    production_write_enabled: bool = False,
+) -> dict[str, Any]:
+    """Write a dry-run projection bundle to JSONL files and record its manifest.
+
+    This is a staging artifact only; by default it never writes to Neo4j/Qdrant.
+    """
+
+    bundle = build_projection_bundle(repo)
+    qa_report = validate_projection_bundle(bundle)
+    manifest = {**bundle.manifest, "productionWriteEnabled": production_write_enabled}
+    target = Path(out_dir)
+    target.mkdir(parents=True, exist_ok=True)
+    (target / "nodes.jsonl").write_text(_canonical_jsonl(bundle.projection_nodes), encoding="utf-8")
+    (target / "edges.jsonl").write_text(_canonical_jsonl(bundle.projection_edges), encoding="utf-8")
+    (target / "text_chunks.jsonl").write_text(_canonical_jsonl(bundle.qdrant_payloads), encoding="utf-8")
+    (target / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
+    (target / "qa_report.json").write_text(json.dumps(qa_report, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
+    projection_bundle_id = f"projection-bundle:{bundle.source_hash.removeprefix('sha256:')[:16]}"
+    repo.upsert_projection_bundle_manifest(
+        projection_bundle_id=projection_bundle_id,
+        scope_key=SCOPE_KEY,
+        projection_version=bundle.projection_version,
+        source_hash=bundle.source_hash,
+        manifest=manifest,
+        qa_report=qa_report,
+        node_count=len(bundle.projection_nodes),
+        edge_count=len(bundle.projection_edges),
+        text_chunk_count=len(bundle.qdrant_payloads),
+        checksums=bundle.manifest["checksums"],
+        production_write_enabled=production_write_enabled,
+    )
+    return {
+        "schemaVersion": "s5-projection-bundle-write-report-v1",
+        "projectionBundleId": projection_bundle_id,
+        "outDir": str(target),
+        "manifest": manifest,
+        "qaReport": qa_report,
+        "productionWriteEnabled": production_write_enabled,
+    }
 
 
 class LedgerProjectionRebuilder:

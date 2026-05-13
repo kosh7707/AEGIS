@@ -1,0 +1,19 @@
+{
+  "schemaVersion": "s4-tool-portfolio-quality-gate-oracle-v1",
+  "profile": "s4-harness-local-quality-oracle",
+  "expected": {
+    "qualityGateStatus": "not_decision_grade",
+    "decision": "insufficient-evidence-for-tool-change",
+    "localQualityAssessment": {
+      "status": "fail",
+      "primaryToolSetConfig": "full-current-six",
+      "failingSplits": ["validation", "test"],
+      "passingSplits": ["canary"],
+      "splitReasonCodes": {
+        "validation": ["FINDING_PRECISION_BELOW_THRESHOLD"],
+        "test": ["FINDING_PRECISION_BELOW_THRESHOLD", "NEGATIVE_TARGET_FPR_ABOVE_THRESHOLD"],
+        "canary": []
+      }
+    }
+  }
+}

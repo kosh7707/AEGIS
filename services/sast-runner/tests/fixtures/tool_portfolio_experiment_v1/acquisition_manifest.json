@@ -1,0 +1,14 @@
+{
+  "acquisitionId": "s4-harness-fixture-v1",
+  "archiveChecksum": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+  "downloadedAt": "2026-05-12",
+  "extractionRootChecksum": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+  "licenseOrRedistributionNote": "S4-owned synthetic/precomputed fixture, not Juliet evidence.",
+  "localPath": "tests/fixtures/tool_portfolio_experiment_v1",
+  "networkAccessRequiredForScoring": false,
+  "offlineScoringOnly": true,
+  "schemaVersion": "s4-tool-portfolio-acquisition-v1",
+  "sourceName": "S4 harness fixture",
+  "sourceUrl": "local://services/sast-runner/tests/fixtures/tool_portfolio_experiment_v1",
+  "sourceVersion": "1"
+}

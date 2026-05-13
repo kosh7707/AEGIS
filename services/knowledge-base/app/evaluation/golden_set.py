@@ -20,6 +20,7 @@ from app.contracts.acquisition import ACQUISITION_STATUSES, OFFLINE_QUALITY_VOCA
 DEFAULT_GOLDEN_SET_PATH = Path(__file__).resolve().parents[2] / "fixtures" / "golden-set-v1" / "manifest.json"
 
 REQUIRED_FAMILIES = {
+    "answerability-native",
     "cve-package",
     "etl-transform",
     "threat-graphrag-retrieval",
@@ -64,6 +65,53 @@ REQUIRED_CVE_CASE_IDS = {
     "cve-provider-timeout-envelope",
     "cve-stale-cache-only-diagnostic",
     "cve-no-hit-plus-failure-not-partial-hit",
+}
+
+REQUIRED_ANSWERABILITY_NATIVE_CASE_IDS = {
+    "answer-native-heartbleed-affected-clear",
+    "answer-native-heartbleed-patched-not-affected",
+    "answer-native-identity-ambiguous-unknown",
+    "answer-native-cpe-false-positive-negative",
+    "answer-native-distro-backport-unknown",
+    "answer-native-vendored-source-patch-unknown",
+    "answer-native-kernel-config-dependent-unknown",
+    "answer-native-requery-exclude-no-resurrection",
+    "answer-native-prefer-source-policy",
+    "answer-native-force-context-over-global",
+}
+
+NATIVE_LANGUAGE_SCOPE = {"c", "cpp", "c++", "native", "embedded"}
+JUDGE_VERDICTS = {"affected", "not_affected", "unknown", "conflicting"}
+JUDGE_STATUSES = {"complete", "requires_requery", "insufficient_input", "degraded_quality", "stale_cache", "policy_blocked"}
+REQUIRED_JUDGE_FORBIDDEN_INFERENCES = {
+    "s5_final_security_verdict",
+    "s5_clean_pass",
+    "s5_accepted_claim",
+    "s5_exploitability_judgment",
+    "complete_project_safety",
+}
+REQUIRED_ANSWER_PACKET_FIELDS = {
+    "schemaVersion",
+    "verdictAuthority",
+    "queryContext.sourceContext",
+    "evidence.sourceCodeKg",
+    "qualityGate",
+    "scoreVector",
+    "reasoningPath",
+    "uncertainty",
+    "followUpAffordances",
+    "forbiddenInferences",
+}
+REQUIRED_NEGATIVE_ASSERTIONS = {
+    "risk_signal_not_affectedness_proof",
+    "keyword_vector_no_hit_not_negative_evidence",
+    "stale_evidence_not_proof",
+    "excluded_cve_must_not_resurrect",
+    "cpe_product_match_not_package_identity_proof",
+    "distro_backport_not_upstream_version_proof",
+    "vendored_source_requires_diff_or_hash_evidence",
+    "identity_ambiguity_must_not_overclaim",
+    "lazy_unknown_forbidden",
 }
 
 REQUIRED_EVIDENCE_POLICIES = {
@@ -199,6 +247,63 @@ def validate_manifest(manifest: dict[str, Any]) -> list[str]:
                     if field not in transform:
                         issues.append(f"{case_id}.transformOracle missing {field}")
 
+        if family == "answerability-native":
+            oracle = case.get("answerabilityOracle")
+            if not isinstance(oracle, dict):
+                issues.append(f"{case_id}.answerabilityOracle is required for answerability-native")
+            else:
+                language_scope = set(str(item) for item in oracle.get("languageScope", []))
+                if not language_scope:
+                    issues.append(f"{case_id}.answerabilityOracle.languageScope must be non-empty")
+                if not language_scope <= NATIVE_LANGUAGE_SCOPE:
+                    issues.append(f"{case_id}.answerabilityOracle.languageScope has non-native entries: {sorted(language_scope - NATIVE_LANGUAGE_SCOPE)}")
+                expected_answer = oracle.get("expectedAnswer")
+                if not isinstance(expected_answer, dict):
+                    issues.append(f"{case_id}.answerabilityOracle.expectedAnswer is required")
+                else:
+                    if expected_answer.get("verdict") not in JUDGE_VERDICTS:
+                        issues.append(f"{case_id}.answerabilityOracle.expectedAnswer.verdict is invalid")
+                    if expected_answer.get("status") not in JUDGE_STATUSES:
+                        issues.append(f"{case_id}.answerabilityOracle.expectedAnswer.status is invalid")
+                    forbidden = set(str(item) for item in expected_answer.get("forbiddenInferences", []))
+                    missing_forbidden = REQUIRED_JUDGE_FORBIDDEN_INFERENCES - forbidden
+                    if missing_forbidden:
+                        issues.append(f"{case_id}.answerabilityOracle.expectedAnswer.forbiddenInferences missing: {sorted(missing_forbidden)}")
+                    packet_fields = set(str(item) for item in expected_answer.get("answerPacketFields", []))
+                    missing_packet_fields = REQUIRED_ANSWER_PACKET_FIELDS - packet_fields
+                    if missing_packet_fields:
+                        issues.append(f"{case_id}.answerabilityOracle.expectedAnswer.answerPacketFields missing: {sorted(missing_packet_fields)}")
+                if oracle.get("sourceCodeKgRequired") is not True:
+                    issues.append(f"{case_id}.answerabilityOracle.sourceCodeKgRequired must be true")
+                if oracle.get("threatKbRequired") is not True and not oracle.get("sourceOnlyNegativeProbe"):
+                    issues.append(f"{case_id}.answerabilityOracle.threatKbRequired must be true unless sourceOnlyNegativeProbe")
+                negative_assertions = set(str(item) for item in oracle.get("negativeAssertions", []))
+                unknown_assertions = sorted(negative_assertions - REQUIRED_NEGATIVE_ASSERTIONS - {"build_config_required_for_reachability"})
+                if unknown_assertions:
+                    issues.append(f"{case_id}.answerabilityOracle.negativeAssertions has unknown rules: {unknown_assertions}")
+                if case_id.endswith("-negative") or oracle.get("adversarial"):
+                    if not negative_assertions:
+                        issues.append(f"{case_id}.answerabilityOracle.negativeAssertions required for adversarial/negative cases")
+                controls = oracle.get("requeryControls")
+                if not isinstance(controls, dict):
+                    issues.append(f"{case_id}.answerabilityOracle.requeryControls must be object")
+                else:
+                    for field in ("exclude", "prefer"):
+                        if field in controls and not isinstance(controls[field], list):
+                            issues.append(f"{case_id}.answerabilityOracle.requeryControls.{field} must be list")
+                    if "forceContext" in controls and not isinstance(controls["forceContext"], dict):
+                        issues.append(f"{case_id}.answerabilityOracle.requeryControls.forceContext must be object")
+                    if "answerMode" in controls and not isinstance(controls["answerMode"], str):
+                        issues.append(f"{case_id}.answerabilityOracle.requeryControls.answerMode must be string")
+                    if "exclude" in case_id and not controls.get("exclude"):
+                        issues.append(f"{case_id}.answerabilityOracle.requeryControls.exclude is required")
+                    if "prefer" in case_id and not controls.get("prefer"):
+                        issues.append(f"{case_id}.answerabilityOracle.requeryControls.prefer is required")
+                    if "force-context" in case_id and not controls.get("forceContext"):
+                        issues.append(f"{case_id}.answerabilityOracle.requeryControls.forceContext is required")
+                    if any(token in case_id for token in ("exclude", "prefer", "force-context")) and not controls.get("answerMode"):
+                        issues.append(f"{case_id}.answerabilityOracle.requeryControls.answerMode is required")
+
     missing_families = REQUIRED_FAMILIES - family_seen
     if missing_families:
         issues.append(f"missing fixture families: {sorted(missing_families)}")
@@ -210,6 +315,10 @@ def validate_manifest(manifest: dict[str, Any]) -> list[str]:
     missing_cve = REQUIRED_CVE_CASE_IDS - case_ids
     if missing_cve:
         issues.append(f"missing CVE/package cases: {sorted(missing_cve)}")
+
+    missing_answerability = REQUIRED_ANSWERABILITY_NATIVE_CASE_IDS - case_ids
+    if missing_answerability:
+        issues.append(f"missing answerability-native cases: {sorted(missing_answerability)}")
 
     missing_policies = REQUIRED_EVIDENCE_POLICIES - evidence_policies
     if missing_policies:

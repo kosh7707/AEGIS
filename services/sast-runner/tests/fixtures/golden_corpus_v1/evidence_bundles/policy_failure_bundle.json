@@ -7,18 +7,24 @@
     "execution": "policy-failure",
     "cweId": "CWE-120",
     "dataFlow": true,
-    "policyFailureReasonCodes": ["POLICY_VIOLATION", "DISALLOWED_TOOL_ENVIRONMENT_DRIFT"]
+    "policyFailureReasonCodes": [
+      "POLICY_VIOLATION",
+      "DISALLOWED_TOOL_ENVIRONMENT_DRIFT"
+    ]
   },
   "requiredResponseSurfaces": [
     "findings[].metadata.evidenceResolution",
     "staticEvidenceContract.gates.systemStability",
     "staticEvidenceContract.gates.evidenceReadiness",
-    "staticEvidenceContract.toolEvidenceMatrix"
+    "staticEvidenceContract.toolEvidenceMatrix",
+    "staticEvidenceContract.gates.claimSupportReadiness"
   ],
   "expectedContractPaths": {
     "staticEvidenceContract.gates.systemStability.status": "fail",
     "staticEvidenceContract.gates.evidenceReadiness.status": "not_ready",
     "staticEvidenceContract.toolEvidenceMatrix.semgrep.status": "skipped",
-    "staticEvidenceContract.toolEvidenceMatrix.semgrep.consumerPolicy": "blocks_successful_artifact"
+    "staticEvidenceContract.toolEvidenceMatrix.semgrep.consumerPolicy": "blocks_successful_artifact",
+    "staticEvidenceContract.gates.claimSupportReadiness.status": "fail",
+    "staticEvidenceContract.claimBoundaryMatrix.absence-of-vulnerability.supportStatus": "unsupported"
   }
 }

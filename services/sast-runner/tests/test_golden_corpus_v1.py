@@ -128,8 +128,12 @@ def _get_path(value: Any, path: str) -> Any:
     current = value
     for part in path.split("."):
         if isinstance(current, list):
-            by_tool = {item.get("toolId"): item for item in current if isinstance(item, dict)}
-            current = by_tool[part]
+            by_key = {
+                item.get("toolId") or item.get("claimId"): item
+                for item in current
+                if isinstance(item, dict)
+            }
+            current = by_key[part]
             continue
         current = current[part]
     return current

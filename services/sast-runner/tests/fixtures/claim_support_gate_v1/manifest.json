@@ -1,0 +1,80 @@
+{
+  "schemaVersion": "s4-claim-support-readiness-fixtures-v1",
+  "gateName": "tool-agnostic-claim-support-readiness-gate",
+  "purpose": "Executable test/validation cases for deciding whether S4's local static analysis artifact has enough normalized evidence to support only bounded static-analysis claims, without depending on concrete SAST tool identities.",
+  "constraints": [
+    "claimSupportReadiness is a runtime-local claim-support gate, not a validation-profile score and not a security verdict",
+    "claimSupportReadiness must not branch on or emit concrete tool ids",
+    "claimBoundaryMatrix must make unsupported negative/security claims machine-readable",
+    "empty findings are not negative vulnerability evidence",
+    "no case may require external service calls, semantic retrieval, network, external vulnerability lookup, or new SAST tools"
+  ],
+  "cases": [
+    {
+      "id": "clean-ready-positive-finding",
+      "input": {"findings": "known-cwe-with-dataflow", "execution": "clean", "success": true},
+      "expected": {
+        "claimSupportReadinessStatus": "pass",
+        "claimSupportReadinessReasonCodes": [],
+        "supportedClaims": ["local-static-artifact", "reported-finding-positive-evidence"],
+        "unsupportedClaims": ["absence-of-vulnerability", "cwe-absence", "runtime-behavior", "external-vulnerability-affectedness", "semantic-graph-completeness"]
+      }
+    },
+    {
+      "id": "empty-findings-not-negative-evidence",
+      "input": {"findings": "empty", "execution": "clean", "success": true},
+      "expected": {
+        "claimSupportReadinessStatus": "pass",
+        "claimSupportReadinessReasonCodes": [],
+        "notApplicableClaims": ["reported-finding-positive-evidence"],
+        "unsupportedClaims": ["absence-of-vulnerability", "cwe-absence"]
+      }
+    },
+    {
+      "id": "partial-cwe-mapping-partial-claim-support",
+      "input": {"findings": "unknown-cwe", "execution": "clean", "success": true},
+      "expected": {
+        "claimSupportReadinessStatus": "partial",
+        "claimSupportReadinessReasonCodes": ["NORMALIZED_EVIDENCE_PARTIAL"],
+        "partialSurfaces": ["findingCweMapping", "findingDataflow"],
+        "partialClaims": ["reported-finding-positive-evidence"],
+        "unsupportedClaims": ["cwe-absence"]
+      }
+    },
+    {
+      "id": "degraded-execution-partial-claim-support-without-tool-name-leak",
+      "input": {"findings": "known-cwe-with-dataflow", "execution": "degraded-tool-failure", "success": true},
+      "expected": {
+        "claimSupportReadinessStatus": "partial",
+        "claimSupportReadinessReasonCodes": ["LOCAL_ARTIFACT_DEGRADED", "NORMALIZED_EVIDENCE_PARTIAL"],
+        "partialSurfaces": ["staticToolExecution"],
+        "unsupportedClaims": ["absence-of-vulnerability"]
+      }
+    },
+    {
+      "id": "missing-finding-surface-fails-claim-support",
+      "input": {"findings": "missing", "execution": "clean", "success": true},
+      "expected": {
+        "claimSupportReadinessStatus": "fail",
+        "claimSupportReadinessReasonCodes": ["ANALYSIS_REQUIRED_SURFACE_MISSING"],
+        "blockingSurfaces": ["sastFindings", "findingLocations", "findingCweMapping", "originClassification"]
+      }
+    },
+    {
+      "id": "policy-failure-fails-claim-support",
+      "input": {"findings": "known-cwe-with-dataflow", "execution": "clean", "success": false, "policyFailureReasonCodes": ["POLICY_VIOLATION"]},
+      "expected": {
+        "claimSupportReadinessStatus": "fail",
+        "claimSupportReadinessReasonCodes": ["LOCAL_ARTIFACT_FAILED", "POLICY_VIOLATION"]
+      }
+    },
+    {
+      "id": "missing-build-context-is-boundary-not-gate-failure",
+      "input": {"findings": "known-cwe-with-dataflow", "execution": "clean", "success": true, "metadata": null},
+      "expected": {
+        "claimSupportReadinessStatus": "pass",
+        "unsupportedClaims": ["build-configuration-dependent-negative-claim"]
+      }
+    }
+  ]
+}

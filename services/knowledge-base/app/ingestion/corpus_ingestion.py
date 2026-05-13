@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from app.ledger.repository import SQLiteLedgerRepository
+from app.ingestion.source_coverage_matrix import evaluate_source_coverage
 
 DEFAULT_SOURCE_MANIFEST_PATH = Path(__file__).resolve().parents[2] / "fixtures" / "corpus-ingestion-v1" / "source-manifest.json"
 
@@ -65,8 +66,10 @@ SOURCE_FIELDS = {
     "family",
     "sourceVersion",
     "sourceUrl",
+    "coverageProfile",
     "coverageStatus",
     "completedCoverage",
+    "expectedCoverage",
     "providerState",
     "rawArtifacts",
 }
@@ -79,18 +82,27 @@ RAW_ARTIFACT_FIELDS = {
     "artifactKind",
     "transformVersion",
 }
-ALLOWED_COVERAGE_STATUSES = {"completed_fixture", "manifest_only", "deferred"}
+ALLOWED_COVERAGE_STATUSES = {"completed_fixture", "completed_snapshot", "partial_snapshot", "manifest_only", "deferred"}
+ALLOWED_COVERAGE_PROFILES = {"fixture_slice", "cached_catalog_snapshot", "production_snapshot", "full_cwe_expected", "manifest_only", "deferred"}
 G005_TABLES = [
     "knowledge_source",
+    "source_artifact",
     "raw_artifact",
     "normalized_record",
+    "identity_alias",
     "weakness",
     "attack_pattern",
     "tool_rule",
     "package_identity",
+    "product_identity",
+    "source_component_identity",
     "vulnerability_advisory",
     "affected_range",
+    "affectedness_record",
+    "risk_signal",
     "relation_record",
+    "unresolved_reference",
+    "conflict_record",
     "provider_observation",
 ]
 
@@ -107,9 +119,32 @@ def _hash_file(path: Path) -> str:
     return "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def _stable_id(prefix: str, *parts: Any) -> str:
+    payload = "\0".join(str(part) for part in parts).encode("utf-8")
+    return f"{prefix}:{hashlib.sha256(payload).hexdigest()[:16]}"
+
+
+def _cwe_records(raw: dict[str, Any]) -> list[dict[str, Any]]:
+    records = raw.get("weaknesses")
+    if isinstance(records, list):
+        return [record for record in records if isinstance(record, dict) and record.get("id")]
+    if raw.get("id"):
+        return [raw]
+    return []
+
+
 def _as_sources(manifest: dict[str, Any]) -> list[dict[str, Any]]:
     sources = manifest.get("sources")
     return sources if isinstance(sources, list) else []
+
+
+def _manifest_for_source_kinds(manifest: dict[str, Any], source_kinds: set[str] | None) -> dict[str, Any]:
+    if source_kinds is None:
+        return manifest
+    filtered = dict(manifest)
+    filtered["sources"] = [source for source in _as_sources(manifest) if str(source.get("sourceKind")) in source_kinds]
+    filtered["summary"] = manifest_coverage_summary(filtered)
+    return filtered
 
 
 def manifest_coverage_summary(manifest: dict[str, Any]) -> dict[str, Any]:
@@ -122,6 +157,10 @@ def manifest_coverage_summary(manifest: dict[str, Any]) -> dict[str, Any]:
         "nonCompletedSourceCount": len(non_completed),
         "completedCoverageSourceKinds": sorted(str(s.get("sourceKind")) for s in completed),
         "nonCompletedSourceKinds": sorted(str(s.get("sourceKind")) for s in non_completed),
+        "coverageProfiles": sorted({str(s.get("coverageProfile")) for s in sources}),
+        "fixtureSliceSourceKinds": sorted(str(s.get("sourceKind")) for s in sources if s.get("coverageProfile") == "fixture_slice"),
+        "cachedCatalogSnapshotSourceKinds": sorted(str(s.get("sourceKind")) for s in sources if s.get("coverageProfile") == "cached_catalog_snapshot"),
+        "productionSnapshotSourceKinds": sorted(str(s.get("sourceKind")) for s in sources if s.get("coverageProfile") in {"production_snapshot", "full_cwe_expected"}),
     }
 
 
@@ -158,12 +197,20 @@ def validate_source_manifest(manifest: dict[str, Any], path: Path | str = DEFAUL
             issues.append(f"{source_id} missing source fields: {sorted(missing)}")
         if source.get("coverageStatus") not in ALLOWED_COVERAGE_STATUSES:
             issues.append(f"{source_id}.coverageStatus is invalid")
+        if source.get("coverageProfile") not in ALLOWED_COVERAGE_PROFILES:
+            issues.append(f"{source_id}.coverageProfile is invalid")
         provider_state = source.get("providerState")
         if not isinstance(provider_state, dict) or "state" not in provider_state:
             issues.append(f"{source_id}.providerState must include state")
+        if source.get("coverageProfile") == "fixture_slice" and source.get("coverageStatus") != "completed_fixture":
+            issues.append(f"{source_id} fixture_slice requires completed_fixture status")
+        if source.get("coverageProfile") in {"cached_catalog_snapshot", "production_snapshot", "full_cwe_expected"} and source.get("coverageStatus") not in {"completed_snapshot", "partial_snapshot"}:
+            issues.append(f"{source_id} catalog/production/full coverage requires completed_snapshot or partial_snapshot status")
         if source.get("completedCoverage") is True:
-            if source.get("coverageStatus") != "completed_fixture":
-                issues.append(f"{source_id} completedCoverage requires completed_fixture status")
+            if source.get("coverageProfile") == "fixture_slice" and source.get("coverageStatus") != "completed_fixture":
+                issues.append(f"{source_id} fixture_slice completedCoverage requires completed_fixture status")
+            if source.get("coverageProfile") in {"cached_catalog_snapshot", "production_snapshot", "full_cwe_expected"} and source.get("coverageStatus") != "completed_snapshot":
+                issues.append(f"{source_id} catalog/production/full completedCoverage requires completed_snapshot status")
             if not source.get("rawArtifacts"):
                 issues.append(f"{source_id} completedCoverage requires rawArtifacts")
         else:
@@ -194,6 +241,32 @@ def validate_source_manifest(manifest: dict[str, Any], path: Path | str = DEFAUL
             if artifact.get("transformVersion") != "corpus-ingestion-v1":
                 issues.append(f"{raw_id}.transformVersion must be corpus-ingestion-v1")
 
+        if source.get("sourceKind") == "CWE" and source.get("coverageProfile") in {"cached_catalog_snapshot", "production_snapshot", "full_cwe_expected"}:
+            expected = source.get("expectedCoverage") if isinstance(source.get("expectedCoverage"), dict) else {}
+            if not expected:
+                issues.append(f"{source_id}.expectedCoverage is required for catalog/production/full CWE coverage")
+            cwe_ids: set[str] = set()
+            for artifact in raw_artifacts:
+                if not isinstance(artifact, dict) or "fixturePath" not in artifact:
+                    continue
+                fixture_path = base / str(artifact["fixturePath"])
+                if not fixture_path.exists():
+                    continue
+                try:
+                    raw = json.loads(fixture_path.read_text(encoding="utf-8"))
+                except json.JSONDecodeError:
+                    continue
+                cwe_ids.update(str(record["id"]) for record in _cwe_records(raw))
+            minimum = expected.get("minimumWeaknessCount")
+            if isinstance(minimum, int) and len(cwe_ids) < minimum:
+                issues.append(f"{source_id} catalog/production/full CWE weakness count {len(cwe_ids)} below minimum {minimum}")
+            required_ids = {str(item) for item in expected.get("requiredWeaknessIds", [])}
+            missing_required = sorted(required_ids - cwe_ids)
+            if missing_required:
+                issues.append(f"{source_id} catalog/production/full missing required CWE ids: {missing_required}")
+            if expected.get("productionComplete") is True and source.get("coverageStatus") != "completed_snapshot":
+                issues.append(f"{source_id} productionComplete requires completed_snapshot status")
+
     summary = manifest_coverage_summary(manifest)
     declared_summary = manifest.get("summary") if isinstance(manifest.get("summary"), dict) else {}
     for key in ("sourceCount", "completedSourceCount", "nonCompletedSourceCount"):
@@ -203,6 +276,9 @@ def validate_source_manifest(manifest: dict[str, Any], path: Path | str = DEFAUL
         issues.append("summary.completedCoverageSourceKinds is inconsistent")
     if declared_summary.get("nonCompletedSourceKinds") != summary["nonCompletedSourceKinds"]:
         issues.append("summary.nonCompletedSourceKinds is inconsistent")
+    for key in ("coverageProfiles", "fixtureSliceSourceKinds", "cachedCatalogSnapshotSourceKinds", "productionSnapshotSourceKinds"):
+        if declared_summary.get(key) != summary[key]:
+            issues.append(f"summary.{key} is inconsistent")
     return issues
 
 
@@ -300,6 +376,8 @@ def _advisory_payload(source_kind: str, source_id: str, raw: dict[str, Any], art
 
 
 def _external_id(source_kind: str, raw: dict[str, Any]) -> str:
+    if source_kind == "CWE" and raw.get("weaknesses"):
+        return str(raw.get("id") or "CWE-CATALOG")
     if source_kind == "CISA_KEV":
         return str(raw["cveID"])
     if source_kind == "FIRST_EPSS":
@@ -330,6 +408,98 @@ def _source_refs(source: dict[str, Any], artifact: dict[str, Any]) -> list[dict[
             "rawArtifactId": str(artifact["rawArtifactId"]),
         }
     ]
+
+
+def _media_type_for_artifact(artifact: dict[str, Any]) -> str:
+    kind = str(artifact.get("artifactKind") or "")
+    uri = str(artifact.get("uri") or artifact.get("fixturePath") or "")
+    if uri.endswith(".json") or kind in {"json", "advisory", "risk-signal", "package-identity"}:
+        return "application/json"
+    if uri.endswith(".xml"):
+        return "application/xml"
+    if uri.endswith(".csv"):
+        return "text/csv"
+    return "application/octet-stream"
+
+
+def _source_role_for_kind(source_kind: str) -> str:
+    if source_kind == "CWE":
+        return "weakness_taxonomy"
+    if source_kind == "CAPEC":
+        return "attack_pattern_ontology"
+    if source_kind in {"ATTACK_ICS", "ATTACK_ENTERPRISE"}:
+        return "adversary_behavior_ontology"
+    if source_kind in {"OSV", "NVD_CVE", "GHSA"}:
+        return "vulnerability_advisory_fact"
+    if source_kind == "package-identity":
+        return "product_package_identity"
+    if source_kind in {"CISA_KEV", "FIRST_EPSS"}:
+        return "risk_exploitation_signal"
+    if source_kind in {"semgrep", "cppcheck", "clang-tidy", "gcc-fanalyzer", "scan-build", "flawfinder"}:
+        return "static_analyzer_rule_mapping"
+    return "supporting_artifact"
+
+
+def _split_cpe23(cpe: str | None) -> dict[str, str | None]:
+    if not cpe:
+        return {"vendor": None, "product": None, "version": None}
+    parts = cpe.split(":")
+    if len(parts) < 6 or parts[:3] != ["cpe", "2.3", "a"]:
+        return {"vendor": None, "product": None, "version": None}
+    return {"vendor": parts[3] or None, "product": parts[4] or None, "version": parts[5] or None}
+
+
+def _advisory_namespace(source_kind: str) -> str:
+    if source_kind == "NVD_CVE":
+        return "cve"
+    return source_kind.lower()
+
+
+def _find_advisory_id_for_cve(repo: SQLiteLedgerRepository, cve: str) -> str | None:
+    for row in repo.fetch_all("vulnerability_advisory"):
+        if row.get("external_id") == cve:
+            return str(row["advisory_id"])
+        payload = json.loads(row.get("payload_json") or "{}")
+        if cve in (payload.get("aliases") or []):
+            return str(row["advisory_id"])
+    return None
+
+
+def _record_alias(
+    repo: SQLiteLedgerRepository,
+    *,
+    source_kind: str,
+    subject_kind: str,
+    subject_namespace: str,
+    subject_id: str,
+    alias_kind: str,
+    alias_namespace: str,
+    alias_id: str,
+    relation_semantics: str,
+    source: dict[str, Any],
+    artifact: dict[str, Any],
+    normalized_record_id: str | None,
+    confidence: float = 1.0,
+    provenance: dict[str, Any] | None = None,
+) -> None:
+    repo.upsert_identity_alias(
+        identity_alias_id=f"alias:{subject_id}:{relation_semantics}:{alias_namespace}:{alias_id}",
+        subject_kind=subject_kind,
+        subject_namespace=subject_namespace,
+        subject_id=subject_id,
+        alias_kind=alias_kind,
+        alias_namespace=alias_namespace,
+        alias_id=alias_id,
+        relation_semantics=relation_semantics,
+        confidence=confidence,
+        source_artifact_id=str(artifact["rawArtifactId"]),
+        normalized_record_id=normalized_record_id,
+        provenance={
+            "sourceKind": source_kind,
+            "sourceRefs": _source_refs(source, artifact),
+            **(provenance or {}),
+        },
+    )
 
 
 def _record_transform_decision(
@@ -445,16 +615,53 @@ def _write_specific_record(repo: SQLiteLedgerRepository, source: dict[str, Any],
     source_kind = str(source["sourceKind"])
     source_id = str(source["sourceId"])
     external_id = _external_id(source_kind, raw)
+    normalized_record_id = _norm_id(source_kind, external_id)
     provenance = {"sourceKind": source_kind, "sourceId": source_id, "rawArtifactId": artifact["rawArtifactId"], "transformMethod": "fixture_transform"}
 
     if source_kind == "CWE":
-        repo.upsert_weakness(
-            weakness_id=str(raw["id"]),
-            external_id=str(raw["id"]),
-            taxonomy_family=raw.get("taxonomyFamily"),
-            payload={**raw, "transformDiagnostics": ["cwe_fixture_normalized"]},
-            provenance=provenance,
-        )
+        for record in _cwe_records(raw):
+            weakness_id = str(record["id"])
+            taxonomy_family = record.get("taxonomyFamily") or raw.get("taxonomyFamily")
+            repo.upsert_weakness(
+                weakness_id=weakness_id,
+                external_id=weakness_id,
+                taxonomy_family=taxonomy_family,
+                payload={
+                    **record,
+                    "transformDiagnostics": ["cwe_fixture_normalized" if "weaknesses" not in raw else "cwe_catalog_normalized"],
+                },
+                provenance={**provenance, "sourceCatalogId": raw.get("id")},
+            )
+            for parent_id in record.get("parents", []):
+                _upsert_relation_record_with_decision(
+                    repo,
+                    relation_record_id=f"relation:{weakness_id}:child_of:{parent_id}",
+                    subject_id=weakness_id,
+                    predicate="child_of",
+                    object_id=str(parent_id),
+                    method="direct_source_relation",
+                    consumer_policy="contextual_only",
+                    source=source,
+                    artifact=artifact,
+                    taxonomy_family=taxonomy_family,
+                    matched_terms=[weakness_id, str(parent_id)],
+                    provenance={**provenance, "matchedTerms": [weakness_id, str(parent_id)]},
+                )
+            for related_id in record.get("relatedWeaknesses", []):
+                _upsert_relation_record_with_decision(
+                    repo,
+                    relation_record_id=f"relation:{weakness_id}:related_weakness:{related_id}",
+                    subject_id=weakness_id,
+                    predicate="related_weakness",
+                    object_id=str(related_id),
+                    method="direct_source_relation",
+                    consumer_policy="contextual_only",
+                    source=source,
+                    artifact=artifact,
+                    taxonomy_family=taxonomy_family,
+                    matched_terms=[weakness_id, str(related_id)],
+                    provenance={**provenance, "matchedTerms": [weakness_id, str(related_id)]},
+                )
         return
 
     if source_kind in {"CAPEC", "ATTACK_ICS", "ATTACK_ENTERPRISE"}:
@@ -534,6 +741,74 @@ def _write_specific_record(repo: SQLiteLedgerRepository, source: dict[str, Any],
             aliases=raw.get("aliases", []),
             provenance=provenance,
         )
+        if raw.get("purl"):
+            _record_alias(
+                repo,
+                source_kind=source_kind,
+                subject_kind="package_identity",
+                subject_namespace="purl",
+                subject_id=str(raw["packageIdentityId"]),
+                alias_kind="package_identity",
+                alias_namespace="purl",
+                alias_id=str(raw["purl"]),
+                relation_semantics="PACKAGE_IDENTITY",
+                source=source,
+                artifact=artifact,
+                normalized_record_id=normalized_record_id,
+                provenance={"identityClass": "package"},
+            )
+        if raw.get("cpe"):
+            cpe_parts = _split_cpe23(raw.get("cpe"))
+            product_identity_id = str(raw["cpe"])
+            repo.upsert_product_identity(
+                product_identity_id=product_identity_id,
+                vendor=cpe_parts["vendor"],
+                product=cpe_parts["product"],
+                version=cpe_parts["version"],
+                cpe=str(raw["cpe"]),
+                qualifiers={"identityClass": "product", "source": "package_identity_fixture"},
+                provenance=provenance,
+            )
+            _record_alias(
+                repo,
+                source_kind=source_kind,
+                subject_kind="package_identity",
+                subject_namespace="purl",
+                subject_id=str(raw["packageIdentityId"]),
+                alias_kind="product_identity",
+                alias_namespace="cpe",
+                alias_id=str(raw["cpe"]),
+                relation_semantics="RELATED_PRODUCT_IDENTITY",
+                confidence=0.85,
+                source=source,
+                artifact=artifact,
+                normalized_record_id=normalized_record_id,
+                provenance={"identityClass": "package_to_product", "hardAffectednessEligible": False},
+            )
+        if raw.get("repoUrl"):
+            source_component_id = _stable_id("source-component", raw["repoUrl"])
+            repo.upsert_source_component_identity(
+                source_component_identity_id=source_component_id,
+                repo_url=str(raw["repoUrl"]),
+                qualifiers={"identityClass": "source_component", "canonicalName": raw.get("canonicalName")},
+                provenance=provenance,
+            )
+            _record_alias(
+                repo,
+                source_kind=source_kind,
+                subject_kind="package_identity",
+                subject_namespace="purl",
+                subject_id=str(raw["packageIdentityId"]),
+                alias_kind="source_component_identity",
+                alias_namespace="repo",
+                alias_id=source_component_id,
+                relation_semantics="RELATED_SOURCE_COMPONENT",
+                confidence=0.8,
+                source=source,
+                artifact=artifact,
+                normalized_record_id=normalized_record_id,
+                provenance={"identityClass": "package_to_source_component", "hardAffectednessEligible": False},
+            )
         return
 
     if source_kind in {"OSV", "NVD_CVE", "GHSA"}:
@@ -546,14 +821,112 @@ def _write_specific_record(repo: SQLiteLedgerRepository, source: dict[str, Any],
             payload=advisory,
             freshness=advisory["freshness"],
         )
+        _record_alias(
+            repo,
+            source_kind=source_kind,
+            subject_kind="advisory",
+            subject_namespace=_advisory_namespace(source_kind),
+            subject_id=advisory["advisoryId"],
+            alias_kind="advisory",
+            alias_namespace=_advisory_namespace(source_kind),
+            alias_id=advisory["externalId"],
+            relation_semantics="NATIVE_ID",
+            source=source,
+            artifact=artifact,
+            normalized_record_id=normalized_record_id,
+            provenance={"externalId": advisory["externalId"]},
+        )
+        for alias in advisory.get("aliases", []):
+            namespace = "cve" if str(alias).startswith("CVE-") else "advisory_alias"
+            relation_semantics = "SAME_AS_EXACT" if source_kind == "NVD_CVE" or str(alias) == advisory["externalId"] else "RELATED_ALIAS"
+            _record_alias(
+                repo,
+                source_kind=source_kind,
+                subject_kind="advisory",
+                subject_namespace=_advisory_namespace(source_kind),
+                subject_id=advisory["advisoryId"],
+                alias_kind="advisory",
+                alias_namespace=namespace,
+                alias_id=str(alias),
+                relation_semantics=relation_semantics,
+                source=source,
+                artifact=artifact,
+                normalized_record_id=normalized_record_id,
+                provenance={"aliasSource": source_kind, "aliasSemantics": relation_semantics},
+            )
+        for cpe_match in raw.get("configurations", []):
+            for cpe in cpe_match.get("cpeMatch", []):
+                cpe_parts = _split_cpe23(str(cpe))
+                repo.upsert_product_identity(
+                    product_identity_id=str(cpe),
+                    vendor=cpe_parts["vendor"],
+                    product=cpe_parts["product"],
+                    version=cpe_parts["version"],
+                    cpe=str(cpe),
+                    qualifiers={"identityClass": "product", "source": "nvd_configuration"},
+                    provenance={**advisory["provenance"], "configuration": cpe_match},
+                )
+                _record_alias(
+                    repo,
+                    source_kind=source_kind,
+                    subject_kind="advisory",
+                    subject_namespace=_advisory_namespace(source_kind),
+                    subject_id=advisory["advisoryId"],
+                    alias_kind="product_identity",
+                    alias_namespace="cpe",
+                    alias_id=str(cpe),
+                    relation_semantics="AFFECTS_CPE_MATCH",
+                    confidence=1.0,
+                    source=source,
+                    artifact=artifact,
+                    normalized_record_id=normalized_record_id,
+                    provenance={"configuration": cpe_match, "hardAffectednessEligible": True},
+                )
         for idx, affected in enumerate(advisory["affectedRanges"]):
+            subject_id = affected.get("packageIdentityId") or advisory.get("packageIdentityId")
             repo.upsert_affected_range(
                 affected_range_id=f"affected:{advisory['advisoryId']}:{idx}",
                 advisory_id=advisory["advisoryId"],
-                package_identity_id=affected.get("packageIdentityId") or advisory.get("packageIdentityId"),
+                package_identity_id=subject_id,
                 introduced=affected.get("introduced"),
                 fixed=affected.get("fixed"),
                 range_data=affected,
+                provenance=advisory["provenance"],
+            )
+            repo.upsert_affectedness_record(
+                affectedness_id=f"affectedness:{advisory['advisoryId']}:{idx}",
+                advisory_id=advisory["advisoryId"],
+                subject_kind="package_identity",
+                subject_id=subject_id,
+                affectedness_status="affected",
+                introduced=affected.get("introduced"),
+                fixed=affected.get("fixed"),
+                range_data=affected,
+                qualifiers={
+                    "sourceKind": source_kind,
+                    "ecosystem": raw.get("package", {}).get("ecosystem"),
+                    "packageName": raw.get("package", {}).get("name"),
+                    "cpeConfigurations": raw.get("configurations", []),
+                },
+                evidence={
+                    "sourceArtifactId": artifact["rawArtifactId"],
+                    "normalizedRecordId": normalized_record_id,
+                    "sourcePointer": f"$.affected[{idx}]",
+                },
+                confidence=0.95,
+                decision_state="accepted",
+                provenance=advisory["provenance"],
+            )
+        if source_kind == "NVD_CVE" and advisory.get("cvss"):
+            cvss = advisory["cvss"]
+            repo.upsert_risk_signal(
+                risk_signal_id=f"risk:CVSS:{advisory['externalId']}",
+                advisory_id=advisory["advisoryId"],
+                signal_kind="CVSS",
+                signal_date=advisory.get("modifiedAt") or advisory.get("publishedAt"),
+                signal_value=float(cvss.get("baseScore")) if cvss.get("baseScore") is not None else None,
+                source_kind=source_kind,
+                payload=cvss,
                 provenance=advisory["provenance"],
             )
         _upsert_relation_record_with_decision(
@@ -585,12 +958,24 @@ def _write_specific_record(repo: SQLiteLedgerRepository, source: dict[str, Any],
         cve = str(raw.get("cveID") or raw.get("cve"))
         predicate = "risk_signal_for" if source_kind == "FIRST_EPSS" else "enriches_advisory"
         payload_key = "epss" if source_kind == "FIRST_EPSS" else "kev"
+        advisory_id = _find_advisory_id_for_cve(repo, cve)
+        risk_signal_id = f"risk:{source_kind}:{cve}"
+        repo.upsert_risk_signal(
+            risk_signal_id=risk_signal_id,
+            advisory_id=advisory_id,
+            signal_kind="EPSS" if source_kind == "FIRST_EPSS" else "KEV",
+            signal_date=str(raw.get("date") or raw.get("dateAdded") or artifact["retrievedAt"]),
+            signal_value=float(raw["epss"]) if source_kind == "FIRST_EPSS" and raw.get("epss") is not None else None,
+            source_kind=source_kind,
+            payload=raw,
+            provenance={**provenance, "sourceRefs": _source_refs(source, artifact)},
+        )
         _upsert_relation_record_with_decision(
             repo,
             relation_record_id=f"relation:{source_kind}:{cve}:{predicate}",
-            subject_id=f"risk-signal:{source_kind}:{cve}",
+            subject_id=risk_signal_id,
             predicate=predicate,
-            object_id=f"CVE:{cve}",
+            object_id=advisory_id or f"CVE:{cve}",
             method="direct_source_relation",
             consumer_policy="contextual_only",
             source=source,
@@ -621,6 +1006,7 @@ def ingest_fixture_corpus(
     issues = validate_source_manifest(manifest, manifest_path)
     if issues:
         raise ValueError(f"Invalid corpus source manifest: {issues}")
+    source_coverage = evaluate_source_coverage(_manifest_for_source_kinds(manifest, source_kinds))
 
     processed_sources = []
     for source in _as_sources(manifest):
@@ -635,8 +1021,10 @@ def ingest_fixture_corpus(
             source_url=str(source["sourceUrl"]),
             payload={
                 "family": source["family"],
+                "coverageProfile": source["coverageProfile"],
                 "coverageStatus": source["coverageStatus"],
                 "completedCoverage": source["completedCoverage"],
+                "expectedCoverage": source.get("expectedCoverage", {}),
                 "providerState": source["providerState"],
             },
         )
@@ -645,6 +1033,31 @@ def ingest_fixture_corpus(
             continue
         for artifact in source["rawArtifacts"]:
             raw = _load_artifact(manifest_path, artifact)
+            repo.upsert_source_artifact(
+                source_artifact_id=str(artifact["rawArtifactId"]),
+                source_id=str(source["sourceId"]),
+                source_family=_source_role_for_kind(source_kind),
+                source_name=source_kind,
+                artifact_uri=str(artifact["uri"]),
+                media_type=_media_type_for_artifact(artifact),
+                source_version=str(source["sourceVersion"]),
+                schema_version=str(manifest["schemaVersion"]),
+                retrieved_at=str(artifact["retrievedAt"]),
+                checksum_sha256=str(artifact["contentHash"]),
+                parser_version=str(artifact["transformVersion"]),
+                normalizer_version=str(artifact["transformVersion"]),
+                record_count=len(_cwe_records(raw)) if source_kind == "CWE" else 1,
+                required_files=[str(artifact["fixturePath"])],
+                metadata={
+                    "fixturePath": str(artifact["fixturePath"]),
+                    "coverageStatus": source["coverageStatus"],
+                    "coverageProfile": source["coverageProfile"],
+                    "expectedCoverage": source.get("expectedCoverage", {}),
+                    "sourceRole": _source_role_for_kind(source_kind),
+                    "liveDownload": "manual_cache_only",
+                    "providerState": source.get("providerState", {}),
+                },
+            )
             repo.upsert_raw_artifact(
                 raw_artifact_id=str(artifact["rawArtifactId"]),
                 source_id=str(source["sourceId"]),
@@ -686,6 +1099,7 @@ def ingest_fixture_corpus(
     return {
         "schemaVersion": "s5-corpus-ingestion-report-v1",
         "coverage": manifest_coverage_summary(manifest),
+        "sourceCoverage": source_coverage,
         "processedSourceKinds": sorted(processed_sources),
         "rowCounts": {table: repo.count_rows(table) for table in G005_TABLES},
     }

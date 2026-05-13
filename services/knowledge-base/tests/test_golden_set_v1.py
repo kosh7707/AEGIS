@@ -2,10 +2,14 @@ from __future__ import annotations
 
 from app.evaluation.golden_set import (
     OFFLINE_METRIC_FIELDS,
+    REQUIRED_ANSWERABILITY_NATIVE_CASE_IDS,
     REQUIRED_CVE_CASE_IDS,
     REQUIRED_EVIDENCE_POLICIES,
     REQUIRED_FAMILIES,
     REQUIRED_RETRIEVAL_CASE_IDS,
+    REQUIRED_JUDGE_FORBIDDEN_INFERENCES,
+    REQUIRED_NEGATIVE_ASSERTIONS,
+    REQUIRED_ANSWER_PACKET_FIELDS,
     RUNTIME_STATUS_WORDS,
     build_gate_report,
     compute_quality_metrics,
@@ -36,6 +40,7 @@ def test_golden_set_covers_required_families_and_cases():
     assert REQUIRED_FAMILIES <= families
     assert REQUIRED_CVE_CASE_IDS <= case_ids
     assert REQUIRED_RETRIEVAL_CASE_IDS <= case_ids
+    assert REQUIRED_ANSWERABILITY_NATIVE_CASE_IDS <= case_ids
     assert REQUIRED_EVIDENCE_POLICIES <= policies
 
 
@@ -189,3 +194,101 @@ def test_evidence_readiness_policy_slots_are_explicit_for_s3_consumers():
     assert derived_support["consumerPolicy"] == "s3_may_derive_local_support_if_refs_validate"
     assert derived_support["evidenceReadinessOracle"]["maySupportClaim"] is True
     assert "targetLocalValidationRequired" in derived_support["evidenceReadinessOracle"]["requiredDiagnostics"]
+
+
+def _answerability_cases():
+    return [case for case in load_golden_set()["cases"] if case["family"] == "answerability-native"]
+
+
+def test_answerability_native_cases_cover_c_cpp_judge_shape_and_required_ids():
+    cases = _answerability_cases()
+    case_ids = {case["caseId"] for case in cases}
+
+    assert len(cases) >= 10
+    assert REQUIRED_ANSWERABILITY_NATIVE_CASE_IDS <= case_ids
+
+    verdicts = {case["answerabilityOracle"]["expectedAnswer"]["verdict"] for case in cases}
+    statuses = {case["answerabilityOracle"]["expectedAnswer"]["status"] for case in cases}
+    assert {"affected", "not_affected", "unknown"} <= verdicts
+    assert "conflicting" in verdicts
+    assert {"complete", "requires_requery"} <= statuses
+
+    for case in cases:
+        oracle = case["answerabilityOracle"]
+        assert set(oracle["languageScope"]) <= {"c", "cpp", "c++", "native", "embedded"}
+        assert oracle["sourceCodeKgRequired"] is True
+        assert oracle["threatKbRequired"] is True
+        expected = oracle["expectedAnswer"]
+        assert set(expected["forbiddenInferences"]) >= REQUIRED_JUDGE_FORBIDDEN_INFERENCES
+        assert set(expected["answerPacketFields"]) >= REQUIRED_ANSWER_PACKET_FIELDS
+        assert expected["schemaVersion"] == "s5-judge-answer-v1"
+        assert expected["verdictAuthority"] == "s5_evidence_grounded_knowledge_verdict_not_s3_final_security_verdict"
+        assert oracle["sourceContext"]["repositorySnapshotId"]
+        assert oracle["sourceContext"]["buildContextId"]
+        assert oracle["sourceContext"]["analysisArtifactSetId"]
+
+
+def test_answerability_native_negative_cases_encode_no_overclaim_guards():
+    cases = _answerability_cases()
+    negative_assertions = {
+        assertion
+        for case in cases
+        for assertion in case["answerabilityOracle"].get("negativeAssertions", [])
+    }
+
+    assert REQUIRED_NEGATIVE_ASSERTIONS <= negative_assertions
+    for case in cases:
+        oracle = case["answerabilityOracle"]
+        if oracle.get("adversarial"):
+            assert oracle["negativeAssertions"], case["caseId"]
+            expected = oracle["expectedAnswer"]
+            if expected["verdict"] == "unknown":
+                assert expected["requiredInputs"] or expected["followUpAffordances"]
+
+
+def test_answerability_native_requery_controls_are_encoded():
+    cases = {case["caseId"]: case for case in _answerability_cases()}
+
+    exclude = cases["answer-native-requery-exclude-no-resurrection"]["answerabilityOracle"]["requeryControls"]
+    assert exclude["exclude"] == ["CVE-2014-0160"]
+    assert exclude["answerMode"] == "alternatives_without_excluded"
+
+    prefer = cases["answer-native-prefer-source-policy"]["answerabilityOracle"]["requeryControls"]
+    assert "sourceCodeKg" in prefer["prefer"]
+    assert prefer["answerMode"] == "evidence_grounded"
+
+    forced = cases["answer-native-force-context-over-global"]["answerabilityOracle"]["requeryControls"]
+    assert forced["forceContext"]["repositorySnapshotId"] == "src-snapshot-force-context"
+    assert forced["answerMode"] == "strict_target_context"
+
+
+def test_manifest_validation_rejects_missing_answerability_requery_controls():
+    manifest = load_golden_set()
+    case = next(case for case in manifest["cases"] if case["caseId"] == "answer-native-requery-exclude-no-resurrection")
+    case["answerabilityOracle"]["requeryControls"] = {}
+
+    issues = validate_manifest(manifest)
+
+    assert any("requeryControls.exclude is required" in issue for issue in issues)
+    assert any("requeryControls.answerMode is required" in issue for issue in issues)
+
+
+def test_manifest_validation_rejects_unknown_negative_assertion_rules():
+    manifest = load_golden_set()
+    case = next(case for case in manifest["cases"] if case["caseId"] == "answer-native-vendored-source-patch-unknown")
+    case["answerabilityOracle"]["negativeAssertions"] = ["bogus_not_no_overclaim_rule"]
+
+    issues = validate_manifest(manifest)
+
+    assert any("negativeAssertions has unknown rules" in issue for issue in issues)
+
+
+def test_manifest_validation_rejects_unknown_negative_assertion_rules_on_non_adversarial_cases():
+    manifest = load_golden_set()
+    case = next(case for case in manifest["cases"] if case["caseId"] == "answer-native-prefer-source-policy")
+    assert case["answerabilityOracle"]["adversarial"] is False
+    case["answerabilityOracle"]["negativeAssertions"] = ["bogus_rule_on_non_adversarial"]
+
+    issues = validate_manifest(manifest)
+
+    assert any("negativeAssertions has unknown rules" in issue for issue in issues)

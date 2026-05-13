@@ -1,0 +1,97 @@
+{
+  "schemaVersion": "s5-scoring-policy-v1",
+  "policyId": "s5-default-scoring-policy",
+  "policyVersion": "v1",
+  "profiles": {
+    "strict": {
+      "etl_projection": {
+        "retrievalRelevance": 0.0,
+        "identityConfidence": 0.8,
+        "affectednessConfidence": 0.8,
+        "versionRangeConfidence": 0.8,
+        "evidenceStrength": 0.85,
+        "sourceReliability": 0.85,
+        "freshness": 0.75,
+        "coverageScore": 0.8,
+        "conflictPenaltyMax": 0.0,
+        "controlCompliance": 1.0,
+        "overallAnswerability": 0.8,
+        "rejectOnThresholdFailure": true
+      },
+      "serving": {
+        "retrievalRelevance": 0.0,
+        "identityConfidence": 0.75,
+        "affectednessConfidence": 0.75,
+        "versionRangeConfidence": 0.75,
+        "evidenceStrength": 0.8,
+        "sourceReliability": 0.8,
+        "freshness": 0.7,
+        "coverageScore": 0.75,
+        "conflictPenaltyMax": 0.0,
+        "controlCompliance": 1.0,
+        "overallAnswerability": 0.75,
+        "rejectOnThresholdFailure": true
+      }
+    },
+    "balanced": {
+      "etl_projection": {
+        "retrievalRelevance": 0.0,
+        "identityConfidence": 0.6,
+        "affectednessConfidence": 0.6,
+        "versionRangeConfidence": 0.55,
+        "evidenceStrength": 0.6,
+        "sourceReliability": 0.6,
+        "freshness": 0.45,
+        "coverageScore": 0.5,
+        "conflictPenaltyMax": 0.25,
+        "controlCompliance": 1.0,
+        "overallAnswerability": 0.55,
+        "rejectOnThresholdFailure": false
+      },
+      "serving": {
+        "retrievalRelevance": 0.0,
+        "identityConfidence": 0.55,
+        "affectednessConfidence": 0.55,
+        "versionRangeConfidence": 0.5,
+        "evidenceStrength": 0.55,
+        "sourceReliability": 0.55,
+        "freshness": 0.4,
+        "coverageScore": 0.45,
+        "conflictPenaltyMax": 0.25,
+        "controlCompliance": 1.0,
+        "overallAnswerability": 0.5,
+        "rejectOnThresholdFailure": false
+      }
+    },
+    "exploratory": {
+      "etl_projection": {
+        "retrievalRelevance": 0.0,
+        "identityConfidence": 0.35,
+        "affectednessConfidence": 0.3,
+        "versionRangeConfidence": 0.3,
+        "evidenceStrength": 0.35,
+        "sourceReliability": 0.35,
+        "freshness": 0.2,
+        "coverageScore": 0.25,
+        "conflictPenaltyMax": 0.5,
+        "controlCompliance": 1.0,
+        "overallAnswerability": 0.3,
+        "rejectOnThresholdFailure": false
+      },
+      "serving": {
+        "retrievalRelevance": 0.0,
+        "identityConfidence": 0.3,
+        "affectednessConfidence": 0.25,
+        "versionRangeConfidence": 0.25,
+        "evidenceStrength": 0.3,
+        "sourceReliability": 0.3,
+        "freshness": 0.2,
+        "coverageScore": 0.25,
+        "conflictPenaltyMax": 0.5,
+        "controlCompliance": 1.0,
+        "overallAnswerability": 0.25,
+        "rejectOnThresholdFailure": false
+      }
+    }
+  }
+}

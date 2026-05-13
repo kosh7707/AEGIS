@@ -2,7 +2,7 @@
   "schemaVersion": "s4-golden-corpus-v1",
   "analysisProfile": "c-cpp-core",
   "owner": "s4-sast-runner",
-  "purpose": "Executable deterministic validation baseline for S4 static evidence contract, current six-tool capability skeletons, S3-consumable evidence bundles, and C/C++ vulnerability-family canaries.",
+  "purpose": "Executable deterministic validation baseline for S4 static evidence contract, current six-tool capability skeletons, S3-consumable evidence bundles, claim-support readiness oracles, and C/C++ vulnerability-family canaries.",
   "expansionCriteria": [
     "Before tool portfolio governance, all four Golden Corpus v1 layers must have at least one executable representative and pass the manifest validator.",
     "Any future SAST tool addition/removal/upgrade must update toolCapabilityOracles with the affected tool id, expected evidence surfaces, known limits, and at least one fixture or benchmark pointer.",
@@ -21,6 +21,16 @@
           "optional missingEvidence split",
           "explicit not_provided non-S4 evidence surfaces",
           "qualityEvaluation default not_evaluated"
+        ]
+      },
+      {
+        "id": "claim-support-readiness-fixtures-v1",
+        "fixture": "tests/fixtures/claim_support_gate_v1/manifest.json",
+        "executable": "tests/test_analysis_quality_gate.py::test_claim_support_fixture_manifest_is_executable_and_tool_agnostic",
+        "asserts": [
+          "tool-agnostic claimSupportReadiness fixture manifest exists",
+          "claimBoundaryMatrix unsupported negative claims are executable test cases",
+          "runtime claim-support readiness is separate from qualityEvaluation scoring"
         ]
       }
     ],

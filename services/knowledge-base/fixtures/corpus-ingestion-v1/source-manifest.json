@@ -5,7 +5,12 @@
   "sources": [
     {
       "completedCoverage": true,
+      "coverageProfile": "fixture_slice",
       "coverageStatus": "completed_fixture",
+      "expectedCoverage": {
+        "productionComplete": false,
+        "representativeOnly": true
+      },
       "family": "schema_asset",
       "providerState": {
         "freshness": {
@@ -32,7 +37,12 @@
     },
     {
       "completedCoverage": true,
+      "coverageProfile": "fixture_slice",
       "coverageStatus": "completed_fixture",
+      "expectedCoverage": {
+        "productionComplete": false,
+        "representativeOnly": true
+      },
       "family": "schema_asset",
       "providerState": {
         "freshness": {
@@ -59,7 +69,12 @@
     },
     {
       "completedCoverage": true,
+      "coverageProfile": "fixture_slice",
       "coverageStatus": "completed_fixture",
+      "expectedCoverage": {
+        "productionComplete": false,
+        "representativeOnly": true
+      },
       "family": "weakness_core",
       "providerState": {
         "freshness": {
@@ -86,7 +101,12 @@
     },
     {
       "completedCoverage": true,
+      "coverageProfile": "fixture_slice",
       "coverageStatus": "completed_fixture",
+      "expectedCoverage": {
+        "productionComplete": false,
+        "representativeOnly": true
+      },
       "family": "tool_rule_core",
       "providerState": {
         "freshness": {
@@ -113,7 +133,12 @@
     },
     {
       "completedCoverage": true,
+      "coverageProfile": "fixture_slice",
       "coverageStatus": "completed_fixture",
+      "expectedCoverage": {
+        "productionComplete": false,
+        "representativeOnly": true
+      },
       "family": "tool_rule_core",
       "providerState": {
         "freshness": {
@@ -140,7 +165,12 @@
     },
     {
       "completedCoverage": true,
+      "coverageProfile": "fixture_slice",
       "coverageStatus": "completed_fixture",
+      "expectedCoverage": {
+        "productionComplete": false,
+        "representativeOnly": true
+      },
       "family": "tool_rule_core",
       "providerState": {
         "freshness": {
@@ -167,7 +197,12 @@
     },
     {
       "completedCoverage": true,
+      "coverageProfile": "fixture_slice",
       "coverageStatus": "completed_fixture",
+      "expectedCoverage": {
+        "productionComplete": false,
+        "representativeOnly": true
+      },
       "family": "tool_rule_core",
       "providerState": {
         "freshness": {
@@ -194,7 +229,12 @@
     },
     {
       "completedCoverage": true,
+      "coverageProfile": "fixture_slice",
       "coverageStatus": "completed_fixture",
+      "expectedCoverage": {
+        "productionComplete": false,
+        "representativeOnly": true
+      },
       "family": "tool_rule_core",
       "providerState": {
         "freshness": {
@@ -221,7 +261,12 @@
     },
     {
       "completedCoverage": true,
+      "coverageProfile": "fixture_slice",
       "coverageStatus": "completed_fixture",
+      "expectedCoverage": {
+        "productionComplete": false,
+        "representativeOnly": true
+      },
       "family": "tool_rule_core",
       "providerState": {
         "freshness": {
@@ -248,7 +293,12 @@
     },
     {
       "completedCoverage": true,
+      "coverageProfile": "fixture_slice",
       "coverageStatus": "completed_fixture",
+      "expectedCoverage": {
+        "productionComplete": false,
+        "representativeOnly": true
+      },
       "family": "package_identity",
       "providerState": {
         "freshness": {
@@ -275,7 +325,12 @@
     },
     {
       "completedCoverage": true,
+      "coverageProfile": "fixture_slice",
       "coverageStatus": "completed_fixture",
+      "expectedCoverage": {
+        "productionComplete": false,
+        "representativeOnly": true
+      },
       "family": "vulnerability_intelligence",
       "providerState": {
         "freshness": {
@@ -302,7 +357,12 @@
     },
     {
       "completedCoverage": true,
+      "coverageProfile": "fixture_slice",
       "coverageStatus": "completed_fixture",
+      "expectedCoverage": {
+        "productionComplete": false,
+        "representativeOnly": true
+      },
       "family": "vulnerability_intelligence",
       "providerState": {
         "freshness": {
@@ -329,7 +389,12 @@
     },
     {
       "completedCoverage": true,
+      "coverageProfile": "fixture_slice",
       "coverageStatus": "completed_fixture",
+      "expectedCoverage": {
+        "productionComplete": false,
+        "representativeOnly": true
+      },
       "family": "vulnerability_intelligence",
       "providerState": {
         "freshness": {
@@ -356,7 +421,12 @@
     },
     {
       "completedCoverage": true,
+      "coverageProfile": "fixture_slice",
       "coverageStatus": "completed_fixture",
+      "expectedCoverage": {
+        "productionComplete": false,
+        "representativeOnly": true
+      },
       "family": "vulnerability_intelligence",
       "providerState": {
         "freshness": {
@@ -383,7 +453,12 @@
     },
     {
       "completedCoverage": true,
+      "coverageProfile": "fixture_slice",
       "coverageStatus": "completed_fixture",
+      "expectedCoverage": {
+        "productionComplete": false,
+        "representativeOnly": true
+      },
       "family": "vulnerability_intelligence",
       "providerState": {
         "freshness": {
@@ -410,7 +485,12 @@
     },
     {
       "completedCoverage": true,
+      "coverageProfile": "fixture_slice",
       "coverageStatus": "completed_fixture",
+      "expectedCoverage": {
+        "productionComplete": false,
+        "representativeOnly": true
+      },
       "family": "attack_core",
       "providerState": {
         "freshness": {
@@ -438,7 +518,12 @@
     },
     {
       "completedCoverage": true,
+      "coverageProfile": "fixture_slice",
       "coverageStatus": "completed_fixture",
+      "expectedCoverage": {
+        "productionComplete": false,
+        "representativeOnly": true
+      },
       "family": "attack_core",
       "providerState": {
         "freshness": {
@@ -466,7 +551,12 @@
     },
     {
       "completedCoverage": true,
+      "coverageProfile": "fixture_slice",
       "coverageStatus": "completed_fixture",
+      "expectedCoverage": {
+        "productionComplete": false,
+        "representativeOnly": true
+      },
       "family": "attack_core",
       "providerState": {
         "freshness": {
@@ -494,6 +584,7 @@
     }
   ],
   "summary": {
+    "cachedCatalogSnapshotSourceKinds": [],
     "completedCoverageSourceKinds": [
       "ATTACK_ENTERPRISE",
       "ATTACK_ICS",
@@ -515,8 +606,32 @@
       "semgrep"
     ],
     "completedSourceCount": 18,
+    "coverageProfiles": [
+      "fixture_slice"
+    ],
+    "fixtureSliceSourceKinds": [
+      "ATTACK_ENTERPRISE",
+      "ATTACK_ICS",
+      "CAPEC",
+      "CISA_KEV",
+      "CWE",
+      "FIRST_EPSS",
+      "GHSA",
+      "NVD_CVE",
+      "OSV",
+      "clang-tidy",
+      "cppcheck",
+      "flawfinder",
+      "gcc-fanalyzer",
+      "golden-set-v1",
+      "knowledge-corpus-v1",
+      "package-identity",
+      "scan-build",
+      "semgrep"
+    ],
     "nonCompletedSourceCount": 0,
     "nonCompletedSourceKinds": [],
+    "productionSnapshotSourceKinds": [],
     "sourceCount": 18
   }
 }

@@ -11,11 +11,19 @@
     "gates",
     "coverage",
     "claimBoundaries",
+    "claimBoundaryMatrix",
     "toolEvidenceMatrix",
     "followUpHints"
   ],
-  "optionalTopLevelKeys": ["missingEvidence"],
-  "requiredGateKeys": ["systemStability", "evidenceReadiness", "qualityEvaluation"],
+  "optionalTopLevelKeys": [
+    "missingEvidence"
+  ],
+  "requiredGateKeys": [
+    "systemStability",
+    "evidenceReadiness",
+    "claimSupportReadiness",
+    "qualityEvaluation"
+  ],
   "qualityEvaluationDefault": {
     "status": "not_evaluated",
     "reasonCode": "NO_VALIDATION_PROFILE_RAN",
@@ -88,5 +96,30 @@
     "clean",
     "riskScore",
     "securityVerdict"
+  ],
+  "claimSupportReadinessDefaultPolicy": "not_a_quality_score_not_a_security_verdict",
+  "allowedClaimSupportReadinessStatuses": [
+    "pass",
+    "partial",
+    "fail",
+    "unknown"
+  ],
+  "requiredClaimBoundaryClaims": [
+    "local-static-artifact",
+    "reported-finding-positive-evidence",
+    "absence-of-vulnerability",
+    "cwe-absence",
+    "build-configuration-dependent-negative-claim",
+    "runtime-behavior",
+    "external-vulnerability-affectedness",
+    "semantic-graph-completeness",
+    "exploitability-judgment",
+    "final-security-verdict"
+  ],
+  "allowedClaimSupportStatuses": [
+    "supported",
+    "partially_supported",
+    "unsupported",
+    "not_applicable"
   ]
 }

@@ -18,6 +18,7 @@ from app.clients.s4_ownership import (
 )
 from app.agent_runtime.observability import agent_log
 from app.agent_runtime.schemas.agent import ToolResult
+from app.core.s4_static_evidence import extract_static_evidence_contract, summarize_static_evidence_contract
 from app.agent_runtime.schemas.upstream import SastFinding
 from app.runtime.request_summary import request_summary_tracker
 
@@ -329,10 +330,13 @@ class SastScanTool:
                 reason = tr.get("skipReason", "") or tr.get("timedOutFiles", "")
                 incomplete_tools.append(f"{tool_name}({status}: {reason})" if reason else f"{tool_name}({status})")
 
-        if incomplete_tools or stall_detected:
+        static_contract = extract_static_evidence_contract(data)
+        static_evidence_diagnostics = summarize_static_evidence_contract(static_contract)
+        if incomplete_tools or stall_detected or static_evidence_diagnostics.get("ready") is False:
             data["_sast_caveats"] = {
                 "incompleteTools": incomplete_tools,
                 "stallDetected": stall_detected,
+                "staticEvidenceDiagnostics": static_evidence_diagnostics,
             }
 
         return ToolResult(

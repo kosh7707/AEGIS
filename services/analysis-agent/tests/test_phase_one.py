@@ -904,6 +904,114 @@ class TestTargetPath:
         await executor.aclose()
 
     @pytest.mark.asyncio
+    async def test_quick_context_degraded_static_contract_is_not_clean_no_findings(self):
+        """precomputed S4 evidence still honors staticEvidenceContract readiness."""
+        from app.core.agent_session import AgentSession
+        from app.core.evidence_catalog import EvidenceCatalog
+        from app.schemas.request import TaskRequest
+
+        request = TaskRequest.model_validate({
+            "taskType": "deep-analyze",
+            "taskId": "test-quick-context-degraded-static-contract",
+            "context": {
+                "trusted": {
+                    "objective": "test",
+                    "projectPath": "/uploads/project",
+                    "projectId": "proj-1",
+                    "quickContext": {
+                        "sastFindings": [],
+                        "staticEvidenceContract": {
+                            "gates": {
+                                "systemStability": {"status": "degraded", "reasonCodes": ["TOOL_PARTIAL:scan-build"]},
+                                "evidenceReadiness": {"status": "partial", "reasonCodes": ["LOCAL_EVIDENCE_PARTIAL"]},
+                                "claimSupportReadiness": {"status": "partial", "reasonCodes": ["LOCAL_ARTIFACT_DEGRADED"]},
+                            },
+                            "claimBoundaryMatrix": [],
+                            "toolEvidenceMatrix": [{"toolId": "scan-build", "status": "partial"}],
+                        },
+                    },
+                }
+            },
+        })
+        from app.agent_runtime.schemas.agent import BudgetState
+        budget = BudgetState(max_steps=1, max_completion_tokens=100)
+        session = AgentSession(request, budget)
+
+        executor = Phase1Executor(
+            sast_endpoint="http://localhost:9000",
+            kb_endpoint="http://localhost:8002",
+        )
+
+        executor._run_build_and_analyze = AsyncMock(side_effect=AssertionError("should not run"))
+        executor._run_individual_tools = AsyncMock(side_effect=AssertionError("should not run"))
+        executor._run_cve_lookup = AsyncMock(side_effect=lambda result: result)
+        executor._run_threat_query = AsyncMock(side_effect=lambda result: result)
+        executor._run_dangerous_callers = AsyncMock(side_effect=lambda result, *_args, **_kwargs: result)
+
+        result = await executor.execute(session)
+
+        assert result.sast_scan_completed is True
+        assert result.sast_static_evidence_ready is False
+        catalog = EvidenceCatalog()
+        catalog.ingest_phase1_result(result)
+        assert catalog.negative_ref_ids() == set()
+        operational = [catalog.get(ref) for ref in catalog.operational_ref_ids()]
+        assert any("sast_static_evidence_not_ready" in entry.roles for entry in operational if entry)
+        executor._run_build_and_analyze.assert_not_called()
+        executor._run_individual_tools.assert_not_called()
+        await executor.aclose()
+
+    @pytest.mark.asyncio
+    async def test_quick_context_missing_static_contract_suppresses_no_findings(self):
+        """precomputed S4 findings without current contract are not clean evidence."""
+        from app.core.agent_session import AgentSession
+        from app.core.evidence_catalog import EvidenceCatalog
+        from app.schemas.request import TaskRequest
+
+        request = TaskRequest.model_validate({
+            "taskType": "deep-analyze",
+            "taskId": "test-quick-context-missing-static-contract",
+            "context": {
+                "trusted": {
+                    "objective": "test",
+                    "projectPath": "/uploads/project",
+                    "projectId": "proj-1",
+                    "quickContext": {
+                        "sastFindings": [],
+                    },
+                }
+            },
+        })
+        from app.agent_runtime.schemas.agent import BudgetState
+        budget = BudgetState(max_steps=1, max_completion_tokens=100)
+        session = AgentSession(request, budget)
+
+        executor = Phase1Executor(
+            sast_endpoint="http://localhost:9000",
+            kb_endpoint="http://localhost:8002",
+        )
+
+        executor._run_build_and_analyze = AsyncMock(side_effect=AssertionError("should not run"))
+        executor._run_individual_tools = AsyncMock(side_effect=AssertionError("should not run"))
+        executor._run_cve_lookup = AsyncMock(side_effect=lambda result: result)
+        executor._run_threat_query = AsyncMock(side_effect=lambda result: result)
+        executor._run_dangerous_callers = AsyncMock(side_effect=lambda result, *_args, **_kwargs: result)
+
+        result = await executor.execute(session)
+
+        assert result.sast_scan_completed is True
+        assert result.sast_static_evidence_ready is False
+        assert "STATIC_EVIDENCE_CONTRACT_MISSING" in result.sast_static_evidence_diagnostics["reasonCodes"]
+        catalog = EvidenceCatalog()
+        catalog.ingest_phase1_result(result)
+        assert catalog.negative_ref_ids() == set()
+        operational = [catalog.get(ref) for ref in catalog.operational_ref_ids()]
+        assert any("sast_static_evidence_not_ready" in entry.roles for entry in operational if entry)
+        executor._run_build_and_analyze.assert_not_called()
+        executor._run_individual_tools.assert_not_called()
+        await executor.aclose()
+
+    @pytest.mark.asyncio
     async def test_graph_context_not_ready_skips_dangerous_callers(self):
         from app.core.agent_session import AgentSession
         from app.schemas.request import TaskRequest
@@ -1460,6 +1568,362 @@ async def test_run_sast_records_tool_failure_detail():
 
 
 @pytest.mark.asyncio
+async def test_run_sast_records_required_tool_system_stability_failure_without_no_findings():
+    from app.agent_runtime.schemas.agent import ToolResult
+    from app.core.evidence_catalog import EvidenceCatalog
+    from app.core.phase_one import Phase1Executor
+    from app.core.phase_one_types import Phase1Result
+
+    class RequiredToolIncompleteSastTool:
+        async def execute(self, arguments):
+            return ToolResult(
+                tool_call_id="sast-1",
+                name="sast.scan",
+                success=False,
+                content=json.dumps({
+                    "success": False,
+                    "statusCode": 503,
+                    "errorDetail": {
+                        "code": "REQUIRED_TOOL_EXECUTION_INCOMPLETE",
+                        "message": "required tool scan-build did not complete",
+                    },
+                    "findings": [],
+                    "stats": {},
+                    "staticEvidenceContract": {
+                        "gates": {
+                            "systemStability": {"status": "fail"},
+                            "evidenceReadiness": {"status": "not_ready"},
+                            "claimSupportReadiness": {"status": "fail"},
+                        }
+                    },
+                }),
+                error="REQUIRED_TOOL_EXECUTION_INCOMPLETE: required tool scan-build did not complete",
+            )
+
+    executor = Phase1Executor(
+        sast_tool=RequiredToolIncompleteSastTool(),
+        sast_endpoint="http://localhost:9000",
+        kb_endpoint="http://localhost:8002",
+    )
+
+    result = await executor._run_sast(
+        Phase1Result(),
+        [],
+        "proj-1",
+        {"sdkResolutionMode": "none"},
+        "req-root",
+        project_path="/uploads/project",
+    )
+
+    assert result.sast_scan_attempted is True
+    assert result.sast_scan_completed is False
+    assert result.sast_failure_detail["code"] == "REQUIRED_TOOL_EXECUTION_INCOMPLETE"
+    assert result.sast_failure_detail["statusCode"] == 503
+
+    catalog = EvidenceCatalog()
+    catalog.ingest_phase1_result(result)
+    assert catalog.negative_ref_ids() == set()
+    operational = [catalog.get(ref) for ref in catalog.operational_ref_ids()]
+    assert len(operational) == 2
+    assert any("sast_scan_failed" in entry.roles for entry in operational if entry)
+    assert any("sast_static_evidence_not_ready" in entry.roles for entry in operational if entry)
+    assert all("sast_contract_failure" not in entry.roles for entry in operational if entry)
+    await executor.aclose()
+
+
+@pytest.mark.asyncio
+async def test_run_sast_success_with_degraded_static_contract_is_not_clean_no_findings():
+    from app.agent_runtime.schemas.agent import ToolResult
+    from app.core.evidence_catalog import EvidenceCatalog
+    from app.core.phase_one import Phase1Executor
+    from app.core.phase_one_types import Phase1Result
+
+    class DegradedContractSastTool:
+        async def execute(self, arguments):
+            return ToolResult(
+                tool_call_id="sast-1",
+                name="sast.scan",
+                success=True,
+                content=json.dumps({
+                    "success": True,
+                    "findings": [],
+                    "stats": {},
+                    "execution": {"toolResults": {"scan-build": {"status": "partial"}}},
+                    "staticEvidenceContract": {
+                        "gates": {
+                            "systemStability": {"status": "degraded", "reasonCodes": ["TOOL_PARTIAL:scan-build"]},
+                            "evidenceReadiness": {"status": "partial", "reasonCodes": ["LOCAL_EVIDENCE_PARTIAL"]},
+                            "claimSupportReadiness": {"status": "partial", "reasonCodes": ["LOCAL_ARTIFACT_DEGRADED"]},
+                        },
+                        "claimBoundaryMatrix": [],
+                        "toolEvidenceMatrix": [{"toolId": "scan-build", "status": "partial"}],
+                    },
+                }),
+            )
+
+    executor = Phase1Executor(
+        sast_tool=DegradedContractSastTool(),
+        sast_endpoint="http://localhost:9000",
+        kb_endpoint="http://localhost:8002",
+    )
+
+    result = await executor._run_sast(
+        Phase1Result(),
+        [],
+        "proj-1",
+        {"sdkResolutionMode": "none"},
+        "req-root",
+        project_path="/uploads/project",
+    )
+
+    assert result.sast_scan_attempted is True
+    assert result.sast_scan_completed is True
+    assert result.sast_static_evidence_ready is False
+    assert result.sast_static_evidence_diagnostics["systemStability"] == "degraded"
+    assert result.sast_static_evidence_diagnostics["evidenceReadiness"] == "partial"
+    assert result.sast_static_evidence_diagnostics["claimSupportReadiness"] == "partial"
+
+    catalog = EvidenceCatalog()
+    catalog.ingest_phase1_result(result)
+    assert catalog.negative_ref_ids() == set()
+    operational = [catalog.get(ref) for ref in catalog.operational_ref_ids()]
+    assert any("sast_static_evidence_not_ready" in entry.roles for entry in operational if entry)
+    await executor.aclose()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("static_contract", [None, {}, []])
+async def test_run_sast_success_missing_or_malformed_static_contract_is_not_clean_no_findings(static_contract):
+    from app.agent_runtime.schemas.agent import ToolResult
+    from app.core.evidence_catalog import EvidenceCatalog
+    from app.core.phase_one import Phase1Executor
+    from app.core.phase_one_types import Phase1Result
+
+    class MissingContractSastTool:
+        async def execute(self, arguments):
+            payload = {
+                "success": True,
+                "findings": [],
+                "stats": {},
+                "execution": {"toolResults": {}},
+            }
+            if static_contract is not None:
+                payload["staticEvidenceContract"] = static_contract
+            return ToolResult(
+                tool_call_id="sast-1",
+                name="sast.scan",
+                success=True,
+                content=json.dumps(payload),
+            )
+
+    executor = Phase1Executor(
+        sast_tool=MissingContractSastTool(),
+        sast_endpoint="http://localhost:9000",
+        kb_endpoint="http://localhost:8002",
+    )
+
+    result = await executor._run_sast(
+        Phase1Result(),
+        [],
+        "proj-1",
+        {"sdkResolutionMode": "none"},
+        "req-root",
+        project_path="/uploads/project",
+    )
+
+    assert result.sast_scan_completed is True
+    assert result.sast_static_evidence_ready is False
+    assert "STATIC_EVIDENCE_CONTRACT_MISSING" in result.sast_static_evidence_diagnostics["reasonCodes"]
+
+    catalog = EvidenceCatalog()
+    catalog.ingest_phase1_result(result)
+    assert catalog.negative_ref_ids() == set()
+    operational = [catalog.get(ref) for ref in catalog.operational_ref_ids()]
+    assert any("sast_static_evidence_not_ready" in entry.roles for entry in operational if entry)
+    await executor.aclose()
+
+
+@pytest.mark.asyncio
+async def test_build_and_analyze_success_with_degraded_static_contract_is_not_clean_no_findings(monkeypatch):
+    from app.clients.s4_ownership import S4OwnershipResult
+    from app.core.evidence_catalog import EvidenceCatalog
+    from app.core.phase_one import Phase1Executor
+    from app.core.phase_one_types import Phase1Result
+
+    async def fake_post_and_wait(*args, **kwargs):
+        return S4OwnershipResult(
+            request_id="req-ba",
+            payload={
+                "success": True,
+                "build": {
+                    "success": True,
+                    "buildEvidence": {"compileCommandsPath": "/uploads/project/compile_commands.json"},
+                    "readiness": {"status": "ready", "compileCommandsReady": True, "quickEligible": True},
+                },
+                "scan": {
+                    "success": True,
+                    "findings": [],
+                    "stats": {},
+                    "execution": {"toolResults": {"scan-build": {"status": "partial"}}},
+                    "staticEvidenceContract": {
+                        "gates": {
+                            "systemStability": {"status": "degraded", "reasonCodes": ["TOOL_PARTIAL:scan-build"]},
+                            "evidenceReadiness": {"status": "partial", "reasonCodes": ["LOCAL_EVIDENCE_PARTIAL"]},
+                            "claimSupportReadiness": {"status": "partial", "reasonCodes": ["LOCAL_ARTIFACT_DEGRADED"]},
+                        },
+                        "claimBoundaryMatrix": [],
+                        "toolEvidenceMatrix": [{"toolId": "scan-build", "status": "partial"}],
+                    },
+                },
+                "codeGraph": {"functions": []},
+                "libraries": [],
+            },
+            raw={},
+        )
+
+    monkeypatch.setattr(
+        "app.core.phase_one_exec.post_and_wait_s4_ownership",
+        fake_post_and_wait,
+    )
+    executor = Phase1Executor(sast_endpoint="http://localhost:9000", kb_endpoint="http://localhost:8002")
+    result = Phase1Result()
+
+    actual = await executor._run_build_and_analyze(
+        result,
+        "proj-1",
+        "/uploads/project",
+        "bash build.sh",
+        {"sdkResolutionMode": "none"},
+        "req-root",
+    )
+
+    assert actual is result
+    assert result.sast_scan_completed is True
+    assert result.sast_static_evidence_ready is False
+    assert result.build_compile_commands_path == "/uploads/project/compile_commands.json"
+
+    catalog = EvidenceCatalog()
+    catalog.ingest_phase1_result(result)
+    assert catalog.negative_ref_ids() == set()
+    operational = [catalog.get(ref) for ref in catalog.operational_ref_ids()]
+    assert any("sast_static_evidence_not_ready" in entry.roles for entry in operational if entry)
+    await executor.aclose()
+
+
+@pytest.mark.asyncio
+async def test_build_and_analyze_success_missing_static_contract_suppresses_no_findings(monkeypatch):
+    from app.clients.s4_ownership import S4OwnershipResult
+    from app.core.evidence_catalog import EvidenceCatalog
+    from app.core.phase_one import Phase1Executor
+    from app.core.phase_one_types import Phase1Result
+
+    async def fake_post_and_wait(*args, **kwargs):
+        return S4OwnershipResult(
+            request_id="req-ba",
+            payload={
+                "success": True,
+                "build": {
+                    "success": True,
+                    "buildEvidence": {"compileCommandsPath": "/uploads/project/compile_commands.json"},
+                    "readiness": {"status": "ready", "compileCommandsReady": True, "quickEligible": True},
+                },
+                "scan": {
+                    "success": True,
+                    "findings": [],
+                    "stats": {},
+                    "execution": {"toolResults": {}},
+                },
+                "codeGraph": {"functions": []},
+                "libraries": [],
+            },
+            raw={},
+        )
+
+    monkeypatch.setattr(
+        "app.core.phase_one_exec.post_and_wait_s4_ownership",
+        fake_post_and_wait,
+    )
+    executor = Phase1Executor(sast_endpoint="http://localhost:9000", kb_endpoint="http://localhost:8002")
+    result = Phase1Result()
+
+    actual = await executor._run_build_and_analyze(
+        result,
+        "proj-1",
+        "/uploads/project",
+        "bash build.sh",
+        {"sdkResolutionMode": "none"},
+        "req-root",
+    )
+
+    assert actual is result
+    assert result.sast_scan_completed is True
+    assert result.sast_static_evidence_ready is False
+
+    catalog = EvidenceCatalog()
+    catalog.ingest_phase1_result(result)
+    assert catalog.negative_ref_ids() == set()
+    operational = [catalog.get(ref) for ref in catalog.operational_ref_ids()]
+    assert any("sast_static_evidence_not_ready" in entry.roles for entry in operational if entry)
+    await executor.aclose()
+
+
+@pytest.mark.asyncio
+async def test_build_and_analyze_success_false_records_static_contract_not_ready(monkeypatch):
+    from app.clients.s4_ownership import S4OwnershipResult
+    from app.core.phase_one import Phase1Executor
+    from app.core.phase_one_types import Phase1Result
+
+    async def fake_post_and_wait(*args, **kwargs):
+        return S4OwnershipResult(
+            request_id="req-ba",
+            payload={
+                "success": False,
+                "errorDetail": {
+                    "code": "REQUIRED_TOOL_EXECUTION_INCOMPLETE",
+                    "message": "required tool did not complete",
+                },
+                "scan": {
+                    "success": False,
+                    "findings": [],
+                    "staticEvidenceContract": {
+                        "gates": {
+                            "systemStability": {"status": "fail", "reasonCodes": ["REQUIRED_TOOL_EXECUTION_INCOMPLETE"]},
+                            "evidenceReadiness": {"status": "not_ready", "reasonCodes": ["ARTIFACT_FAILED"]},
+                            "claimSupportReadiness": {"status": "fail", "reasonCodes": ["LOCAL_ARTIFACT_FAILED"]},
+                        },
+                        "claimBoundaryMatrix": [],
+                        "toolEvidenceMatrix": [],
+                    },
+                },
+            },
+            raw={},
+        )
+
+    monkeypatch.setattr(
+        "app.core.phase_one_exec.post_and_wait_s4_ownership",
+        fake_post_and_wait,
+    )
+    executor = Phase1Executor(sast_endpoint="http://localhost:9000", kb_endpoint="http://localhost:8002")
+    result = Phase1Result()
+
+    actual = await executor._run_build_and_analyze(
+        result,
+        "proj-1",
+        "/uploads/project",
+        "bash build.sh",
+        {"sdkResolutionMode": "none"},
+        "req-root",
+    )
+
+    assert actual is None
+    assert result.sast_scan_completed is False
+    assert result.sast_static_evidence_ready is False
+    assert result.sast_static_evidence_diagnostics["systemStability"] == "fail"
+    assert result.sast_failure_detail["code"] == "REQUIRED_TOOL_EXECUTION_INCOMPLETE"
+    await executor.aclose()
+
+
+@pytest.mark.asyncio
 async def test_run_sast_records_success_false_payload_as_failure():
     from app.agent_runtime.schemas.agent import ToolResult
     from app.core.evidence_catalog import EvidenceCatalog
@@ -1506,9 +1970,10 @@ async def test_run_sast_records_success_false_payload_as_failure():
     catalog.ingest_phase1_result(result)
     assert catalog.negative_ref_ids() == set()
     operational = [catalog.get(ref) for ref in catalog.operational_ref_ids()]
-    assert len(operational) == 1
-    assert "sast_scan_failed" in operational[0].roles
-    assert "sast_contract_failure" in operational[0].roles
+    assert len(operational) == 2
+    assert any("sast_scan_failed" in entry.roles for entry in operational if entry)
+    assert any("sast_contract_failure" in entry.roles for entry in operational if entry)
+    assert any("sast_static_evidence_not_ready" in entry.roles for entry in operational if entry)
     await executor.aclose()
 
 

@@ -301,6 +301,14 @@ def build_phase2_prompt(
     # Phase 1 SAST 결과
     if phase1.sast_findings:
         sast_header = f"## SAST 스캔 결과 ({len(phase1.sast_findings)}개 findings)"
+        if phase1.sast_static_evidence_ready is False:
+            diagnostics = json.dumps(phase1.sast_static_evidence_diagnostics, ensure_ascii=False)
+            sast_header += (
+                "\n**주의**: S4 staticEvidenceContract 기준 로컬 정적 증거가 "
+                "clean/ready 상태가 아닙니다. findings는 긍정 관측으로만 사용하고, "
+                "누락/빈 결과를 취약점 부재 증거로 해석하지 마라. "
+                f"staticEvidenceDiagnostics={diagnostics}"
+            )
         if phase1.sast_partial_tools:
             sast_header += (
                 f"\n**주의**: 일부 도구({', '.join(phase1.sast_partial_tools)})가 "
@@ -335,6 +343,16 @@ def build_phase2_prompt(
             "SAST 스캔이 실패했습니다. 이를 '취약점 없음'으로 해석하지 말고, "
             "분석 한계와 필요한 재시도/환경 정비를 caveats와 recommendedNextSteps에 명시하라.\n"
             f"- failureDetail: {failure}"
+        )
+    elif phase1.sast_scan_completed and phase1.sast_static_evidence_ready is False:
+        diagnostics = json.dumps(phase1.sast_static_evidence_diagnostics, ensure_ascii=False)
+        sections.append(
+            "## SAST 스캔 결과\n"
+            "SAST 응답은 완료되었지만 S4 staticEvidenceContract 기준 로컬 정적 증거가 "
+            "clean/ready 상태가 아닙니다. findings가 0개여도 이를 '취약점 없음', "
+            "CWE 부재, exploitability 부재, S5/GraphRAG 대체 증거, 최종 보안 verdict로 "
+            "해석하지 마라.\n"
+            f"- staticEvidenceDiagnostics: {diagnostics}"
         )
     elif phase1.sast_scan_completed:
         sections.append("## SAST 스캔 결과\nSAST 스캔은 완료되었으나 findings가 0개였습니다.")

@@ -1,0 +1,331 @@
+{
+  "cases": [
+    {
+      "acquisitionId": "s4-harness-fixture-v1",
+      "acquisitionManifestChecksum": "sha256:506269054e4ee61ed550d4693eda0eae8f46ef128dbe669cce56cd019fbfac8e",
+      "buildContext": {
+        "compileCommandsFixture": null,
+        "defines": [],
+        "includePaths": [],
+        "requiresCompileCommands": false
+      },
+      "caseId": "validation-semgrep-unique",
+      "checksum": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+      "expected": {
+        "allowedMatchWindows": {
+          "functionFallback": false,
+          "lineDelta": 3
+        },
+        "cweId": "CWE-121",
+        "functionRegion": {
+          "endLine": 45,
+          "function": "bad",
+          "startLine": 35
+        },
+        "granularity": "sink-line",
+        "locations": [
+          {
+            "file": "validation-semgrep-unique.c",
+            "line": 40,
+            "role": "sink"
+          }
+        ],
+        "polarity": "positive",
+        "targetId": "validation-semgrep-unique-target"
+      },
+      "language": "c",
+      "lineageId": "validation-semgrep-unique",
+      "notes": [
+        "S4 harness fixture; not Juliet evidence."
+      ],
+      "sliceKind": "s4-harness-fixture-positive",
+      "sourceArtifact": "s4-harness-fixture",
+      "sourcePath": "validation-semgrep-unique.c",
+      "sourceRef": "s4-harness-fixture-v1:validation-semgrep-unique",
+      "split": "validation",
+      "targetId": "validation-semgrep-unique-target"
+    },
+    {
+      "acquisitionId": "s4-harness-fixture-v1",
+      "acquisitionManifestChecksum": "sha256:506269054e4ee61ed550d4693eda0eae8f46ef128dbe669cce56cd019fbfac8e",
+      "buildContext": {
+        "compileCommandsFixture": null,
+        "defines": [],
+        "includePaths": [],
+        "requiresCompileCommands": false
+      },
+      "caseId": "validation-overlap",
+      "checksum": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+      "expected": {
+        "allowedMatchWindows": {
+          "functionFallback": false,
+          "lineDelta": 3
+        },
+        "cweId": "CWE-190",
+        "functionRegion": {
+          "endLine": 25,
+          "function": "bad",
+          "startLine": 15
+        },
+        "granularity": "sink-line",
+        "locations": [
+          {
+            "file": "validation-overlap.c",
+            "line": 20,
+            "role": "sink"
+          }
+        ],
+        "polarity": "positive",
+        "targetId": "validation-overlap-target"
+      },
+      "language": "c",
+      "lineageId": "validation-overlap",
+      "notes": [
+        "S4 harness fixture; not Juliet evidence."
+      ],
+      "sliceKind": "s4-harness-fixture-positive",
+      "sourceArtifact": "s4-harness-fixture",
+      "sourcePath": "validation-overlap.c",
+      "sourceRef": "s4-harness-fixture-v1:validation-overlap",
+      "split": "validation",
+      "targetId": "validation-overlap-target"
+    },
+    {
+      "acquisitionId": "s4-harness-fixture-v1",
+      "acquisitionManifestChecksum": "sha256:506269054e4ee61ed550d4693eda0eae8f46ef128dbe669cce56cd019fbfac8e",
+      "buildContext": {
+        "compileCommandsFixture": null,
+        "defines": [],
+        "includePaths": [],
+        "requiresCompileCommands": false
+      },
+      "caseId": "validation-dataflow-strong",
+      "checksum": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+      "expected": {
+        "allowedMatchWindows": {
+          "functionFallback": false,
+          "lineDelta": 3
+        },
+        "cweId": "CWE-476",
+        "functionRegion": {
+          "endLine": 65,
+          "function": "bad",
+          "startLine": 55
+        },
+        "granularity": "sink-line",
+        "locations": [
+          {
+            "file": "validation-dataflow-strong.c",
+            "line": 60,
+            "role": "sink"
+          }
+        ],
+        "polarity": "positive",
+        "targetId": "validation-dataflow-strong-target"
+      },
+      "language": "c",
+      "lineageId": "validation-dataflow-strong",
+      "notes": [
+        "S4 harness fixture; not Juliet evidence."
+      ],
+      "sliceKind": "s4-harness-fixture-positive",
+      "sourceArtifact": "s4-harness-fixture",
+      "sourcePath": "validation-dataflow-strong.c",
+      "sourceRef": "s4-harness-fixture-v1:validation-dataflow-strong",
+      "split": "validation",
+      "targetId": "validation-dataflow-strong-target"
+    },
+    {
+      "acquisitionId": "s4-harness-fixture-v1",
+      "acquisitionManifestChecksum": "sha256:506269054e4ee61ed550d4693eda0eae8f46ef128dbe669cce56cd019fbfac8e",
+      "buildContext": {
+        "compileCommandsFixture": null,
+        "defines": [],
+        "includePaths": [],
+        "requiresCompileCommands": false
+      },
+      "caseId": "test-gcc-unique",
+      "checksum": "sha256:4444444444444444444444444444444444444444444444444444444444444444",
+      "expected": {
+        "allowedMatchWindows": {
+          "functionFallback": false,
+          "lineDelta": 3
+        },
+        "cweId": "CWE-416",
+        "functionRegion": {
+          "endLine": 35,
+          "function": "bad",
+          "startLine": 25
+        },
+        "granularity": "sink-line",
+        "locations": [
+          {
+            "file": "test-gcc-unique.c",
+            "line": 30,
+            "role": "sink"
+          }
+        ],
+        "polarity": "positive",
+        "targetId": "test-gcc-unique-target"
+      },
+      "language": "c",
+      "lineageId": "test-gcc-unique",
+      "notes": [
+        "S4 harness fixture; not Juliet evidence."
+      ],
+      "sliceKind": "s4-harness-fixture-positive",
+      "sourceArtifact": "s4-harness-fixture",
+      "sourcePath": "test-gcc-unique.c",
+      "sourceRef": "s4-harness-fixture-v1:test-gcc-unique",
+      "split": "test",
+      "targetId": "test-gcc-unique-target"
+    },
+    {
+      "acquisitionId": "s4-harness-fixture-v1",
+      "acquisitionManifestChecksum": "sha256:506269054e4ee61ed550d4693eda0eae8f46ef128dbe669cce56cd019fbfac8e",
+      "buildContext": {
+        "compileCommandsFixture": null,
+        "defines": [],
+        "includePaths": [],
+        "requiresCompileCommands": false
+      },
+      "caseId": "test-negative",
+      "checksum": "sha256:4444444444444444444444444444444444444444444444444444444444444444",
+      "expected": {
+        "allowedMatchWindows": {
+          "functionFallback": false,
+          "lineDelta": 3
+        },
+        "allowedWarningPolicy": {
+          "allowedRuleIds": [],
+          "mode": "no-findings-in-region"
+        },
+        "cweId": "CWE-121",
+        "functionRegion": {
+          "endLine": 85,
+          "function": "good",
+          "startLine": 75
+        },
+        "granularity": "negative-region",
+        "locations": [
+          {
+            "file": "test-negative.c",
+            "line": 80,
+            "role": "sink"
+          }
+        ],
+        "polarity": "negative",
+        "targetId": "test-negative-target"
+      },
+      "language": "c",
+      "lineageId": "test-negative",
+      "notes": [
+        "S4 harness fixture; not Juliet evidence."
+      ],
+      "sliceKind": "s4-harness-fixture-negative",
+      "sourceArtifact": "s4-harness-fixture",
+      "sourcePath": "test-negative.c",
+      "sourceRef": "s4-harness-fixture-v1:test-negative",
+      "split": "test",
+      "targetId": "test-negative-target"
+    },
+    {
+      "acquisitionId": "s4-harness-fixture-v1",
+      "acquisitionManifestChecksum": "sha256:506269054e4ee61ed550d4693eda0eae8f46ef128dbe669cce56cd019fbfac8e",
+      "buildContext": {
+        "compileCommandsFixture": null,
+        "defines": [],
+        "includePaths": [],
+        "requiresCompileCommands": false
+      },
+      "caseId": "test-negative-clean",
+      "checksum": "sha256:4444444444444444444444444444444444444444444444444444444444444444",
+      "expected": {
+        "allowedMatchWindows": {
+          "functionFallback": false,
+          "lineDelta": 3
+        },
+        "allowedWarningPolicy": {
+          "allowedRuleIds": [],
+          "mode": "no-findings-in-region"
+        },
+        "cweId": "CWE-190",
+        "functionRegion": {
+          "endLine": 105,
+          "function": "good",
+          "startLine": 95
+        },
+        "granularity": "negative-region",
+        "locations": [
+          {
+            "file": "test-negative-clean.c",
+            "line": 100,
+            "role": "sink"
+          }
+        ],
+        "polarity": "negative",
+        "targetId": "test-negative-clean-target"
+      },
+      "language": "c",
+      "lineageId": "test-negative-clean",
+      "notes": [
+        "S4 harness fixture; not Juliet evidence."
+      ],
+      "sliceKind": "s4-harness-fixture-negative",
+      "sourceArtifact": "s4-harness-fixture",
+      "sourcePath": "test-negative-clean.c",
+      "sourceRef": "s4-harness-fixture-v1:test-negative-clean",
+      "split": "test",
+      "targetId": "test-negative-clean-target"
+    },
+    {
+      "acquisitionId": "s4-harness-fixture-v1",
+      "acquisitionManifestChecksum": "sha256:506269054e4ee61ed550d4693eda0eae8f46ef128dbe669cce56cd019fbfac8e",
+      "buildContext": {
+        "compileCommandsFixture": null,
+        "defines": [],
+        "includePaths": [],
+        "requiresCompileCommands": false
+      },
+      "caseId": "canary-buffer-copy",
+      "checksum": "sha256:5555555555555555555555555555555555555555555555555555555555555555",
+      "expected": {
+        "allowedMatchWindows": {
+          "functionFallback": false,
+          "lineDelta": 3
+        },
+        "cweId": "CWE-120",
+        "functionRegion": {
+          "endLine": 17,
+          "function": "bad",
+          "startLine": 7
+        },
+        "granularity": "sink-line",
+        "locations": [
+          {
+            "file": "canary-buffer-copy.c",
+            "line": 12,
+            "role": "sink"
+          }
+        ],
+        "polarity": "positive",
+        "targetId": "canary-buffer-copy-target"
+      },
+      "language": "c",
+      "lineageId": "canary-buffer-copy",
+      "notes": [
+        "S4 harness fixture; not Juliet evidence."
+      ],
+      "sliceKind": "s4-canary",
+      "sourceArtifact": "s4-harness-fixture",
+      "sourcePath": "canary-buffer-copy.c",
+      "sourceRef": "s4-harness-fixture-v1:canary-buffer-copy",
+      "split": "canary",
+      "targetId": "canary-buffer-copy-target"
+    }
+  ],
+  "createdAt": "2026-05-12",
+  "owner": "s4-sast-runner",
+  "profile": "c-cpp-tool-portfolio-v1",
+  "schemaVersion": "s4-tool-portfolio-experiment-corpus-v1"
+}

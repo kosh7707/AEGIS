@@ -3,6 +3,11 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
+from app.scanner.claim_support_gate import (
+    build_claim_boundary_matrix,
+    build_claim_support_readiness_gate,
+)
+
 SCHEMA_VERSION = "s4-static-evidence-contract-v1"
 ANALYSIS_PROFILE = "c-cpp-core"
 ARTIFACT_KIND = "s4-static-evidence-artifact"
@@ -101,6 +106,20 @@ def build_static_evidence_contract(
         sca=sca,
         metadata=metadata,
     )
+    system_stability = _system_stability(
+        success=success,
+        execution=execution,
+        policy_failure_reason_codes=policy_failure_reason_codes,
+    )
+    evidence_readiness = _evidence_readiness(
+        coverage,
+        success=success,
+        policy_failure_reason_codes=policy_failure_reason_codes,
+    )
+    claim_boundary_matrix = build_claim_boundary_matrix(
+        coverage=coverage,
+        findings=findings,
+    )
     return {
         "schemaVersion": SCHEMA_VERSION,
         "analysisProfile": ANALYSIS_PROFILE,
@@ -108,14 +127,13 @@ def build_static_evidence_contract(
         "producer": dict(PRODUCER),
         "provenance": _as_mapping(provenance) or {},
         "gates": {
-            "systemStability": _system_stability(
+            "systemStability": system_stability,
+            "evidenceReadiness": evidence_readiness,
+            "claimSupportReadiness": build_claim_support_readiness_gate(
                 success=success,
-                execution=execution,
-                policy_failure_reason_codes=policy_failure_reason_codes,
-            ),
-            "evidenceReadiness": _evidence_readiness(
-                coverage,
-                success=success,
+                coverage=coverage,
+                system_stability=system_stability,
+                evidence_readiness=evidence_readiness,
                 policy_failure_reason_codes=policy_failure_reason_codes,
             ),
             "qualityEvaluation": {
@@ -141,6 +159,7 @@ def build_static_evidence_contract(
             ],
             "negativeEvidencePolicy": "empty-or-missing-s4-evidence-is-not-negative-security-evidence",
         },
+        "claimBoundaryMatrix": claim_boundary_matrix,
         "toolEvidenceMatrix": _tool_evidence_matrix(execution),
         "followUpHints": _follow_up_hints(coverage),
     }

@@ -1,0 +1,418 @@
+{
+  "aggregate": {
+    "findingsByTool": {
+      "clang-tidy": 53,
+      "cppcheck": 22,
+      "flawfinder": 20,
+      "gcc-fanalyzer": 29,
+      "scan-build": 7,
+      "semgrep": 0
+    },
+    "findingsTotal": 131,
+    "okProjects": 8,
+    "projects": 8,
+    "sourceFiles": 15,
+    "toolStatusCounts": {
+      "clang-tidy": {
+        "ok": 8
+      },
+      "cppcheck": {
+        "ok": 8
+      },
+      "flawfinder": {
+        "ok": 8
+      },
+      "gcc-fanalyzer": {
+        "ok": 8
+      },
+      "scan-build": {
+        "ok": 8
+      },
+      "semgrep": {
+        "ok": 8
+      }
+    }
+  },
+  "createdAt": "2026-05-12T04:54:07.554705+00:00",
+  "decisionSupport": {
+    "currentDecision": "not-decision-grade-no-oracle",
+    "reasonCodes": [
+      "NO_TP_FP_FN_ORACLE",
+      "LOCAL_JULIET_CORPUS_NOT_PRESENT"
+    ]
+  },
+  "projects": [
+    {
+      "compileCommands": null,
+      "elapsedMs": 2704,
+      "findingsByTool": {
+        "clang-tidy": 5,
+        "cppcheck": 4,
+        "flawfinder": 6,
+        "gcc-fanalyzer": 1,
+        "scan-build": 0,
+        "semgrep": 0
+      },
+      "findingsTotal": 16,
+      "ok": true,
+      "project": "services/sast-runner/tests/fixtures/c_project",
+      "requestedTools": [
+        "semgrep",
+        "cppcheck",
+        "flawfinder",
+        "clang-tidy",
+        "scan-build",
+        "gcc-fanalyzer"
+      ],
+      "sourceFileCount": 2,
+      "toolSkipReasons": {},
+      "toolStatuses": {
+        "clang-tidy": "ok",
+        "cppcheck": "ok",
+        "flawfinder": "ok",
+        "gcc-fanalyzer": "ok",
+        "scan-build": "ok",
+        "semgrep": "ok"
+      },
+      "toolsRun": [
+        "semgrep",
+        "cppcheck",
+        "flawfinder",
+        "clang-tidy",
+        "scan-build",
+        "gcc-fanalyzer"
+      ]
+    },
+    {
+      "compileCommands": "uploads/proj-e2e-hot3-qg-stability-20260428-204030-01/compile_commands.json",
+      "elapsedMs": 3779,
+      "findingsByTool": {
+        "clang-tidy": 8,
+        "cppcheck": 3,
+        "flawfinder": 2,
+        "gcc-fanalyzer": 4,
+        "scan-build": 1,
+        "semgrep": 0
+      },
+      "findingsTotal": 18,
+      "ok": true,
+      "project": "uploads/proj-e2e-hot3-qg-stability-20260428-204030-01",
+      "requestedTools": [
+        "semgrep",
+        "cppcheck",
+        "flawfinder",
+        "clang-tidy",
+        "scan-build",
+        "gcc-fanalyzer"
+      ],
+      "sourceFileCount": 1,
+      "toolSkipReasons": {},
+      "toolStatuses": {
+        "clang-tidy": "ok",
+        "cppcheck": "ok",
+        "flawfinder": "ok",
+        "gcc-fanalyzer": "ok",
+        "scan-build": "ok",
+        "semgrep": "ok"
+      },
+      "toolsRun": [
+        "semgrep",
+        "cppcheck",
+        "flawfinder",
+        "clang-tidy",
+        "scan-build",
+        "gcc-fanalyzer"
+      ]
+    },
+    {
+      "compileCommands": "uploads/proj-e2e-hot3-stability-operational-20260506-102942-01/compile_commands.json",
+      "elapsedMs": 3813,
+      "findingsByTool": {
+        "clang-tidy": 8,
+        "cppcheck": 3,
+        "flawfinder": 2,
+        "gcc-fanalyzer": 4,
+        "scan-build": 1,
+        "semgrep": 0
+      },
+      "findingsTotal": 18,
+      "ok": true,
+      "project": "uploads/proj-e2e-hot3-stability-operational-20260506-102942-01",
+      "requestedTools": [
+        "semgrep",
+        "cppcheck",
+        "flawfinder",
+        "clang-tidy",
+        "scan-build",
+        "gcc-fanalyzer"
+      ],
+      "sourceFileCount": 1,
+      "toolSkipReasons": {},
+      "toolStatuses": {
+        "clang-tidy": "ok",
+        "cppcheck": "ok",
+        "flawfinder": "ok",
+        "gcc-fanalyzer": "ok",
+        "scan-build": "ok",
+        "semgrep": "ok"
+      },
+      "toolsRun": [
+        "semgrep",
+        "cppcheck",
+        "flawfinder",
+        "clang-tidy",
+        "scan-build",
+        "gcc-fanalyzer"
+      ]
+    },
+    {
+      "compileCommands": "uploads/proj-e2e-s3-system-stability-smoke-20260425-181930/compile_commands.json",
+      "elapsedMs": 3950,
+      "findingsByTool": {
+        "clang-tidy": 8,
+        "cppcheck": 3,
+        "flawfinder": 2,
+        "gcc-fanalyzer": 4,
+        "scan-build": 1,
+        "semgrep": 0
+      },
+      "findingsTotal": 18,
+      "ok": true,
+      "project": "uploads/proj-e2e-s3-system-stability-smoke-20260425-181930",
+      "requestedTools": [
+        "semgrep",
+        "cppcheck",
+        "flawfinder",
+        "clang-tidy",
+        "scan-build",
+        "gcc-fanalyzer"
+      ],
+      "sourceFileCount": 1,
+      "toolSkipReasons": {},
+      "toolStatuses": {
+        "clang-tidy": "ok",
+        "cppcheck": "ok",
+        "flawfinder": "ok",
+        "gcc-fanalyzer": "ok",
+        "scan-build": "ok",
+        "semgrep": "ok"
+      },
+      "toolsRun": [
+        "semgrep",
+        "cppcheck",
+        "flawfinder",
+        "clang-tidy",
+        "scan-build",
+        "gcc-fanalyzer"
+      ]
+    },
+    {
+      "compileCommands": "uploads/proj-01d952e7-1a4a-4131-a011-4a1a8ed603b7/compile_commands.json",
+      "elapsedMs": 3816,
+      "findingsByTool": {
+        "clang-tidy": 8,
+        "cppcheck": 3,
+        "flawfinder": 2,
+        "gcc-fanalyzer": 4,
+        "scan-build": 1,
+        "semgrep": 0
+      },
+      "findingsTotal": 18,
+      "ok": true,
+      "project": "uploads/proj-01d952e7-1a4a-4131-a011-4a1a8ed603b7",
+      "requestedTools": [
+        "semgrep",
+        "cppcheck",
+        "flawfinder",
+        "clang-tidy",
+        "scan-build",
+        "gcc-fanalyzer"
+      ],
+      "sourceFileCount": 2,
+      "toolSkipReasons": {},
+      "toolStatuses": {
+        "clang-tidy": "ok",
+        "cppcheck": "ok",
+        "flawfinder": "ok",
+        "gcc-fanalyzer": "ok",
+        "scan-build": "ok",
+        "semgrep": "ok"
+      },
+      "toolsRun": [
+        "semgrep",
+        "cppcheck",
+        "flawfinder",
+        "clang-tidy",
+        "scan-build",
+        "gcc-fanalyzer"
+      ]
+    },
+    {
+      "compileCommands": "uploads/proj-64fa2962-1375-4958-b78e-e962abc2abe5/compile_commands.json",
+      "elapsedMs": 3771,
+      "findingsByTool": {
+        "clang-tidy": 8,
+        "cppcheck": 3,
+        "flawfinder": 2,
+        "gcc-fanalyzer": 4,
+        "scan-build": 1,
+        "semgrep": 0
+      },
+      "findingsTotal": 18,
+      "ok": true,
+      "project": "uploads/proj-64fa2962-1375-4958-b78e-e962abc2abe5",
+      "requestedTools": [
+        "semgrep",
+        "cppcheck",
+        "flawfinder",
+        "clang-tidy",
+        "scan-build",
+        "gcc-fanalyzer"
+      ],
+      "sourceFileCount": 2,
+      "toolSkipReasons": {},
+      "toolStatuses": {
+        "clang-tidy": "ok",
+        "cppcheck": "ok",
+        "flawfinder": "ok",
+        "gcc-fanalyzer": "ok",
+        "scan-build": "ok",
+        "semgrep": "ok"
+      },
+      "toolsRun": [
+        "semgrep",
+        "cppcheck",
+        "flawfinder",
+        "clang-tidy",
+        "scan-build",
+        "gcc-fanalyzer"
+      ]
+    },
+    {
+      "compileCommands": "uploads/proj-e2e-s3-toolintent-cert-maker-20260504-final/compile_commands.json",
+      "elapsedMs": 3840,
+      "findingsByTool": {
+        "clang-tidy": 8,
+        "cppcheck": 3,
+        "flawfinder": 2,
+        "gcc-fanalyzer": 4,
+        "scan-build": 1,
+        "semgrep": 0
+      },
+      "findingsTotal": 18,
+      "ok": true,
+      "project": "uploads/proj-e2e-s3-toolintent-cert-maker-20260504-final",
+      "requestedTools": [
+        "semgrep",
+        "cppcheck",
+        "flawfinder",
+        "clang-tidy",
+        "scan-build",
+        "gcc-fanalyzer"
+      ],
+      "sourceFileCount": 2,
+      "toolSkipReasons": {},
+      "toolStatuses": {
+        "clang-tidy": "ok",
+        "cppcheck": "ok",
+        "flawfinder": "ok",
+        "gcc-fanalyzer": "ok",
+        "scan-build": "ok",
+        "semgrep": "ok"
+      },
+      "toolsRun": [
+        "semgrep",
+        "cppcheck",
+        "flawfinder",
+        "clang-tidy",
+        "scan-build",
+        "gcc-fanalyzer"
+      ]
+    },
+    {
+      "compileCommands": "uploads/build-agent-stabilization-datasets/certificate-maker/compile_commands.json",
+      "elapsedMs": 2938,
+      "findingsByTool": {
+        "clang-tidy": 0,
+        "cppcheck": 0,
+        "flawfinder": 2,
+        "gcc-fanalyzer": 4,
+        "scan-build": 1,
+        "semgrep": 0
+      },
+      "findingsTotal": 7,
+      "ok": true,
+      "project": "uploads/build-agent-stabilization-datasets/certificate-maker",
+      "requestedTools": [
+        "semgrep",
+        "cppcheck",
+        "flawfinder",
+        "clang-tidy",
+        "scan-build",
+        "gcc-fanalyzer"
+      ],
+      "sourceFileCount": 4,
+      "toolSkipReasons": {},
+      "toolStatuses": {
+        "clang-tidy": "ok",
+        "cppcheck": "ok",
+        "flawfinder": "ok",
+        "gcc-fanalyzer": "ok",
+        "scan-build": "ok",
+        "semgrep": "ok"
+      },
+      "toolsRun": [
+        "semgrep",
+        "cppcheck",
+        "flawfinder",
+        "clang-tidy",
+        "scan-build",
+        "gcc-fanalyzer"
+      ]
+    }
+  ],
+  "runId": "s4-local-six-tool-battery-20260512T045335Z",
+  "schemaVersion": "s4-local-six-tool-operational-battery-v1",
+  "scope": "operational-smoke-no-oracle",
+  "systemPreflight": {
+    "status": "pass"
+  },
+  "toolAvailability": {
+    "clang-tidy": {
+      "available": true,
+      "expectedExecutablePath": null,
+      "probeReason": null,
+      "version": "18.1.3"
+    },
+    "cppcheck": {
+      "available": true,
+      "expectedExecutablePath": null,
+      "probeReason": null,
+      "version": "2.13.0"
+    },
+    "flawfinder": {
+      "available": true,
+      "expectedExecutablePath": null,
+      "probeReason": null,
+      "version": "2.0.19"
+    },
+    "gcc-fanalyzer": {
+      "available": true,
+      "expectedExecutablePath": null,
+      "probeReason": null,
+      "version": "13.3.0"
+    },
+    "scan-build": {
+      "available": true,
+      "expectedExecutablePath": null,
+      "probeReason": null,
+      "version": "scan-build"
+    },
+    "semgrep": {
+      "available": true,
+      "expectedExecutablePath": "/home/kosh/AEGIS/services/sast-runner/.venv/bin/semgrep",
+      "probeReason": null,
+      "version": "1.156.0"
+    }
+  }
+}

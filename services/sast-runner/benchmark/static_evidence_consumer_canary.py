@@ -22,15 +22,19 @@ def summarize_static_evidence_contract(payload: Mapping[str, Any] | Any) -> dict
             "contractLocation": location,
             "systemStability": "unknown",
             "evidenceReadiness": "not_ready",
+            "claimSupportReadiness": "unknown",
             "qualityEvaluation": "unknown",
             "localStaticEvidenceReady": False,
             "systemReasonCodes": [reason],
             "evidenceReasonCodes": [reason],
+            "claimSupportReasonCodes": [reason],
             "toolAnomalyReasonCodes": [],
             "notProvidedSurfaces": [],
             "partialSurfaces": [],
             "blockingSurfaces": [],
             "mustNotSupportAlone": [],
+            "unsupportedClaims": [],
+            "claimSupportStatuses": {},
             "toolMatrixStatuses": {},
             "toolConsumerPolicies": {},
         }
@@ -41,25 +45,35 @@ def summarize_static_evidence_contract(payload: Mapping[str, Any] | Any) -> dict
     static_execution = _mapping(coverage.get("staticToolExecution")) or {}
     system_gate = _mapping(gates.get("systemStability")) or {}
     readiness_gate = _mapping(gates.get("evidenceReadiness")) or {}
+    claim_support_gate = _mapping(gates.get("claimSupportReadiness")) or {}
     quality_gate = _mapping(gates.get("qualityEvaluation")) or {}
 
     system_status = _status(system_gate, "unknown")
     readiness_status = _status(readiness_gate, "not_ready")
+    claim_support_status = _status(claim_support_gate, "unknown")
 
     return {
         "contractPresent": True,
         "contractLocation": location,
         "systemStability": system_status,
         "evidenceReadiness": readiness_status,
+        "claimSupportReadiness": claim_support_status,
         "qualityEvaluation": _status(quality_gate, "unknown"),
-        "localStaticEvidenceReady": system_status == "pass" and readiness_status == "ready",
+        "localStaticEvidenceReady": (
+            system_status == "pass"
+            and readiness_status == "ready"
+            and claim_support_status == "pass"
+        ),
         "systemReasonCodes": _string_list(system_gate.get("reasonCodes")),
         "evidenceReasonCodes": _string_list(readiness_gate.get("reasonCodes")),
+        "claimSupportReasonCodes": _string_list(claim_support_gate.get("reasonCodes")),
         "toolAnomalyReasonCodes": _string_list(static_execution.get("anomalyReasonCodes")),
         "notProvidedSurfaces": _not_provided_surfaces(coverage),
         "partialSurfaces": _string_list(readiness_gate.get("partialSurfaces")),
         "blockingSurfaces": _string_list(readiness_gate.get("blockingSurfaces")),
         "mustNotSupportAlone": _string_list(boundaries.get("mustNotSupportAlone")),
+        "unsupportedClaims": _claims_by_status(contract, "unsupported"),
+        "claimSupportStatuses": _claim_matrix_field(contract, "supportStatus"),
         "toolMatrixStatuses": _tool_matrix_field(contract, "status"),
         "toolConsumerPolicies": _tool_matrix_field(contract, "consumerPolicy"),
     }
@@ -125,3 +139,37 @@ def _tool_matrix_field(contract: Mapping[str, Any], field: str) -> dict[str, str
         if isinstance(tool_id, str) and isinstance(value, str):
             result[tool_id] = value
     return result
+
+
+def _claim_matrix_field(contract: Mapping[str, Any], field: str) -> dict[str, str]:
+    matrix = contract.get("claimBoundaryMatrix")
+    if not isinstance(matrix, list):
+        return {}
+
+    result: dict[str, str] = {}
+    for entry in matrix:
+        entry_map = _mapping(entry)
+        if entry_map is None:
+            continue
+        claim_id = entry_map.get("claimId")
+        value = entry_map.get(field)
+        if isinstance(claim_id, str) and isinstance(value, str):
+            result[claim_id] = value
+    return result
+
+
+def _claims_by_status(contract: Mapping[str, Any], status: str) -> list[str]:
+    matrix = contract.get("claimBoundaryMatrix")
+    if not isinstance(matrix, list):
+        return []
+
+    claims: list[str] = []
+    for entry in matrix:
+        entry_map = _mapping(entry)
+        if entry_map is None:
+            continue
+        claim_id = entry_map.get("claimId")
+        support_status = entry_map.get("supportStatus")
+        if isinstance(claim_id, str) and support_status == status:
+            claims.append(claim_id)
+    return claims

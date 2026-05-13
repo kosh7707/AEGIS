@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Protocol
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 4
 MIGRATION_PATH = Path(__file__).resolve().parent / "migrations" / "0001_init.sql"
 
 
@@ -566,6 +566,114 @@ class SQLiteLedgerRepository:
             for row in rows
         ]
 
+    def record_serving_query(
+        self,
+        *,
+        request_packet: dict[str, Any],
+        answer_packet: dict[str, Any],
+        serving_run_id: str | None = None,
+        created_at: str | None = None,
+    ) -> dict[str, Any]:
+        canonical_query = answer_packet.get("canonicalQuery") or {}
+        canonical_query_id = str(canonical_query.get("canonicalQueryId") or "")
+        decision_fragment_key = str(answer_packet.get("decisionFragmentKey") or canonical_query.get("decisionFragmentKey") or "")
+        created_at = created_at or _now()
+        serving_run_id = serving_run_id or _digest("serving-run", canonical_query_id, decision_fragment_key, created_at)
+        ledger_ref = {
+            "schemaVersion": "s5-serving-ledger-ref-v1",
+            "recorded": True,
+            "servingRunId": serving_run_id,
+            "createdAt": created_at,
+        }
+        stored_answer = {**answer_packet, "servingLedger": answer_packet.get("servingLedger") or ledger_ref}
+        quality_gate = answer_packet.get("qualityGate") or {}
+        score_policy = quality_gate.get("scorePolicy") or {}
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO serving_query_run (
+                  serving_run_id, canonical_query_id, decision_fragment_key, answer_schema_version,
+                  verdict, status, quality_gate, component_json, source_context_json, request_json,
+                  canonical_query_json, answer_json, applied_controls_json, control_effects_json,
+                  fallback_trace_json, cache_trace_json, score_vector_json, score_policy_json, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    serving_run_id,
+                    canonical_query_id,
+                    decision_fragment_key,
+                    str(answer_packet.get("schemaVersion") or ""),
+                    str(answer_packet.get("verdict") or ""),
+                    str(answer_packet.get("status") or ""),
+                    str(quality_gate.get("gate") or ""),
+                    _json((answer_packet.get("queryContext") or {}).get("component") or {}),
+                    _json((answer_packet.get("queryContext") or {}).get("sourceContext") or {}),
+                    _json(request_packet),
+                    _json(canonical_query),
+                    _json(stored_answer),
+                    _json(answer_packet.get("appliedControls") or {}),
+                    _json_list(answer_packet.get("controlEffects") or []),
+                    _json_list(answer_packet.get("fallbackTrace") or []),
+                    _json(answer_packet.get("cacheTrace") or {}),
+                    _json(answer_packet.get("scoreVector") or {}),
+                    _json(score_policy),
+                    created_at,
+                ),
+            )
+        return ledger_ref
+
+    def get_serving_query_run(self, serving_run_id: str) -> dict[str, Any] | None:
+        with self._connect() as conn:
+            row = conn.execute("SELECT * FROM serving_query_run WHERE serving_run_id=?", (serving_run_id,)).fetchone()
+        if row is None:
+            return None
+        return self._serving_query_run_record(row)
+
+    def list_serving_query_runs(
+        self,
+        *,
+        decision_fragment_key: str | None = None,
+        canonical_query_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        query = "SELECT * FROM serving_query_run"
+        clauses: list[str] = []
+        params: list[Any] = []
+        if decision_fragment_key is not None:
+            clauses.append("decision_fragment_key=?")
+            params.append(decision_fragment_key)
+        if canonical_query_id is not None:
+            clauses.append("canonical_query_id=?")
+            params.append(canonical_query_id)
+        if clauses:
+            query += " WHERE " + " AND ".join(clauses)
+        query += " ORDER BY created_at, serving_run_id"
+        with self._connect() as conn:
+            rows = conn.execute(query, tuple(params)).fetchall()
+        return [self._serving_query_run_record(row) for row in rows]
+
+    def _serving_query_run_record(self, row: sqlite3.Row) -> dict[str, Any]:
+        return {
+            "servingRunId": row["serving_run_id"],
+            "canonicalQueryId": row["canonical_query_id"],
+            "decisionFragmentKey": row["decision_fragment_key"],
+            "answerSchemaVersion": row["answer_schema_version"],
+            "verdict": row["verdict"],
+            "status": row["status"],
+            "qualityGate": row["quality_gate"],
+            "component": _loads(row["component_json"], {}),
+            "sourceContext": _loads(row["source_context_json"], {}),
+            "request": _loads(row["request_json"], {}),
+            "canonicalQuery": _loads(row["canonical_query_json"], {}),
+            "answer": _loads(row["answer_json"], {}),
+            "appliedControls": _loads(row["applied_controls_json"], {}),
+            "controlEffects": _loads(row["control_effects_json"], []),
+            "fallbackTrace": _loads(row["fallback_trace_json"], []),
+            "cacheTrace": _loads(row["cache_trace_json"], {}),
+            "scoreVector": _loads(row["score_vector_json"], {}),
+            "scorePolicy": _loads(row["score_policy_json"], {}),
+            "createdAt": row["created_at"],
+        }
+
     def count_rows(self, table: str) -> int:
         self._ensure_known_table(table)
         with self._connect() as conn:
@@ -637,6 +745,80 @@ class SQLiteLedgerRepository:
             )
         return {"rawArtifactId": raw_artifact_id}
 
+    def upsert_source_artifact(
+        self,
+        *,
+        source_artifact_id: str,
+        source_id: str | None,
+        source_family: str,
+        source_name: str,
+        artifact_uri: str,
+        media_type: str,
+        checksum_sha256: str,
+        retrieved_at: str,
+        source_version: str | None = None,
+        schema_version: str | None = None,
+        published_at: str | None = None,
+        modified_at: str | None = None,
+        parser_version: str = "unknown",
+        normalizer_version: str = "unknown",
+        record_count: int | None = None,
+        required_files: list[str] | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        now = _now()
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO source_artifact (
+                  source_artifact_id, source_id, source_family, source_name, artifact_uri,
+                  media_type, source_version, schema_version, retrieved_at, published_at,
+                  modified_at, checksum_sha256, parser_version, normalizer_version,
+                  record_count, required_files_json, metadata_json, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(source_artifact_id) DO UPDATE SET
+                  source_id=excluded.source_id,
+                  source_family=excluded.source_family,
+                  source_name=excluded.source_name,
+                  artifact_uri=excluded.artifact_uri,
+                  media_type=excluded.media_type,
+                  source_version=excluded.source_version,
+                  schema_version=excluded.schema_version,
+                  retrieved_at=excluded.retrieved_at,
+                  published_at=excluded.published_at,
+                  modified_at=excluded.modified_at,
+                  checksum_sha256=excluded.checksum_sha256,
+                  parser_version=excluded.parser_version,
+                  normalizer_version=excluded.normalizer_version,
+                  record_count=excluded.record_count,
+                  required_files_json=excluded.required_files_json,
+                  metadata_json=excluded.metadata_json,
+                  updated_at=excluded.updated_at
+                """,
+                (
+                    source_artifact_id,
+                    source_id,
+                    source_family,
+                    source_name,
+                    artifact_uri,
+                    media_type,
+                    source_version,
+                    schema_version,
+                    retrieved_at,
+                    published_at,
+                    modified_at,
+                    checksum_sha256,
+                    parser_version,
+                    normalizer_version,
+                    record_count,
+                    _json_list(required_files),
+                    _json(metadata),
+                    now,
+                    now,
+                ),
+            )
+        return {"sourceArtifactId": source_artifact_id, "updatedAt": now}
+
     def upsert_normalized_record(
         self,
         *,
@@ -703,6 +885,72 @@ class SQLiteLedgerRepository:
             )
         return {"packageIdentityId": package_identity_id}
 
+    def upsert_product_identity(
+        self,
+        *,
+        product_identity_id: str,
+        vendor: str | None = None,
+        product: str | None = None,
+        version: str | None = None,
+        cpe: str | None = None,
+        match_criteria_id: str | None = None,
+        qualifiers: dict[str, Any] | None = None,
+        provenance: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        now = _now()
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO product_identity (
+                  product_identity_id, vendor, product, version, cpe, match_criteria_id,
+                  qualifiers_json, provenance_json, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(product_identity_id) DO UPDATE SET
+                  vendor=excluded.vendor,
+                  product=excluded.product,
+                  version=excluded.version,
+                  cpe=excluded.cpe,
+                  match_criteria_id=excluded.match_criteria_id,
+                  qualifiers_json=excluded.qualifiers_json,
+                  provenance_json=excluded.provenance_json,
+                  updated_at=excluded.updated_at
+                """,
+                (product_identity_id, vendor, product, version, cpe, match_criteria_id, _json(qualifiers), _json(provenance), now, now),
+            )
+        return {"productIdentityId": product_identity_id}
+
+    def upsert_source_component_identity(
+        self,
+        *,
+        source_component_identity_id: str,
+        repo_url: str | None = None,
+        commit_id: str | None = None,
+        source_path: str | None = None,
+        fingerprint: str | None = None,
+        qualifiers: dict[str, Any] | None = None,
+        provenance: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        now = _now()
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO source_component_identity (
+                  source_component_identity_id, repo_url, commit_id, source_path, fingerprint,
+                  qualifiers_json, provenance_json, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(source_component_identity_id) DO UPDATE SET
+                  repo_url=excluded.repo_url,
+                  commit_id=excluded.commit_id,
+                  source_path=excluded.source_path,
+                  fingerprint=excluded.fingerprint,
+                  qualifiers_json=excluded.qualifiers_json,
+                  provenance_json=excluded.provenance_json,
+                  updated_at=excluded.updated_at
+                """,
+                (source_component_identity_id, repo_url, commit_id, source_path, fingerprint, _json(qualifiers), _json(provenance), now, now),
+            )
+        return {"sourceComponentIdentityId": source_component_identity_id}
+
     def upsert_vulnerability_advisory(
         self,
         *,
@@ -762,6 +1010,101 @@ class SQLiteLedgerRepository:
                 (affected_range_id, advisory_id, package_identity_id, introduced, fixed, _json(range_data), _json(provenance)),
             )
         return {"affectedRangeId": affected_range_id}
+
+    def upsert_affectedness_record(
+        self,
+        *,
+        affectedness_id: str,
+        advisory_id: str,
+        subject_kind: str,
+        subject_id: str,
+        affectedness_status: str,
+        introduced: str | None = None,
+        fixed: str | None = None,
+        range_data: dict[str, Any] | None = None,
+        qualifiers: dict[str, Any] | None = None,
+        evidence: dict[str, Any] | None = None,
+        confidence: float = 1.0,
+        decision_state: str = "accepted",
+        provenance: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        now = _now()
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO affectedness_record (
+                  affectedness_id, advisory_id, subject_kind, subject_id, affectedness_status,
+                  introduced, fixed, range_json, qualifiers_json, evidence_json,
+                  confidence, decision_state, provenance_json, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(affectedness_id) DO UPDATE SET
+                  advisory_id=excluded.advisory_id,
+                  subject_kind=excluded.subject_kind,
+                  subject_id=excluded.subject_id,
+                  affectedness_status=excluded.affectedness_status,
+                  introduced=excluded.introduced,
+                  fixed=excluded.fixed,
+                  range_json=excluded.range_json,
+                  qualifiers_json=excluded.qualifiers_json,
+                  evidence_json=excluded.evidence_json,
+                  confidence=excluded.confidence,
+                  decision_state=excluded.decision_state,
+                  provenance_json=excluded.provenance_json,
+                  updated_at=excluded.updated_at
+                """,
+                (
+                    affectedness_id,
+                    advisory_id,
+                    subject_kind,
+                    subject_id,
+                    affectedness_status,
+                    introduced,
+                    fixed,
+                    _json(range_data),
+                    _json(qualifiers),
+                    _json(evidence),
+                    confidence,
+                    decision_state,
+                    _json(provenance),
+                    now,
+                    now,
+                ),
+            )
+        return {"affectednessId": affectedness_id}
+
+    def upsert_risk_signal(
+        self,
+        *,
+        risk_signal_id: str,
+        signal_kind: str,
+        source_kind: str,
+        advisory_id: str | None = None,
+        signal_date: str | None = None,
+        signal_value: float | None = None,
+        payload: dict[str, Any] | None = None,
+        provenance: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        now = _now()
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO risk_signal (
+                  risk_signal_id, advisory_id, signal_kind, signal_date, signal_value,
+                  source_kind, payload_json, provenance_json, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(risk_signal_id) DO UPDATE SET
+                  advisory_id=excluded.advisory_id,
+                  signal_kind=excluded.signal_kind,
+                  signal_date=excluded.signal_date,
+                  signal_value=excluded.signal_value,
+                  source_kind=excluded.source_kind,
+                  payload_json=excluded.payload_json,
+                  provenance_json=excluded.provenance_json,
+                  updated_at=excluded.updated_at
+                """,
+                (risk_signal_id, advisory_id, signal_kind, signal_date, signal_value, source_kind, _json(payload), _json(provenance), now, now),
+            )
+        return {"riskSignalId": risk_signal_id}
 
     def upsert_weakness(
         self,
@@ -909,3 +1252,765 @@ class SQLiteLedgerRepository:
                 (relation_record_id, subject_id, predicate, object_id, method, consumer_policy, _json(provenance), now, now),
             )
         return {"relationRecordId": relation_record_id}
+
+    def upsert_identity_alias(
+        self,
+        *,
+        identity_alias_id: str,
+        subject_kind: str,
+        subject_namespace: str,
+        subject_id: str,
+        alias_kind: str,
+        alias_namespace: str,
+        alias_id: str,
+        relation_semantics: str,
+        confidence: float = 1.0,
+        source_artifact_id: str | None = None,
+        normalized_record_id: str | None = None,
+        provenance: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        now = _now()
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO identity_alias (
+                  identity_alias_id, subject_kind, subject_namespace, subject_id,
+                  alias_kind, alias_namespace, alias_id, relation_semantics, confidence,
+                  source_artifact_id, normalized_record_id, provenance_json, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(identity_alias_id) DO UPDATE SET
+                  subject_kind=excluded.subject_kind,
+                  subject_namespace=excluded.subject_namespace,
+                  subject_id=excluded.subject_id,
+                  alias_kind=excluded.alias_kind,
+                  alias_namespace=excluded.alias_namespace,
+                  alias_id=excluded.alias_id,
+                  relation_semantics=excluded.relation_semantics,
+                  confidence=excluded.confidence,
+                  source_artifact_id=excluded.source_artifact_id,
+                  normalized_record_id=excluded.normalized_record_id,
+                  provenance_json=excluded.provenance_json,
+                  updated_at=excluded.updated_at
+                """,
+                (
+                    identity_alias_id,
+                    subject_kind,
+                    subject_namespace,
+                    subject_id,
+                    alias_kind,
+                    alias_namespace,
+                    alias_id,
+                    relation_semantics,
+                    confidence,
+                    source_artifact_id,
+                    normalized_record_id,
+                    _json(provenance),
+                    now,
+                    now,
+                ),
+            )
+        return {"identityAliasId": identity_alias_id}
+
+    def upsert_unresolved_reference(
+        self,
+        *,
+        unresolved_reference_id: str,
+        owner_record_id: str,
+        reference_role: str,
+        reference_kind: str,
+        target_raw: str,
+        status: str,
+        reason: str,
+        source_artifact_id: str | None = None,
+        normalized_record_id: str | None = None,
+        relation_record_id: str | None = None,
+        evidence: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        now = _now()
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO unresolved_reference (
+                  unresolved_reference_id, source_artifact_id, normalized_record_id,
+                  relation_record_id, owner_record_id, reference_role, reference_kind,
+                  target_raw, status, reason, evidence_json, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(unresolved_reference_id) DO UPDATE SET
+                  source_artifact_id=excluded.source_artifact_id,
+                  normalized_record_id=excluded.normalized_record_id,
+                  relation_record_id=excluded.relation_record_id,
+                  owner_record_id=excluded.owner_record_id,
+                  reference_role=excluded.reference_role,
+                  reference_kind=excluded.reference_kind,
+                  target_raw=excluded.target_raw,
+                  status=excluded.status,
+                  reason=excluded.reason,
+                  evidence_json=excluded.evidence_json,
+                  updated_at=excluded.updated_at
+                """,
+                (
+                    unresolved_reference_id,
+                    source_artifact_id,
+                    normalized_record_id,
+                    relation_record_id,
+                    owner_record_id,
+                    reference_role,
+                    reference_kind,
+                    target_raw,
+                    status,
+                    reason,
+                    _json(evidence),
+                    now,
+                    now,
+                ),
+            )
+        return {"unresolvedReferenceId": unresolved_reference_id}
+
+    def upsert_conflict_record(
+        self,
+        *,
+        conflict_record_id: str,
+        conflict_kind: str,
+        subject_id: str,
+        conflicting_values: list[dict[str, Any]] | None,
+        status: str,
+        evidence: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        now = _now()
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO conflict_record (
+                  conflict_record_id, conflict_kind, subject_id, conflicting_values_json,
+                  status, evidence_json, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(conflict_record_id) DO UPDATE SET
+                  conflict_kind=excluded.conflict_kind,
+                  subject_id=excluded.subject_id,
+                  conflicting_values_json=excluded.conflicting_values_json,
+                  status=excluded.status,
+                  evidence_json=excluded.evidence_json,
+                  updated_at=excluded.updated_at
+                """,
+                (conflict_record_id, conflict_kind, subject_id, _json_list(conflicting_values), status, _json(evidence), now, now),
+            )
+        return {"conflictRecordId": conflict_record_id}
+
+    def upsert_source_repository_snapshot(
+        self,
+        *,
+        repository_snapshot_id: str,
+        commit_hash: str,
+        repository_url: str | None = None,
+        repository_id: str | None = None,
+        tree_hash: str | None = None,
+        submodule_hashes: dict[str, Any] | None = None,
+        metadata: dict[str, Any] | None = None,
+        provenance: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        now = _now()
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO source_repository_snapshot (
+                  repository_snapshot_id, repository_url, repository_id, commit_hash, tree_hash,
+                  submodule_hashes_json, metadata_json, provenance_json, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(repository_snapshot_id) DO UPDATE SET
+                  repository_url=excluded.repository_url,
+                  repository_id=excluded.repository_id,
+                  commit_hash=excluded.commit_hash,
+                  tree_hash=excluded.tree_hash,
+                  submodule_hashes_json=excluded.submodule_hashes_json,
+                  metadata_json=excluded.metadata_json,
+                  provenance_json=excluded.provenance_json,
+                  updated_at=excluded.updated_at
+                """,
+                (
+                    repository_snapshot_id,
+                    repository_url,
+                    repository_id,
+                    commit_hash,
+                    tree_hash,
+                    _json(submodule_hashes),
+                    _json(metadata),
+                    _json(provenance),
+                    now,
+                    now,
+                ),
+            )
+        return {"repositorySnapshotId": repository_snapshot_id, "updatedAt": now}
+
+    def upsert_source_repository_artifact(
+        self,
+        *,
+        source_repository_artifact_id: str,
+        repository_snapshot_id: str,
+        artifact_uri: str,
+        media_type: str,
+        checksum_sha256: str,
+        storage_mode: str,
+        metadata: dict[str, Any] | None = None,
+        provenance: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        now = _now()
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO source_repository_artifact (
+                  source_repository_artifact_id, repository_snapshot_id, artifact_uri, media_type,
+                  checksum_sha256, storage_mode, metadata_json, provenance_json, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(source_repository_artifact_id) DO UPDATE SET
+                  repository_snapshot_id=excluded.repository_snapshot_id,
+                  artifact_uri=excluded.artifact_uri,
+                  media_type=excluded.media_type,
+                  checksum_sha256=excluded.checksum_sha256,
+                  storage_mode=excluded.storage_mode,
+                  metadata_json=excluded.metadata_json,
+                  provenance_json=excluded.provenance_json,
+                  updated_at=excluded.updated_at
+                """,
+                (
+                    source_repository_artifact_id,
+                    repository_snapshot_id,
+                    artifact_uri,
+                    media_type,
+                    checksum_sha256,
+                    storage_mode,
+                    _json(metadata),
+                    _json(provenance),
+                    now,
+                    now,
+                ),
+            )
+        return {"sourceRepositoryArtifactId": source_repository_artifact_id, "updatedAt": now}
+
+    def upsert_source_build_context(
+        self,
+        *,
+        build_context_id: str,
+        repository_snapshot_id: str,
+        project_id: str | None = None,
+        target_id: str | None = None,
+        build_target: str | None = None,
+        toolchain: dict[str, Any] | None = None,
+        compile_commands_artifact_id: str | None = None,
+        dependency_graph: dict[str, Any] | None = None,
+        build_metadata: dict[str, Any] | None = None,
+        provenance: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        now = _now()
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO source_build_context (
+                  build_context_id, repository_snapshot_id, project_id, target_id, build_target,
+                  toolchain_json, compile_commands_artifact_id, dependency_graph_json,
+                  build_metadata_json, provenance_json, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(build_context_id) DO UPDATE SET
+                  repository_snapshot_id=excluded.repository_snapshot_id,
+                  project_id=excluded.project_id,
+                  target_id=excluded.target_id,
+                  build_target=excluded.build_target,
+                  toolchain_json=excluded.toolchain_json,
+                  compile_commands_artifact_id=excluded.compile_commands_artifact_id,
+                  dependency_graph_json=excluded.dependency_graph_json,
+                  build_metadata_json=excluded.build_metadata_json,
+                  provenance_json=excluded.provenance_json,
+                  updated_at=excluded.updated_at
+                """,
+                (
+                    build_context_id,
+                    repository_snapshot_id,
+                    project_id,
+                    target_id,
+                    build_target,
+                    _json(toolchain),
+                    compile_commands_artifact_id,
+                    _json(dependency_graph),
+                    _json(build_metadata),
+                    _json(provenance),
+                    now,
+                    now,
+                ),
+            )
+        return {"buildContextId": build_context_id, "updatedAt": now}
+
+    def upsert_source_analysis_artifact_set(
+        self,
+        *,
+        analysis_artifact_set_id: str,
+        build_context_id: str,
+        analyzer_name: str,
+        analyzer_version: str | None = None,
+        analysis_config: dict[str, Any] | None = None,
+        artifact_hashes: dict[str, Any] | None = None,
+        produced_at: str | None = None,
+        provenance: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        now = _now()
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO source_analysis_artifact_set (
+                  analysis_artifact_set_id, build_context_id, analyzer_name, analyzer_version,
+                  analysis_config_json, artifact_hashes_json, produced_at, provenance_json,
+                  created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(analysis_artifact_set_id) DO UPDATE SET
+                  build_context_id=excluded.build_context_id,
+                  analyzer_name=excluded.analyzer_name,
+                  analyzer_version=excluded.analyzer_version,
+                  analysis_config_json=excluded.analysis_config_json,
+                  artifact_hashes_json=excluded.artifact_hashes_json,
+                  produced_at=excluded.produced_at,
+                  provenance_json=excluded.provenance_json,
+                  updated_at=excluded.updated_at
+                """,
+                (
+                    analysis_artifact_set_id,
+                    build_context_id,
+                    analyzer_name,
+                    analyzer_version,
+                    _json(analysis_config),
+                    _json(artifact_hashes),
+                    produced_at,
+                    _json(provenance),
+                    now,
+                    now,
+                ),
+            )
+        return {"analysisArtifactSetId": analysis_artifact_set_id, "updatedAt": now}
+
+    def upsert_source_evidence_snippet(
+        self,
+        *,
+        evidence_snippet_id: str,
+        repository_snapshot_id: str,
+        file_path: str,
+        snippet_text: str,
+        checksum_sha256: str,
+        line_start: int | None = None,
+        line_end: int | None = None,
+        language: str | None = None,
+        provenance: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        now = _now()
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO source_evidence_snippet (
+                  evidence_snippet_id, repository_snapshot_id, file_path, line_start, line_end,
+                  language, snippet_text, checksum_sha256, provenance_json, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(evidence_snippet_id) DO UPDATE SET
+                  repository_snapshot_id=excluded.repository_snapshot_id,
+                  file_path=excluded.file_path,
+                  line_start=excluded.line_start,
+                  line_end=excluded.line_end,
+                  language=excluded.language,
+                  snippet_text=excluded.snippet_text,
+                  checksum_sha256=excluded.checksum_sha256,
+                  provenance_json=excluded.provenance_json,
+                  updated_at=excluded.updated_at
+                """,
+                (
+                    evidence_snippet_id,
+                    repository_snapshot_id,
+                    file_path,
+                    line_start,
+                    line_end,
+                    language,
+                    snippet_text,
+                    checksum_sha256,
+                    _json(provenance),
+                    now,
+                    now,
+                ),
+            )
+        return {"evidenceSnippetId": evidence_snippet_id, "updatedAt": now}
+
+    def upsert_source_graph_node(
+        self,
+        *,
+        source_graph_node_id: str,
+        analysis_artifact_set_id: str,
+        node_kind: str,
+        stable_id: str,
+        display_name: str | None = None,
+        file_path: str | None = None,
+        line_start: int | None = None,
+        line_end: int | None = None,
+        symbol: dict[str, Any] | None = None,
+        metadata: dict[str, Any] | None = None,
+        evidence_snippet_id: str | None = None,
+    ) -> dict[str, Any]:
+        now = _now()
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO source_graph_node (
+                  source_graph_node_id, analysis_artifact_set_id, node_kind, stable_id,
+                  display_name, file_path, line_start, line_end, symbol_json, metadata_json,
+                  evidence_snippet_id, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(source_graph_node_id) DO UPDATE SET
+                  analysis_artifact_set_id=excluded.analysis_artifact_set_id,
+                  node_kind=excluded.node_kind,
+                  stable_id=excluded.stable_id,
+                  display_name=excluded.display_name,
+                  file_path=excluded.file_path,
+                  line_start=excluded.line_start,
+                  line_end=excluded.line_end,
+                  symbol_json=excluded.symbol_json,
+                  metadata_json=excluded.metadata_json,
+                  evidence_snippet_id=excluded.evidence_snippet_id,
+                  updated_at=excluded.updated_at
+                """,
+                (
+                    source_graph_node_id,
+                    analysis_artifact_set_id,
+                    node_kind,
+                    stable_id,
+                    display_name,
+                    file_path,
+                    line_start,
+                    line_end,
+                    _json(symbol),
+                    _json(metadata),
+                    evidence_snippet_id,
+                    now,
+                    now,
+                ),
+            )
+        return {"sourceGraphNodeId": source_graph_node_id, "updatedAt": now}
+
+    def upsert_source_graph_edge(
+        self,
+        *,
+        source_graph_edge_id: str,
+        analysis_artifact_set_id: str,
+        edge_kind: str,
+        source_graph_node_id: str,
+        target_graph_node_id: str,
+        evidence: dict[str, Any] | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        now = _now()
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO source_graph_edge (
+                  source_graph_edge_id, analysis_artifact_set_id, edge_kind, source_graph_node_id,
+                  target_graph_node_id, evidence_json, metadata_json, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(source_graph_edge_id) DO UPDATE SET
+                  analysis_artifact_set_id=excluded.analysis_artifact_set_id,
+                  edge_kind=excluded.edge_kind,
+                  source_graph_node_id=excluded.source_graph_node_id,
+                  target_graph_node_id=excluded.target_graph_node_id,
+                  evidence_json=excluded.evidence_json,
+                  metadata_json=excluded.metadata_json,
+                  updated_at=excluded.updated_at
+                """,
+                (
+                    source_graph_edge_id,
+                    analysis_artifact_set_id,
+                    edge_kind,
+                    source_graph_node_id,
+                    target_graph_node_id,
+                    _json(evidence),
+                    _json(metadata),
+                    now,
+                    now,
+                ),
+            )
+        return {"sourceGraphEdgeId": source_graph_edge_id, "updatedAt": now}
+
+    def upsert_source_rich_ir_artifact(
+        self,
+        *,
+        rich_ir_artifact_id: str,
+        analysis_artifact_set_id: str,
+        artifact_kind: str,
+        media_type: str,
+        checksum_sha256: str,
+        uri: str | None = None,
+        payload: dict[str, Any] | None = None,
+        provenance: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        now = _now()
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO source_rich_ir_artifact (
+                  rich_ir_artifact_id, analysis_artifact_set_id, artifact_kind, media_type, uri,
+                  checksum_sha256, payload_json, provenance_json, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(rich_ir_artifact_id) DO UPDATE SET
+                  analysis_artifact_set_id=excluded.analysis_artifact_set_id,
+                  artifact_kind=excluded.artifact_kind,
+                  media_type=excluded.media_type,
+                  uri=excluded.uri,
+                  checksum_sha256=excluded.checksum_sha256,
+                  payload_json=excluded.payload_json,
+                  provenance_json=excluded.provenance_json,
+                  updated_at=excluded.updated_at
+                """,
+                (
+                    rich_ir_artifact_id,
+                    analysis_artifact_set_id,
+                    artifact_kind,
+                    media_type,
+                    uri,
+                    checksum_sha256,
+                    _json(payload),
+                    _json(provenance),
+                    now,
+                    now,
+                ),
+            )
+        return {"richIrArtifactId": rich_ir_artifact_id, "updatedAt": now}
+
+    def get_source_kg_context(
+        self,
+        *,
+        repository_snapshot_id: str | None = None,
+        build_context_id: str | None = None,
+        analysis_artifact_set_id: str | None = None,
+        graph_node_ids: list[str] | None = None,
+        evidence_snippet_ids: list[str] | None = None,
+        rich_ir_artifact_ids: list[str] | None = None,
+    ) -> dict[str, Any]:
+        with self._connect() as conn:
+            analysis_row = None
+            if analysis_artifact_set_id:
+                analysis_row = conn.execute(
+                    "SELECT * FROM source_analysis_artifact_set WHERE analysis_artifact_set_id=?",
+                    (analysis_artifact_set_id,),
+                ).fetchone()
+                if analysis_row is not None:
+                    build_context_id = build_context_id or analysis_row["build_context_id"]
+
+            build_row = None
+            if build_context_id:
+                build_row = conn.execute(
+                    "SELECT * FROM source_build_context WHERE build_context_id=?",
+                    (build_context_id,),
+                ).fetchone()
+                if build_row is not None:
+                    repository_snapshot_id = repository_snapshot_id or build_row["repository_snapshot_id"]
+
+            repo_row = None
+            if repository_snapshot_id:
+                repo_row = conn.execute(
+                    "SELECT * FROM source_repository_snapshot WHERE repository_snapshot_id=?",
+                    (repository_snapshot_id,),
+                ).fetchone()
+
+            graph_nodes = []
+            if graph_node_ids:
+                placeholders = ",".join("?" for _ in graph_node_ids)
+                graph_nodes = conn.execute(
+                    f"SELECT * FROM source_graph_node WHERE source_graph_node_id IN ({placeholders}) ORDER BY source_graph_node_id",
+                    tuple(graph_node_ids),
+                ).fetchall()
+            elif analysis_artifact_set_id:
+                graph_nodes = conn.execute(
+                    "SELECT * FROM source_graph_node WHERE analysis_artifact_set_id=? ORDER BY source_graph_node_id",
+                    (analysis_artifact_set_id,),
+                ).fetchall()
+
+            graph_edges = []
+            if analysis_artifact_set_id:
+                graph_edges = conn.execute(
+                    "SELECT * FROM source_graph_edge WHERE analysis_artifact_set_id=? ORDER BY source_graph_edge_id",
+                    (analysis_artifact_set_id,),
+                ).fetchall()
+
+            evidence_snippets = []
+            if evidence_snippet_ids:
+                placeholders = ",".join("?" for _ in evidence_snippet_ids)
+                evidence_snippets = conn.execute(
+                    f"SELECT * FROM source_evidence_snippet WHERE evidence_snippet_id IN ({placeholders}) ORDER BY evidence_snippet_id",
+                    tuple(evidence_snippet_ids),
+                ).fetchall()
+            elif graph_nodes:
+                snippet_ids = sorted({row["evidence_snippet_id"] for row in graph_nodes if row["evidence_snippet_id"]})
+                if snippet_ids:
+                    placeholders = ",".join("?" for _ in snippet_ids)
+                    evidence_snippets = conn.execute(
+                        f"SELECT * FROM source_evidence_snippet WHERE evidence_snippet_id IN ({placeholders}) ORDER BY evidence_snippet_id",
+                        tuple(snippet_ids),
+                    ).fetchall()
+
+            rich_ir_artifacts = []
+            if rich_ir_artifact_ids:
+                placeholders = ",".join("?" for _ in rich_ir_artifact_ids)
+                rich_ir_artifacts = conn.execute(
+                    f"SELECT * FROM source_rich_ir_artifact WHERE rich_ir_artifact_id IN ({placeholders}) ORDER BY rich_ir_artifact_id",
+                    tuple(rich_ir_artifact_ids),
+                ).fetchall()
+            elif analysis_artifact_set_id:
+                rich_ir_artifacts = conn.execute(
+                    "SELECT * FROM source_rich_ir_artifact WHERE analysis_artifact_set_id=? ORDER BY rich_ir_artifact_id",
+                    (analysis_artifact_set_id,),
+                ).fetchall()
+
+            return {
+                "repositorySnapshot": self._source_repository_snapshot_record(repo_row) if repo_row else None,
+                "buildContext": self._source_build_context_record(build_row) if build_row else None,
+                "analysisArtifactSet": self._source_analysis_artifact_set_record(analysis_row) if analysis_row else None,
+                "graphNodes": [self._source_graph_node_record(row) for row in graph_nodes],
+                "graphEdges": [self._source_graph_edge_record(row) for row in graph_edges],
+                "evidenceSnippets": [self._source_evidence_snippet_record(row) for row in evidence_snippets],
+                "richIrArtifacts": [self._source_rich_ir_artifact_record(row) for row in rich_ir_artifacts],
+                "resolved": bool(repo_row or build_row or analysis_row or graph_nodes or evidence_snippets or rich_ir_artifacts),
+            }
+
+    def _source_repository_snapshot_record(self, row: sqlite3.Row) -> dict[str, Any]:
+        return {
+            "repositorySnapshotId": row["repository_snapshot_id"],
+            "repositoryUrl": row["repository_url"],
+            "repositoryId": row["repository_id"],
+            "commitHash": row["commit_hash"],
+            "treeHash": row["tree_hash"],
+            "submoduleHashes": _loads(row["submodule_hashes_json"], {}),
+            "metadata": _loads(row["metadata_json"], {}),
+            "provenance": _loads(row["provenance_json"], {}),
+            "createdAt": row["created_at"],
+            "updatedAt": row["updated_at"],
+        }
+
+    def _source_build_context_record(self, row: sqlite3.Row) -> dict[str, Any]:
+        return {
+            "buildContextId": row["build_context_id"],
+            "repositorySnapshotId": row["repository_snapshot_id"],
+            "projectId": row["project_id"],
+            "targetId": row["target_id"],
+            "buildTarget": row["build_target"],
+            "toolchain": _loads(row["toolchain_json"], {}),
+            "compileCommandsArtifactId": row["compile_commands_artifact_id"],
+            "dependencyGraph": _loads(row["dependency_graph_json"], {}),
+            "buildMetadata": _loads(row["build_metadata_json"], {}),
+            "provenance": _loads(row["provenance_json"], {}),
+            "createdAt": row["created_at"],
+            "updatedAt": row["updated_at"],
+        }
+
+    def _source_analysis_artifact_set_record(self, row: sqlite3.Row) -> dict[str, Any]:
+        return {
+            "analysisArtifactSetId": row["analysis_artifact_set_id"],
+            "buildContextId": row["build_context_id"],
+            "analyzerName": row["analyzer_name"],
+            "analyzerVersion": row["analyzer_version"],
+            "analysisConfig": _loads(row["analysis_config_json"], {}),
+            "artifactHashes": _loads(row["artifact_hashes_json"], {}),
+            "producedAt": row["produced_at"],
+            "provenance": _loads(row["provenance_json"], {}),
+            "createdAt": row["created_at"],
+            "updatedAt": row["updated_at"],
+        }
+
+    def _source_graph_node_record(self, row: sqlite3.Row) -> dict[str, Any]:
+        return {
+            "sourceGraphNodeId": row["source_graph_node_id"],
+            "analysisArtifactSetId": row["analysis_artifact_set_id"],
+            "nodeKind": row["node_kind"],
+            "stableId": row["stable_id"],
+            "displayName": row["display_name"],
+            "filePath": row["file_path"],
+            "lineStart": row["line_start"],
+            "lineEnd": row["line_end"],
+            "symbol": _loads(row["symbol_json"], {}),
+            "metadata": _loads(row["metadata_json"], {}),
+            "evidenceSnippetId": row["evidence_snippet_id"],
+            "createdAt": row["created_at"],
+            "updatedAt": row["updated_at"],
+        }
+
+    def _source_graph_edge_record(self, row: sqlite3.Row) -> dict[str, Any]:
+        return {
+            "sourceGraphEdgeId": row["source_graph_edge_id"],
+            "analysisArtifactSetId": row["analysis_artifact_set_id"],
+            "edgeKind": row["edge_kind"],
+            "sourceGraphNodeId": row["source_graph_node_id"],
+            "targetGraphNodeId": row["target_graph_node_id"],
+            "evidence": _loads(row["evidence_json"], {}),
+            "metadata": _loads(row["metadata_json"], {}),
+            "createdAt": row["created_at"],
+            "updatedAt": row["updated_at"],
+        }
+
+    def _source_evidence_snippet_record(self, row: sqlite3.Row) -> dict[str, Any]:
+        return {
+            "evidenceSnippetId": row["evidence_snippet_id"],
+            "repositorySnapshotId": row["repository_snapshot_id"],
+            "filePath": row["file_path"],
+            "lineStart": row["line_start"],
+            "lineEnd": row["line_end"],
+            "language": row["language"],
+            "snippetText": row["snippet_text"],
+            "checksumSha256": row["checksum_sha256"],
+            "provenance": _loads(row["provenance_json"], {}),
+            "createdAt": row["created_at"],
+            "updatedAt": row["updated_at"],
+        }
+
+    def _source_rich_ir_artifact_record(self, row: sqlite3.Row) -> dict[str, Any]:
+        return {
+            "richIrArtifactId": row["rich_ir_artifact_id"],
+            "analysisArtifactSetId": row["analysis_artifact_set_id"],
+            "artifactKind": row["artifact_kind"],
+            "mediaType": row["media_type"],
+            "uri": row["uri"],
+            "checksumSha256": row["checksum_sha256"],
+            "payload": _loads(row["payload_json"], {}),
+            "provenance": _loads(row["provenance_json"], {}),
+            "createdAt": row["created_at"],
+            "updatedAt": row["updated_at"],
+        }
+
+    def upsert_projection_bundle_manifest(
+        self,
+        *,
+        projection_bundle_id: str,
+        scope_key: str,
+        projection_version: str,
+        source_hash: str,
+        manifest: dict[str, Any],
+        qa_report: dict[str, Any],
+        node_count: int,
+        edge_count: int,
+        text_chunk_count: int,
+        checksums: dict[str, Any],
+        production_write_enabled: bool = False,
+    ) -> dict[str, Any]:
+        created_at = _now()
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO projection_bundle_manifest (
+                  projection_bundle_id, scope_key, projection_version, source_hash,
+                  manifest_json, qa_report_json, node_count, edge_count, text_chunk_count,
+                  checksums_json, production_write_enabled, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    projection_bundle_id,
+                    scope_key,
+                    projection_version,
+                    source_hash,
+                    _json(manifest),
+                    _json(qa_report),
+                    node_count,
+                    edge_count,
+                    text_chunk_count,
+                    _json(checksums),
+                    1 if production_write_enabled else 0,
+                    created_at,
+                ),
+            )
+        return {"projectionBundleId": projection_bundle_id, "createdAt": created_at}

@@ -1,0 +1,4459 @@
+{
+  "aggregate": {
+    "findingsByTool": {
+      "clang-tidy": 53,
+      "cppcheck": 22,
+      "flawfinder": 20,
+      "gcc-fanalyzer": 29,
+      "scan-build": 7,
+      "semgrep": 0
+    },
+    "findingsTotal": 131,
+    "okProjects": 8,
+    "projects": 8,
+    "sourceFiles": 15,
+    "toolStatusCounts": {
+      "clang-tidy": {
+        "ok": 8
+      },
+      "cppcheck": {
+        "ok": 8
+      },
+      "flawfinder": {
+        "ok": 8
+      },
+      "gcc-fanalyzer": {
+        "ok": 8
+      },
+      "scan-build": {
+        "ok": 8
+      },
+      "semgrep": {
+        "skipped": 8
+      }
+    }
+  },
+  "createdAt": "2026-05-12T04:29:17.396222+00:00",
+  "decisionSupport": {
+    "currentDecision": "invalid-precondition",
+    "invalidatedAt": "2026-05-12T04:53:35Z",
+    "invalidatedBy": "S4 system-stability/quality-gate separation hardening: semgrep was skipped, so this is not six-tool evidence.",
+    "reasonCodes": [
+      "LOCAL_JULIET_CORPUS_NOT_PRESENT",
+      "NO_TP_FP_FN_ORACLE",
+      "REQUIRED_TOOL_UNAVAILABLE",
+      "SEMGREP_ENVIRONMENT_DRIFT",
+      "SYSTEM_STABILITY_GATE_FAILED"
+    ]
+  },
+  "projects": [
+    {
+      "compileCommands": null,
+      "elapsedMs": 235,
+      "findingsByTool": {
+        "clang-tidy": 5,
+        "cppcheck": 4,
+        "flawfinder": 6,
+        "gcc-fanalyzer": 1,
+        "scan-build": 0,
+        "semgrep": 0
+      },
+      "findingsTotal": 16,
+      "ok": true,
+      "project": "services/sast-runner/tests/fixtures/c_project",
+      "requestedTools": [
+        "cppcheck",
+        "flawfinder",
+        "clang-tidy",
+        "scan-build",
+        "gcc-fanalyzer"
+      ],
+      "sourceFileCount": 2,
+      "toolSkipReasons": {
+        "semgrep": "operator-requested-subset"
+      },
+      "toolStatuses": {
+        "clang-tidy": "ok",
+        "cppcheck": "ok",
+        "flawfinder": "ok",
+        "gcc-fanalyzer": "ok",
+        "scan-build": "ok",
+        "semgrep": "skipped"
+      },
+      "toolsRun": [
+        "cppcheck",
+        "flawfinder",
+        "clang-tidy",
+        "scan-build",
+        "gcc-fanalyzer"
+      ],
+      "topFindings": [
+        {
+          "dataFlow": null,
+          "location": {
+            "column": 5,
+            "endColumn": null,
+            "endLine": null,
+            "file": "src/main.c",
+            "line": 8
+          },
+          "message": "Obsolete function 'gets' called. It is recommended to use 'fgets' or 'gets_s' instead.",
+          "metadata": {
+            "cppcheckId": "getsCalled",
+            "cwe": [
+              "CWE-477"
+            ],
+            "cweId": "CWE-477",
+            "evidenceResolution": {
+              "cwe": {
+                "id": "CWE-477",
+                "source": "metadata.cweId",
+                "status": "known"
+              },
+              "dataFlow": {
+                "present": false,
+                "stepCount": 0
+              },
+              "diagnostics": [
+                "DATAFLOW_NOT_PROVIDED"
+              ],
+              "kind": "sast-finding",
+              "location": {
+                "column": 5,
+                "endColumn": null,
+                "endLine": null,
+                "file": "src/main.c",
+                "line": 8,
+                "status": "present"
+              },
+              "origin": {
+                "source": "default",
+                "status": "user-code"
+              },
+              "ruleId": "cppcheck:getsCalled",
+              "schemaVersion": "s4-evidence-v1",
+              "toolId": "cppcheck"
+            },
+            "verbose": "The obsolete function 'gets' is called. With 'gets' you'll get a buffer overrun if the input data exceeds the size of the buffer. It is recommended to use the functions 'fgets' or 'gets_s' instead."
+          },
+          "origin": null,
+          "ruleId": "cppcheck:getsCalled",
+          "severity": "warning",
+          "toolId": "cppcheck"
+        },
+        {
+          "dataFlow": [
+            {
+              "content": "Null pointer dereference",
+              "file": "src/main.c",
+              "line": 17
+            },
+            {
+              "content": "Assignment 'q=NULL', assigned value is 0",
+              "file": "src/main.c",
+              "line": 16
+            }
+          ],
+          "location": {
+            "column": 21,
+            "endColumn": null,
+            "endLine": null,
+            "file": "src/main.c",
+            "line": 17
+          },
+          "message": "Null pointer dereference: q",
+          "metadata": {
+            "cppcheckId": "nullPointer",
+            "cwe": [
+              "CWE-476"
+            ],
+            "cweId": "CWE-476",
+            "evidenceResolution": {
+              "cwe": {
+                "id": "CWE-476",
+                "source": "metadata.cweId",
+                "status": "known"
+              },
+              "dataFlow": {
+                "present": true,
+                "stepCount": 2
+              },
+              "diagnostics": [],
+              "kind": "sast-finding",
+              "location": {
+                "column": 21,
+                "endColumn": null,
+                "endLine": null,
+                "file": "src/main.c",
+                "line": 17,
+                "status": "present"
+              },
+              "origin": {
+                "source": "default",
+                "status": "user-code"
+              },
+              "ruleId": "cppcheck:nullPointer",
+              "schemaVersion": "s4-evidence-v1",
+              "toolId": "cppcheck"
+            }
+          },
+          "origin": null,
+          "ruleId": "cppcheck:nullPointer",
+          "severity": "error",
+          "toolId": "cppcheck"
+        },
+        {
+          "dataFlow": null,
+          "location": {
+            "column": 11,
+            "endColumn": null,
+            "endLine": null,
+            "file": "src/main.c",
+            "line": 16
+          },
+          "message": "Variable 'q' can be declared as pointer to const",
+          "metadata": {
+            "cppcheckId": "constVariablePointer",
+            "cwe": [
+              "CWE-398"
+            ],
+            "cweId": "CWE-398",
+            "evidenceResolution": {
+              "cwe": {
+                "id": "CWE-398",
+                "source": "metadata.cweId",
+                "status": "known"
+              },
+              "dataFlow": {
+                "present": false,
+                "stepCount": 0
+              },
+              "diagnostics": [
+                "DATAFLOW_NOT_PROVIDED"
+              ],
+              "kind": "sast-finding",
+              "location": {
+                "column": 11,
+                "endColumn": null,
+                "endLine": null,
+                "file": "src/main.c",
+                "line": 16,
+                "status": "present"
+              },
+              "origin": {
+                "source": "default",
+                "status": "user-code"
+              },
+              "ruleId": "cppcheck:constVariablePointer",
+              "schemaVersion": "s4-evidence-v1",
+              "toolId": "cppcheck"
+            }
+          },
+          "origin": null,
+          "ruleId": "cppcheck:constVariablePointer",
+          "severity": "style",
+          "toolId": "cppcheck"
+        },
+        {
+          "dataFlow": null,
+          "location": {
+            "column": 26,
+            "endColumn": null,
+            "endLine": null,
+            "file": "src/main.c",
+            "line": 6
+          },
+          "message": "Parameter 'argv' can be declared as const array",
+          "metadata": {
+            "cppcheckId": "constParameter",
+            "cwe": [
+              "CWE-398"
+            ],
+            "cweId": "CWE-398",
+            "evidenceResolution": {
+              "cwe": {
+                "id": "CWE-398",
+                "source": "metadata.cweId",
+                "status": "known"
+              },
+              "dataFlow": {
+                "present": false,
+                "stepCount": 0
+              },
+              "diagnostics": [
+                "DATAFLOW_NOT_PROVIDED"
+              ],
+              "kind": "sast-finding",
+              "location": {
+                "column": 26,
+                "endColumn": null,
+                "endLine": null,
+                "file": "src/main.c",
+                "line": 6,
+                "status": "present"
+              },
+              "origin": {
+                "source": "default",
+                "status": "user-code"
+              },
+              "ruleId": "cppcheck:constParameter",
+              "schemaVersion": "s4-evidence-v1",
+              "toolId": "cppcheck"
+            }
+          },
+          "origin": null,
+          "ruleId": "cppcheck:constParameter",
+          "severity": "style",
+          "toolId": "cppcheck"
+        },
+        {
+          "dataFlow": null,
+          "location": {
+            "column": 5,
+            "endColumn": null,
+            "endLine": null,
+            "file": "src/main.c",
+            "line": 8
+          },
+          "message": "Does not check for buffer overflows (CWE-120, CWE-20).",
+          "metadata": {
+            "category": "buffer",
+            "context": "gets(buf);  /* CWE-120: Buffer Overflow */",
+            "cwe": [
+              "CWE-120",
+              "CWE-20"
+            ],
+            "cweId": "CWE-120",
+            "evidenceResolution": {
+              "cwe": {
+                "id": "CWE-120",
+                "source": "metadata.cweId",
+                "status": "known"
+              },
+              "dataFlow": {
+                "present": false,
+                "stepCount": 0
+              },
+              "diagnostics": [
+                "DATAFLOW_NOT_PROVIDED"
+              ],
+              "kind": "sast-finding",
+              "location": {
+                "column": 5,
+                "endColumn": null,
+                "endLine": null,
+                "file": "src/main.c",
+                "line": 8,
+                "status": "present"
+              },
+              "origin": {
+                "source": "default",
+                "status": "user-code"
+              },
+              "ruleId": "flawfinder:buffer/gets",
+              "schemaVersion": "s4-evidence-v1",
+              "toolId": "flawfinder"
+            },
+            "flawfinderLevel": 5,
+            "name": "gets"
+          },
+          "origin": null,
+          "ruleId": "flawfinder:buffer/gets",
+          "severity": "error",
+          "toolId": "flawfinder"
+        },
+        {
+          "dataFlow": null,
+          "location": {
+            "column": 5,
+            "endColumn": null,
+            "endLine": null,
+            "file": "src/main.c",
+            "line": 10
+          },
+          "message": "If format strings can be influenced by an attacker, they can be exploited (CWE-134).",
+          "metadata": {
+            "category": "format",
+            "context": "printf(buf);  /* CWE-134: Format String */",
+            "cwe": [
+              "CWE-134"
+            ],
+            "cweId": "CWE-134",
+            "evidenceResolution": {
+              "cwe": {
+                "id": "CWE-134",
+                "source": "metadata.cweId",
+                "status": "known"
+              },
+              "dataFlow": {
+                "present": false,
+                "stepCount": 0
+              },
+              "diagnostics": [
+                "DATAFLOW_NOT_PROVIDED"
+              ],
+              "kind": "sast-finding",
+              "location": {
+                "column": 5,
+                "endColumn": null,
+                "endLine": null,
+                "file": "src/main.c",
+                "line": 10,
+                "status": "present"
+              },
+              "origin": {
+                "source": "default",
+                "status": "user-code"
+              },
+              "ruleId": "flawfinder:format/printf",
+              "schemaVersion": "s4-evidence-v1",
+              "toolId": "flawfinder"
+            },
+            "flawfinderLevel": 4,
+            "name": "printf"
+          },
+          "origin": null,
+          "ruleId": "flawfinder:format/printf",
+          "severity": "error",
+          "toolId": "flawfinder"
+        },
+        {
+          "dataFlow": null,
+          "location": {
+            "column": 5,
+            "endColumn": null,
+            "endLine": null,
+            "file": "src/main.c",
+            "line": 22
+          },
+          "message": "This causes a new program to execute and is difficult to use safely (CWE-78).",
+          "metadata": {
+            "category": "shell",
+            "context": "system(argv[2]);  /* CWE-78: Command Injection */",
+            "cwe": [
+              "CWE-78"
+            ],
+            "cweId": "CWE-78",
+            "evidenceResolution": {
+              "cwe": {
+                "id": "CWE-78",
+                "source": "metadata.cweId",
+                "status": "known"
+              },
+              "dataFlow": {
+                "present": false,
+                "stepCount": 0
+              },
+              "diagnostics": [
+                "DATAFLOW_NOT_PROVIDED"
+              ],
+              "kind": "sast-finding",
+              "location": {
+                "column": 5,
+                "endColumn": null,
+                "endLine": null,
+                "file": "src/main.c",
+                "line": 22,
+                "status": "present"
+              },
+              "origin": {
+                "source": "default",
+                "status": "user-code"
+              },
+              "ruleId": "flawfinder:shell/system",
+              "schemaVersion": "s4-evidence-v1",
+              "toolId": "flawfinder"
+            },
+            "flawfinderLevel": 4,
+            "name": "system"
+          },
+          "origin": null,
+          "ruleId": "flawfinder:shell/system",
+          "severity": "error",
+          "toolId": "flawfinder"
+        },
+        {
+          "dataFlow": null,
+          "location": {
+            "column": 5,
+            "endColumn": null,
+            "endLine": null,
+            "file": "src/main.c",
+            "line": 27
+          },
+          "message": "Does not check for buffer overflows when copying to destination [MS-banned] (CWE-120).",
+          "metadata": {
+            "category": "buffer",
+            "context": "strcpy(buf, argv[1]);  /* CWE-787: Buffer Overflow Write */",
+            "cwe": [
+              "CWE-120"
+            ],
+            "cweId": "CWE-120",
+            "evidenceResolution": {
+              "cwe": {
+                "id": "CWE-120",
+                "source": "metadata.cweId",
+                "status": "known"
+              },
+              "dataFlow": {
+                "present": false,
+                "stepCount": 0
+              },
+              "diagnostics": [
+                "DATAFLOW_NOT_PROVIDED"
+              ],
+              "kind": "sast-finding",
+              "location": {
+                "column": 5,
+                "endColumn": null,
+                "endLine": null,
+                "file": "src/main.c",
+                "line": 27,
+                "status": "present"
+              },
+              "origin": {
+                "source": "default",
+                "status": "user-code"
+              },
+              "ruleId": "flawfinder:buffer/strcpy",
+              "schemaVersion": "s4-evidence-v1",
+              "toolId": "flawfinder"
+            },
+            "flawfinderLevel": 4,
+            "name": "strcpy"
+          },
+          "origin": null,
+          "ruleId": "flawfinder:buffer/strcpy",
+          "severity": "error",
+          "toolId": "flawfinder"
+        },
+        {
+          "dataFlow": null,
+          "location": {
+            "column": 5,
+            "endColumn": null,
+            "endLine": null,
+            "file": "src/main.c",
+            "line": 7
+          },
+          "message": "Statically-sized arrays can be improperly restricted, leading to potential overflows or other issues (CWE-119!/CWE-120).",
+          "metadata": {
+            "category": "buffer",
+            "context": "char buf[64];",
+            "cwe": [
+              "CWE-119",
+              "CWE-120"
+            ],
+            "cweId": "CWE-119",
+            "evidenceResolution": {
+              "cwe": {
+                "id": "CWE-119",
+                "source": "metadata.cweId",
+                "status": "known"
+              },
+              "dataFlow": {
+                "present": false,
+                "stepCount": 0
+              },
+              "diagnostics": [
+                "DATAFLOW_NOT_PROVIDED"
+              ],
+              "kind": "sast-finding",
+              "location": {
+                "column": 5,
+                "endColumn": null,
+                "endLine": null,
+                "file": "src/main.c",
+                "line": 7,
+                "status": "present"
+              },
+              "origin": {
+                "source": "default",
+                "status": "user-code"
+              },
+              "ruleId": "flawfinder:buffer/char",
+              "schemaVersion": "s4-evidence-v1",
+              "toolId": "flawfinder"
+            },
+            "flawfinderLevel": 2,
+            "name": "char"
+          },
+          "origin": null,
+          "ruleId": "flawfinder:buffer/char",
+          "severity": "warning",
+          "toolId": "flawfinder"
+        },
+        {
+          "dataFlow": null,
+          "location": {
+            "column": 15,
+            "endColumn": null,
+            "endLine": null,
+            "file": "src/main.c",
+            "line": 19
+          },
+          "message": "Unless checked, the resulting number can exceed the expected range (CWE-190).",
+          "metadata": {
+            "category": "integer",
+            "context": "int val = atoi(argv[1]);",
+            "cwe": [
+              "CWE-190"
+            ],
+            "cweId": "CWE-190",
+            "evidenceResolution": {
+              "cwe": {
+                "id": "CWE-190",
+                "source": "metadata.cweId",
+                "status": "known"
+              },
+              "dataFlow": {
+                "present": false,
+                "stepCount": 0
+              },
+              "diagnostics": [
+                "DATAFLOW_NOT_PROVIDED"
+              ],
+              "kind": "sast-finding",
+              "location": {
+                "column": 15,
+                "endColumn": null,
+                "endLine": null,
+                "file": "src/main.c",
+                "line": 19,
+                "status": "present"
+              },
+              "origin": {
+                "source": "default",
+                "status": "user-code"
+              },
+              "ruleId": "flawfinder:integer/atoi",
+              "schemaVersion": "s4-evidence-v1",
+              "toolId": "flawfinder"
+            },
+            "flawfinderLevel": 2,
+            "name": "atoi"
+          },
+          "origin": null,
+          "ruleId": "flawfinder:integer/atoi",
+          "severity": "warning",
+          "toolId": "flawfinder"
+        }
+      ]
+    },
+    {
+      "compileCommands": "uploads/proj-e2e-hot3-qg-stability-20260428-204030-01/compile_commands.json",
+      "elapsedMs": 2978,
+      "findingsByTool": {
+        "clang-tidy": 8,
+        "cppcheck": 3,
+        "flawfinder": 2,
+        "gcc-fanalyzer": 4,
+        "scan-build": 1,
+        "semgrep": 0
+      },
+      "findingsTotal": 18,
+      "ok": true,
+      "project": "uploads/proj-e2e-hot3-qg-stability-20260428-204030-01",
+      "requestedTools": [
+        "cppcheck",
+        "flawfinder",
+        "clang-tidy",
+        "scan-build",
+        "gcc-fanalyzer"
+      ],
+      "sourceFileCount": 1,
+      "toolSkipReasons": {
+        "semgrep": "operator-requested-subset"
+      },
+      "toolStatuses": {
+        "clang-tidy": "ok",
+        "cppcheck": "ok",
+        "flawfinder": "ok",
+        "gcc-fanalyzer": "ok",
+        "scan-build": "ok",
+        "semgrep": "skipped"
+      },
+      "toolsRun": [
+        "cppcheck",
+        "flawfinder",
+        "clang-tidy",
+        "scan-build",
+        "gcc-fanalyzer"
+      ],
+      "topFindings": [
+        {
+          "dataFlow": null,
+          "location": {
+            "column": 14,
+            "endColumn": null,
+            "endLine": null,
+            "file": "main.cpp",
+            "line": 110
+          },
+          "message": "Variable 'ip' can be declared as reference to const",
+          "metadata": {
+            "cppcheckId": "constVariableReference",
+            "cwe": [
+              "CWE-398"
+            ],
+            "cweId": "CWE-398",
+            "evidenceResolution": {
+              "cwe": {
+                "id": "CWE-398",
+                "source": "metadata.cweId",
+                "status": "known"
+              },
+              "dataFlow": {
+                "present": false,
+                "stepCount": 0
+              },
+              "diagnostics": [
+                "DATAFLOW_NOT_PROVIDED"
+              ],
+              "kind": "sast-finding",
+              "location": {
+                "column": 14,
+                "endColumn": null,
+                "endLine": null,
+                "file": "main.cpp",
+                "line": 110,
+                "status": "present"
+              },
+              "origin": {
+                "source": "default",
+                "status": "user-code"
+              },
+              "ruleId": "cppcheck:constVariableReference",
+              "schemaVersion": "s4-evidence-v1",
+              "toolId": "cppcheck"
+            }
+          },
+          "origin": null,
+          "ruleId": "cppcheck:constVariableReference",
+          "severity": "style",
+          "toolId": "cppcheck"
+        },
+        {
+          "dataFlow": null,
+          "location": {
+            "column": 14,
+            "endColumn": null,
+            "endLine": null,
+            "file": "main.cpp",
+            "line": 119
+          },
+          "message": "Variable 'd' can be declared as reference to const",
+          "metadata": {
+            "cppcheckId": "constVariableReference",
+            "cwe": [
+              "CWE-398"
+            ],
+            "cweId": "CWE-398",
+            "evidenceResolution": {
+              "cwe": {
+                "id": "CWE-398",
+                "source": "metadata.cweId",
+                "status": "known"
+              },
+              "dataFlow": {
+                "present": false,
+                "stepCount": 0
+              },
+              "diagnostics": [
+                "DATAFLOW_NOT_PROVIDED"
+              ],
+              "kind": "sast-finding",
+              "location": {
+                "column": 14,
+                "endColumn": null,
+                "endLine": null,
+                "file": "main.cpp",
+                "line": 119,
+                "status": "present"
+              },
+              "origin": {
+                "source": "default",
+                "status": "user-code"
+              },
+              "ruleId": "cppcheck:constVariableReference",
+              "schemaVersion": "s4-evidence-v1",
+              "toolId": "cppcheck"
+            }
+          },
+          "origin": null,
+          "ruleId": "cppcheck:constVariableReference",
+          "severity": "style",
+          "toolId": "cppcheck"
+        },
+        {
+          "dataFlow": null,
+          "location": {
+            "column": 16,
+            "endColumn": null,
+            "endLine": null,
+            "file": "main.cpp",
+            "line": 276
+          },
+          "message": "Variable 'exitLoop' is assigned a value that is never used.",
+          "metadata": {
+            "cppcheckId": "unreadVariable",
+            "cwe": [
+              "CWE-563"
+            ],
+            "cweId": "CWE-563",
+            "evidenceResolution": {
+              "cwe": {
+                "id": "CWE-563",
+                "source": "metadata.cweId",
+                "status": "known"
+              },
+              "dataFlow": {
+                "present": false,
+                "stepCount": 0
+              },
+              "diagnostics": [
+                "DATAFLOW_NOT_PROVIDED"
+              ],
+              "kind": "sast-finding",
+              "location": {
+                "column": 16,
+                "endColumn": null,
+                "endLine": null,
+                "file": "main.cpp",
+                "line": 276,
+                "status": "present"
+              },
+              "origin": {
+                "source": "default",
+                "status": "user-code"
+              },
+              "ruleId": "cppcheck:unreadVariable",
+              "schemaVersion": "s4-evidence-v1",
+              "toolId": "cppcheck"
+            }
+          },
+          "origin": null,
+          "ruleId": "cppcheck:unreadVariable",
+          "severity": "style",
+          "toolId": "cppcheck"
+        },
+        {
+          "dataFlow": null,
+          "location": {
+            "column": 13,
+            "endColumn": null,
+            "endLine": null,
+            "file": "main.cpp",
+            "line": 35
+          },
+          "message": "This causes a new program to execute and is difficult to use safely (CWE-78).",
+          "metadata": {
+            "category": "shell",
+            "context": "FILE *p = popen(cmd.c_str(), \"r\");",
+            "cwe": [
+              "CWE-78"
+            ],
+            "cweId": "CWE-78",
+            "evidenceResolution": {
+              "cwe": {
+                "id": "CWE-78",
+                "source": "metadata.cweId",
+                "status": "known"
+              },
+              "dataFlow": {
+                "present": false,
+                "stepCount": 0
+              },
+              "diagnostics": [
+                "DATAFLOW_NOT_PROVIDED"
+              ],
+              "kind": "sast-finding",
+              "location": {
+                "column": 13,
+                "endColumn": null,
+                "endLine": null,
+                "file": "main.cpp",
+                "line": 35,
+                "status": "present"
+              },
+              "origin": {
+                "source": "default",
+                "status": "user-code"
+              },
+              "ruleId": "flawfinder:shell/popen",
+              "schemaVersion": "s4-evidence-v1",
+              "toolId": "flawfinder"
+            },
+            "flawfinderLevel": 4,
+            "name": "popen"
+          },
+          "origin": null,
+          "ruleId": "flawfinder:shell/popen",
+          "severity": "error",
+          "toolId": "flawfinder"
+        },
+        {
+          "dataFlow": null,
+          "location": {
+            "column": 3,
+            "endColumn": null,
+            "endLine": null,
+            "file": "main.cpp",
+            "line": 40
+          },
+          "message": "Statically-sized arrays can be improperly restricted, leading to potential overflows or other issues (CWE-119!/CWE-120).",
+          "metadata": {
+            "category": "buffer",
+            "context": "char buf[512];",
+            "cwe": [
+              "CWE-119",
+              "CWE-120"
+            ],
+            "cweId": "CWE-119",
+            "evidenceResolution": {
+              "cwe": {
+                "id": "CWE-119",
+                "source": "metadata.cweId",
+                "status": "known"
+              },
+              "dataFlow": {
+                "present": false,
+                "stepCount": 0
+              },
+              "diagnostics": [
+                "DATAFLOW_NOT_PROVIDED"
+              ],
+              "kind": "sast-finding",
+              "location": {
+                "column": 3,
+                "endColumn": null,
+                "endLine": null,
+                "file": "main.cpp",
+                "line": 40,
+                "status": "present"
+              },
+              "origin": {
+                "source": "default",
+                "status": "user-code"
+              },
+              "ruleId": "flawfinder:buffer/char",
+              "schemaVersion": "s4-evidence-v1",
+              "toolId": "flawfinder"
+            },
+            "flawfinderLevel": 2,
+            "name": "char"
+          },
+          "origin": null,
+          "ruleId": "flawfinder:buffer/char",
+          "severity": "warning",
+          "toolId": "flawfinder"
+        },
+        {
+          "dataFlow": null,
+          "location": {
+            "column": 38,
+            "endColumn": null,
+            "endLine": null,
+            "file": "main.cpp",
+            "line": 33
+          },
+          "message": "do not use 'std::endl' with streams; use '\\n' instead",
+          "metadata": {
+            "clangTidyCheck": "performance-avoid-endl",
+            "evidenceResolution": {
+              "cwe": {
+                "id": null,
+                "source": null,
+                "status": "unknown"
+              },
+              "dataFlow": {
+                "present": false,
+                "stepCount": 0
+              },
+              "diagnostics": [
+                "CWE_UNKNOWN",
+                "DATAFLOW_NOT_PROVIDED"
+              ],
+              "kind": "sast-finding",
+              "location": {
+                "column": 38,
+                "endColumn": null,
+                "endLine": null,
+                "file": "main.cpp",
+                "line": 33,
+                "status": "present"
+              },
+              "origin": {
+                "source": "default",
+                "status": "user-code"
+              },
+              "ruleId": "clang-tidy:performance-avoid-endl",
+              "schemaVersion": "s4-evidence-v1",
+              "toolId": "clang-tidy"
+            }
+          },
+          "origin": null,
+          "ruleId": "clang-tidy:performance-avoid-endl",
+          "severity": "warning",
+          "toolId": "clang-tidy"
+        },
+        {
+          "dataFlow": null,
+          "location": {
+            "column": 13,
+            "endColumn": null,
+            "endLine": null,
+            "file": "main.cpp",
+            "line": 35
+          },
+          "message": "calling 'popen' uses a command processor",
+          "metadata": {
+            "clangTidyCheck": "cert-env33-c",
+            "cwe": [
+              "CWE-78"
+            ],
+            "cweId": "CWE-78",
+            "evidenceResolution": {
+              "cwe": {
+                "id": "CWE-78",
+                "source": "metadata.cweId",
+                "status": "known"
+              },
+              "dataFlow": {
+                "present": false,
+                "stepCount": 0
+              },
+              "diagnostics": [
+                "DATAFLOW_NOT_PROVIDED"
+              ],
+              "kind": "sast-finding",
+              "location": {
+                "column": 13,
+                "endColumn": null,
+                "endLine": null,
+                "file": "main.cpp",
+                "line": 35,
+                "status": "present"
+              },
+              "origin": {
+                "source": "default",
+                "status": "user-code"
+              },
+              "ruleId": "clang-tidy:cert-env33-c",
+              "schemaVersion": "s4-evidence-v1",
+              "toolId": "clang-tidy"
+            }
+          },
+          "origin": null,
+          "ruleId": "clang-tidy:cert-env33-c",
+          "severity": "warning",
+          "toolId": "clang-tidy"
+        },
+        {
+          "dataFlow": null,
+          "location": {
+            "column": 30,
+            "endColumn": null,
+            "endLine": null,
+            "file": "main.cpp",
+            "line": 106
+          },
+          "message": "2 adjacent parameters of 'build_san' of similar type ('const std::vector<std::string> &') are easily swapped by mistake",
+          "metadata": {
+            "clangTidyCheck": "bugprone-easily-swappable-parameters",
+            "evidenceResolution": {
+              "cwe": {
+                "id": null,
+                "source": null,
+                "status": "unknown"
+              },
+              "dataFlow": {
+                "present": false,
+                "stepCount": 0
+              },
+              "diagnostics": [
+                "CWE_UNKNOWN",
+                "DATAFLOW_NOT_PROVIDED"
+              ],
+              "kind": "sast-finding",
+              "location": {
+                "column": 30,
+                "endColumn": null,
+                "endLine": null,
+                "file": "main.cpp",
+                "line": 106,
+                "status": "present"
+              },
+              "origin": {
+                "source": "default",
+                "status": "user-code"
+              },
+              "ruleId": "clang-tidy:bugprone-easily-swappable-parameters",
+              "schemaVersion": "s4-evidence-v1",
+              "toolId": "clang-tidy"
+            }
+          },
+          "origin": null,
+          "ruleId": "clang-tidy:bugprone-easily-swappable-parameters",
+          "severity": "warning",
+          "toolId": "clang-tidy"
+        },
+        {
+          "dataFlow": null,
+          "location": {
+            "column": 23,
+            "endColumn": null,
+            "endLine": null,
+            "file": "main.cpp",
+            "line": 131
+          },
+          "message": "2 adjacent parameters of 'write_ext' of similar type ('const std::string &') are easily swapped by mistake",
+          "metadata": {
+            "clangTidyCheck": "bugprone-easily-swappable-parameters",
+            "evidenceResolution": {
+              "cwe": {
+                "id": null,
+                "source": null,
+                "status": "unknown"
+              },
+              "dataFlow": {
+                "present": false,
+                "stepCount": 0
+              },
+              "diagnostics": [
+                "CWE_UNKNOWN",
+                "DATAFLOW_NOT_PROVIDED"
+              ],
+              "kind": "sast-finding",
+              "location": {
+                "column": 23,
+                "endColumn": null,
+                "endLine": null,
+                "file": "main.cpp",
+                "line": 131,
+                "status": "present"
+              },
+              "origin": {
+                "source": "default",
+                "status": "user-code"
+              },
+              "ruleId": "clang-tidy:bugprone-easily-swappable-parameters",
+              "schemaVersion": "s4-evidence-v1",
+              "toolId": "clang-tidy"
+            }
+          },
+          "origin": null,
+          "ruleId": "clang-tidy:bugprone-easily-swappable-parameters",
+          "severity": "warning",
+          "toolId": "clang-tidy"
+        },
+        {
+          "dataFlow": null,
+          "location": {
+            "column": 22,
+            "endColumn": null,
+            "endLine": null,
+            "file": "main.cpp",
+            "line": 143
+          },
+          "message": "2 adjacent parameters of 'create_ca' of similar type ('const std::string &') are easily swapped by mistake",
+          "metadata": {
+            "clangTidyCheck": "bugprone-easily-swappable-parameters",
+            "evidenceResolution": {
+              "cwe": {
+                "id": null,
+                "source": null,
+                "status": "unknown"
+              },
+              "dataFlow": {
+                "present": false,
+                "stepCount": 0
+              },
+              "diagnostics": [
+                "CWE_UNKNOWN",
+                "DATAFLOW_NOT_PROVIDED"
+              ],
+              "kind": "sast-finding",
+              "location": {
+                "column": 22,
+                "endColumn": null,
+                "endLine": null,
+                "file": "main.cpp",
+                "line": 143,
+                "status": "present"
+              },
+              "origin": {
+                "source": "default",
+                "status": "user-code"
+              },
+              "ruleId": "clang-tidy:bugprone-easily-swappable-parameters",
+              "schemaVersion": "s4-evidence-v1",
+              "toolId": "clang-tidy"
+            }
+          },
+          "origin": null,
+          "ruleId": "clang-tidy:bugprone-easily-swappable-parameters",
+          "severity": "warning",
+          "toolId": "clang-tidy"
+        }
+      ]
+    },
+    {
+      "compileCommands": "uploads/proj-e2e-hot3-stability-operational-20260506-102942-01/compile_commands.json",
+      "elapsedMs": 3018,
+      "findingsByTool": {
+        "clang-tidy": 8,
+        "cppcheck": 3,
+        "flawfinder": 2,
+        "gcc-fanalyzer": 4,
+        "scan-build": 1,
+        "semgrep": 0
+      },
+      "findingsTotal": 18,
+      "ok": true,
+      "project": "uploads/proj-e2e-hot3-stability-operational-20260506-102942-01",
+      "requestedTools": [
+        "cppcheck",
+        "flawfinder",
+        "clang-tidy",
+        "scan-build",
+        "gcc-fanalyzer"
+      ],
+      "sourceFileCount": 1,
+      "toolSkipReasons": {
+        "semgrep": "operator-requested-subset"
+      },
+      "toolStatuses": {
+        "clang-tidy": "ok",
+        "cppcheck": "ok",
+        "flawfinder": "ok",
+        "gcc-fanalyzer": "ok",
+        "scan-build": "ok",
+        "semgrep": "skipped"
+      },
+      "toolsRun": [
+        "cppcheck",
+        "flawfinder",
+        "clang-tidy",
+        "scan-build",
+        "gcc-fanalyzer"
+      ],
+      "topFindings": [
+        {
+          "dataFlow": null,
+          "location": {
+            "column": 14,
+            "endColumn": null,
+            "endLine": null,
+            "file": "main.cpp",
+            "line": 110
+          },
+          "message": "Variable 'ip' can be declared as reference to const",
+          "metadata": {
+            "cppcheckId": "constVariableReference",
+            "cwe": [
+              "CWE-398"
+            ],
+            "cweId": "CWE-398",
+            "evidenceResolution": {
+              "cwe": {
+                "id": "CWE-398",
+                "source": "metadata.cweId",
+                "status": "known"
+              },
+              "dataFlow": {
+                "present": false,
+                "stepCount": 0
+              },
+              "diagnostics": [
+                "DATAFLOW_NOT_PROVIDED"
+              ],
+              "kind": "sast-finding",
+              "location": {
+                "column": 14,
+                "endColumn": null,
+                "endLine": null,
+                "file": "main.cpp",
+                "line": 110,
+                "status": "present"
+              },
+              "origin": {
+                "source": "default",
+                "status": "user-code"
+              },
+              "ruleId": "cppcheck:constVariableReference",
+              "schemaVersion": "s4-evidence-v1",
+              "toolId": "cppcheck"
+            }
+          },
+          "origin": null,
+          "ruleId": "cppcheck:constVariableReference",
+          "severity": "style",
+          "toolId": "cppcheck"
+        },
+        {
+          "dataFlow": null,
+          "location": {
+            "column": 14,
+            "endColumn": null,
+            "endLine": null,
+            "file": "main.cpp",
+            "line": 119
+          },
+          "message": "Variable 'd' can be declared as reference to const",
+          "metadata": {
+            "cppcheckId": "constVariableReference",
+            "cwe": [
+              "CWE-398"
+            ],
+            "cweId": "CWE-398",
+            "evidenceResolution": {
+              "cwe": {
+                "id": "CWE-398",
+                "source": "metadata.cweId",
+                "status": "known"
+              },
+              "dataFlow": {
+                "present": false,
+                "stepCount": 0
+              },
+              "diagnostics": [
+                "DATAFLOW_NOT_PROVIDED"
+              ],
+              "kind": "sast-finding",
+              "location": {
+                "column": 14,
+                "endColumn": null,
+                "endLine": null,
+                "file": "main.cpp",
+                "line": 119,
+                "status": "present"
+              },
+              "origin": {
+                "source": "default",
+                "status": "user-code"
+              },
+              "ruleId": "cppcheck:constVariableReference",
+              "schemaVersion": "s4-evidence-v1",
+              "toolId": "cppcheck"
+            }
+          },
+          "origin": null,
+          "ruleId": "cppcheck:constVariableReference",
+          "severity": "style",
+          "toolId": "cppcheck"
+        },
+        {
+          "dataFlow": null,
+          "location": {
+            "column": 16,
+            "endColumn": null,
+            "endLine": null,
+            "file": "main.cpp",
+            "line": 276
+          },
+          "message": "Variable 'exitLoop' is assigned a value that is never used.",
+          "metadata": {
+            "cppcheckId": "unreadVariable",
+            "cwe": [
+              "CWE-563"
+            ],
+            "cweId": "CWE-563",
+            "evidenceResolution": {
+              "cwe": {
+                "id": "CWE-563",
+                "source": "metadata.cweId",
+                "status": "known"
+              },
+              "dataFlow": {
+                "present": false,
+                "stepCount": 0
+              },
+              "diagnostics": [
+                "DATAFLOW_NOT_PROVIDED"
+              ],
+              "kind": "sast-finding",
+              "location": {
+                "column": 16,
+                "endColumn": null,
+                "endLine": null,
+                "file": "main.cpp",
+                "line": 276,
+                "status": "present"
+              },
+              "origin": {
+                "source": "default",
+                "status": "user-code"
+              },
+              "ruleId": "cppcheck:unreadVariable",
+              "schemaVersion": "s4-evidence-v1",
+              "toolId": "cppcheck"
+            }
+          },
+          "origin": null,
+          "ruleId": "cppcheck:unreadVariable",
+          "severity": "style",
+          "toolId": "cppcheck"
+        },
+        {
+          "dataFlow": null,
+          "location": {
+            "column": 13,
+            "endColumn": null,
+            "endLine": null,
+            "file": "main.cpp",
+            "line": 35
+          },
+          "message": "This causes a new program to execute and is difficult to use safely (CWE-78).",
+          "metadata": {
+            "category": "shell",
+            "context": "FILE *p = popen(cmd.c_str(), \"r\");",
+            "cwe": [
+              "CWE-78"
+            ],
+            "cweId": "CWE-78",
+            "evidenceResolution": {
+              "cwe": {
+                "id": "CWE-78",
+                "source": "metadata.cweId",
+                "status": "known"
+              },
+              "dataFlow": {
+                "present": false,
+                "stepCount": 0
+              },
+              "diagnostics": [
+                "DATAFLOW_NOT_PROVIDED"
+              ],
+              "kind": "sast-finding",
+              "location": {
+                "column": 13,
+                "endColumn": null,
+                "endLine": null,
+                "file": "main.cpp",
+                "line": 35,
+                "status": "present"
+              },
+              "origin": {
+                "source": "default",
+                "status": "user-code"
+              },
+              "ruleId": "flawfinder:shell/popen",
+              "schemaVersion": "s4-evidence-v1",
+              "toolId": "flawfinder"
+            },
+            "flawfinderLevel": 4,
+            "name": "popen"
+          },
+          "origin": null,
+          "ruleId": "flawfinder:shell/popen",
+          "severity": "error",
+          "toolId": "flawfinder"
+        },
+        {
+          "dataFlow": null,
+          "location": {
+            "column": 3,
+            "endColumn": null,
+            "endLine": null,
+            "file": "main.cpp",
+            "line": 40
+          },
+          "message": "Statically-sized arrays can be improperly restricted, leading to potential overflows or other issues (CWE-119!/CWE-120).",
+          "metadata": {
+            "category": "buffer",
+            "context": "char buf[512];",
+            "cwe": [
+              "CWE-119",
+              "CWE-120"
+            ],
+            "cweId": "CWE-119",
+            "evidenceResolution": {
+              "cwe": {
+                "id": "CWE-119",
+                "source": "metadata.cweId",
+                "status": "known"
+              },
+              "dataFlow": {
+                "present": false,
+                "stepCount": 0
+              },
+              "diagnostics": [
+                "DATAFLOW_NOT_PROVIDED"
+              ],
+              "kind": "sast-finding",
+              "location": {
+                "column": 3,
+                "endColumn": null,
+                "endLine": null,
+                "file": "main.cpp",
+                "line": 40,
+                "status": "present"
+              },
+              "origin": {
+                "source": "default",
+                "status": "user-code"
+              },
+              "ruleId": "flawfinder:buffer/char",
+              "schemaVersion": "s4-evidence-v1",
+              "toolId": "flawfinder"
+            },
+            "flawfinderLevel": 2,
+            "name": "char"
+          },
+          "origin": null,
+          "ruleId": "flawfinder:buffer/char",
+          "severity": "warning",
+          "toolId": "flawfinder"
+        },
+        {
+          "dataFlow": null,
+          "location": {
+            "column": 38,
+            "endColumn": null,
+            "endLine": null,
+            "file": "main.cpp",
+            "line": 33
+          },
+          "message": "do not use 'std::endl' with streams; use '\\n' instead",
+          "metadata": {
+            "clangTidyCheck": "performance-avoid-endl",
+            "evidenceResolution": {
+              "cwe": {
+                "id": null,
+                "source": null,
+                "status": "unknown"
+              },
+              "dataFlow": {
+                "present": false,
+                "stepCount": 0
+              },
+              "diagnostics": [
+                "CWE_UNKNOWN",
+                "DATAFLOW_NOT_PROVIDED"
+              ],
+              "kind": "sast-finding",
+              "location": {
+                "column": 38,
+                "endColumn": null,
+                "endLine": null,
+                "file": "main.cpp",
+                "line": 33,
+                "status": "present"
+              },
+              "origin": {
+                "source": "default",
+                "status": "user-code"
+              },
+              "ruleId": "clang-tidy:performance-avoid-endl",
+              "schemaVersion": "s4-evidence-v1",
+              "toolId": "clang-tidy"
+            }
+          },
+          "origin": null,
+          "ruleId": "clang-tidy:performance-avoid-endl",
+          "severity": "warning",
+          "toolId": "clang-tidy"
+        },
+        {
+          "dataFlow": null,
+          "location": {
+            "column": 13,
+            "endColumn": null,
+            "endLine": null,
+            "file": "main.cpp",
+            "line": 35
+          },
+          "message": "calling 'popen' uses a command processor",
+          "metadata": {
+            "clangTidyCheck": "cert-env33-c",
+            "cwe": [
+              "CWE-78"
+            ],
+            "cweId": "CWE-78",
+            "evidenceResolution": {
+              "cwe": {
+                "id": "CWE-78",
+                "source": "metadata.cweId",
+                "status": "known"
+              },
+              "dataFlow": {
+                "present": false,
+                "stepCount": 0
+              },
+              "diagnostics": [
+                "DATAFLOW_NOT_PROVIDED"
+              ],
+              "kind": "sast-finding",
+              "location": {
+                "column": 13,
+                "endColumn": null,
+                "endLine": null,
+                "file": "main.cpp",
+                "line": 35,
+                "status": "present"
+              },
+              "origin": {
+                "source": "default",
+                "status": "user-code"
+              },
+              "ruleId": "clang-tidy:cert-env33-c",
+              "schemaVersion": "s4-evidence-v1",
+              "toolId": "clang-tidy"
+            }
+          },
+          "origin": null,
+          "ruleId": "clang-tidy:cert-env33-c",
+          "severity": "warning",
+          "toolId": "clang-tidy"
+        },
+        {
+          "dataFlow": null,
+          "location": {
+            "column": 30,
+            "endColumn": null,
+            "endLine": null,
+            "file": "main.cpp",
+            "line": 106
+          },
+          "message": "2 adjacent parameters of 'build_san' of similar type ('const std::vector<std::string> &') are easily swapped by mistake",
+          "metadata": {
+            "clangTidyCheck": "bugprone-easily-swappable-parameters",
+            "evidenceResolution": {
+              "cwe": {
+                "id": null,
+                "source": null,
+                "status": "unknown"
+              },
+              "dataFlow": {
+                "present": false,
+                "stepCount": 0
+              },
+              "diagnostics": [
+                "CWE_UNKNOWN",
+                "DATAFLOW_NOT_PROVIDED"
+              ],
+              "kind": "sast-finding",
+              "location": {
+                "column": 30,
+                "endColumn": null,
+                "endLine": null,
+                "file": "main.cpp",
+                "line": 106,
+                "status": "present"
+              },
+              "origin": {
+                "source": "default",
+                "status": "user-code"
+              },
+              "ruleId": "clang-tidy:bugprone-easily-swappable-parameters",
+              "schemaVersion": "s4-evidence-v1",
+              "toolId": "clang-tidy"
+            }
+          },
+          "origin": null,
+          "ruleId": "clang-tidy:bugprone-easily-swappable-parameters",
+          "severity": "warning",
+          "toolId": "clang-tidy"
+        },
+        {
+          "dataFlow": null,
+          "location": {
+            "column": 23,
+            "endColumn": null,
+            "endLine": null,
+            "file": "main.cpp",
+            "line": 131
+          },
+          "message": "2 adjacent parameters of 'write_ext' of similar type ('const std::string &') are easily swapped by mistake",
+          "metadata": {
+            "clangTidyCheck": "bugprone-easily-swappable-parameters",
+            "evidenceResolution": {
+              "cwe": {
+                "id": null,
+                "source": null,
+                "status": "unknown"
+              },
+              "dataFlow": {
+                "present": false,
+                "stepCount": 0
+              },
+              "diagnostics": [
+                "CWE_UNKNOWN",
+                "DATAFLOW_NOT_PROVIDED"
+              ],
+              "kind": "sast-finding",
+              "location": {
+                "column": 23,
+                "endColumn": null,
+                "endLine": null,
+                "file": "main.cpp",
+                "line": 131,
+                "status": "present"
+              },
+              "origin": {
+                "source": "default",
+                "status": "user-code"
+              },
+              "ruleId": "clang-tidy:bugprone-easily-swappable-parameters",
+              "schemaVersion": "s4-evidence-v1",
+              "toolId": "clang-tidy"
+            }
+          },
+          "origin": null,
+          "ruleId": "clang-tidy:bugprone-easily-swappable-parameters",
+          "severity": "warning",
+          "toolId": "clang-tidy"
+        },
+        {
+          "dataFlow": null,
+          "location": {
+            "column": 22,
+            "endColumn": null,
+            "endLine": null,
+            "file": "main.cpp",
+            "line": 143
+          },
+          "message": "2 adjacent parameters of 'create_ca' of similar type ('const std::string &') are easily swapped by mistake",
+          "metadata": {
+            "clangTidyCheck": "bugprone-easily-swappable-parameters",
+            "evidenceResolution": {
+              "cwe": {
+                "id": null,
+                "source": null,
+                "status": "unknown"
+              },
+              "dataFlow": {
+                "present": false,
+                "stepCount": 0
+              },
+              "diagnostics": [
+                "CWE_UNKNOWN",
+                "DATAFLOW_NOT_PROVIDED"
+              ],
+              "kind": "sast-finding",
+              "location": {
+                "column": 22,
+                "endColumn": null,
+                "endLine": null,
+                "file": "main.cpp",
+                "line": 143,
+                "status": "present"
+              },
+              "origin": {
+                "source": "default",
+                "status": "user-code"
+              },
+              "ruleId": "clang-tidy:bugprone-easily-swappable-parameters",
+              "schemaVersion": "s4-evidence-v1",
+              "toolId": "clang-tidy"
+            }
+          },
+          "origin": null,
+          "ruleId": "clang-tidy:bugprone-easily-swappable-parameters",
+          "severity": "warning",
+          "toolId": "clang-tidy"
+        }
+      ]
+    },
+    {
+      "compileCommands": "uploads/proj-e2e-s3-system-stability-smoke-20260425-181930/compile_commands.json",
+      "elapsedMs": 2990,
+      "findingsByTool": {
+        "clang-tidy": 8,
+        "cppcheck": 3,
+        "flawfinder": 2,
+        "gcc-fanalyzer": 4,
+        "scan-build": 1,
+        "semgrep": 0
+      },
+      "findingsTotal": 18,
+      "ok": true,
+      "project": "uploads/proj-e2e-s3-system-stability-smoke-20260425-181930",
+      "requestedTools": [
+        "cppcheck",
+        "flawfinder",
+        "clang-tidy",
+        "scan-build",
+        "gcc-fanalyzer"
+      ],
+      "sourceFileCount": 1,
+      "toolSkipReasons": {
+        "semgrep": "operator-requested-subset"
+      },
+      "toolStatuses": {
+        "clang-tidy": "ok",
+        "cppcheck": "ok",
+        "flawfinder": "ok",
+        "gcc-fanalyzer": "ok",
+        "scan-build": "ok",
+        "semgrep": "skipped"
+      },
+      "toolsRun": [
+        "cppcheck",
+        "flawfinder",
+        "clang-tidy",
+        "scan-build",
+        "gcc-fanalyzer"
+      ],
+      "topFindings": [
+        {
+          "dataFlow": null,
+          "location": {
+            "column": 14,
+            "endColumn": null,
+            "endLine": null,
+            "file": "main.cpp",
+            "line": 110
+          },
+          "message": "Variable 'ip' can be declared as reference to const",
+          "metadata": {
+            "cppcheckId": "constVariableReference",
+            "cwe": [
+              "CWE-398"
+            ],
+            "cweId": "CWE-398",
+            "evidenceResolution": {
+              "cwe": {
+                "id": "CWE-398",
+                "source": "metadata.cweId",
+                "status": "known"
+              },
+              "dataFlow": {
+                "present": false,
+                "stepCount": 0
+              },
+              "diagnostics": [
+                "DATAFLOW_NOT_PROVIDED"
+              ],
+              "kind": "sast-finding",
+              "location": {
+                "column": 14,
+                "endColumn": null,
+                "endLine": null,
+                "file": "main.cpp",
+                "line": 110,
+                "status": "present"
+              },
+              "origin": {
+                "source": "default",
+                "status": "user-code"
+              },
+              "ruleId": "cppcheck:constVariableReference",
+              "schemaVersion": "s4-evidence-v1",
+              "toolId": "cppcheck"
+            }
+          },
+          "origin": null,
+          "ruleId": "cppcheck:constVariableReference",
+          "severity": "style",
+          "toolId": "cppcheck"
+        },
+        {
+          "dataFlow": null,
+          "location": {
+            "column": 14,
+            "endColumn": null,
+            "endLine": null,
+            "file": "main.cpp",
+            "line": 119
+          },
+          "message": "Variable 'd' can be declared as reference to const",
+          "metadata": {
+            "cppcheckId": "constVariableReference",
+            "cwe": [
+              "CWE-398"
+            ],
+            "cweId": "CWE-398",
+            "evidenceResolution": {
+              "cwe": {
+                "id": "CWE-398",
+                "source": "metadata.cweId",
+                "status": "known"
+              },
+              "dataFlow": {
+                "present": false,
+                "stepCount": 0
+              },
+              "diagnostics": [
+                "DATAFLOW_NOT_PROVIDED"
+              ],
+              "kind": "sast-finding",
+              "location": {
+                "column": 14,
+                "endColumn": null,
+                "endLine": null,
+                "file": "main.cpp",
+                "line": 119,
+                "status": "present"
+              },
+              "origin": {
+                "source": "default",
+                "status": "user-code"
+              },
+              "ruleId": "cppcheck:constVariableReference",
+              "schemaVersion": "s4-evidence-v1",
+              "toolId": "cppcheck"
+            }
+          },
+          "origin": null,
+          "ruleId": "cppcheck:constVariableReference",
+          "severity": "style",
+          "toolId": "cppcheck"
+        },
+        {
+          "dataFlow": null,
+          "location": {
+            "column": 16,
+            "endColumn": null,
+            "endLine": null,
+            "file": "main.cpp",
+            "line": 276
+          },
+          "message": "Variable 'exitLoop' is assigned a value that is never used.",
+          "metadata": {
+            "cppcheckId": "unreadVariable",
+            "cwe": [
+              "CWE-563"
+            ],
+            "cweId": "CWE-563",
+            "evidenceResolution": {
+              "cwe": {
+                "id": "CWE-563",
+                "source": "metadata.cweId",
+                "status": "known"
+              },
+              "dataFlow": {
+                "present": false,
+                "stepCount": 0
+              },
+              "diagnostics": [
+                "DATAFLOW_NOT_PROVIDED"
+              ],
+              "kind": "sast-finding",
+              "location": {
+                "column": 16,
+                "endColumn": null,
+                "endLine": null,
+                "file": "main.cpp",
+                "line": 276,
+                "status": "present"
+              },
+              "origin": {
+                "source": "default",
+                "status": "user-code"
+              },
+              "ruleId": "cppcheck:unreadVariable",
+              "schemaVersion": "s4-evidence-v1",
+              "toolId": "cppcheck"
+            }
+          },
+          "origin": null,
+          "ruleId": "cppcheck:unreadVariable",
+          "severity": "style",
+          "toolId": "cppcheck"
+        },
+        {
+          "dataFlow": null,
+          "location": {
+            "column": 13,
+            "endColumn": null,
+            "endLine": null,
+            "file": "main.cpp",
+            "line": 35
+          },
+          "message": "This causes a new program to execute and is difficult to use safely (CWE-78).",
+          "metadata": {
+            "category": "shell",
+            "context": "FILE *p = popen(cmd.c_str(), \"r\");",
+            "cwe": [
+              "CWE-78"
+            ],
+            "cweId": "CWE-78",
+            "evidenceResolution": {
+              "cwe": {
+                "id": "CWE-78",
+                "source": "metadata.cweId",
+                "status": "known"
+              },
+              "dataFlow": {
+                "present": false,
+                "stepCount": 0
+              },
+              "diagnostics": [
+                "DATAFLOW_NOT_PROVIDED"
+              ],
+              "kind": "sast-finding",
+              "location": {
+                "column": 13,
+                "endColumn": null,
+                "endLine": null,
+                "file": "main.cpp",
+                "line": 35,
+                "status": "present"
+              },
+              "origin": {
+                "source": "default",
+                "status": "user-code"
+              },
+              "ruleId": "flawfinder:shell/popen",
+              "schemaVersion": "s4-evidence-v1",
+              "toolId": "flawfinder"
+            },
+            "flawfinderLevel": 4,
+            "name": "popen"
+          },
+          "origin": null,
+          "ruleId": "flawfinder:shell/popen",
+          "severity": "error",
+          "toolId": "flawfinder"
+        },
+        {
+          "dataFlow": null,
+          "location": {
+            "column": 3,
+            "endColumn": null,
+            "endLine": null,
+            "file": "main.cpp",
+            "line": 40
+          },
+          "message": "Statically-sized arrays can be improperly restricted, leading to potential overflows or other issues (CWE-119!/CWE-120).",
+          "metadata": {
+            "category": "buffer",
+            "context": "char buf[512];",
+            "cwe": [
+              "CWE-119",
+              "CWE-120"
+            ],
+            "cweId": "CWE-119",
+            "evidenceResolution": {
+              "cwe": {
+                "id": "CWE-119",
+                "source": "metadata.cweId",
+                "status": "known"
+              },
+              "dataFlow": {
+                "present": false,
+                "stepCount": 0
+              },
+              "diagnostics": [
+                "DATAFLOW_NOT_PROVIDED"
+              ],
+              "kind": "sast-finding",
+              "location": {
+                "column": 3,
+                "endColumn": null,
+                "endLine": null,
+                "file": "main.cpp",
+                "line": 40,
+                "status": "present"
+              },
+              "origin": {
+                "source": "default",
+                "status": "user-code"
+              },
+              "ruleId": "flawfinder:buffer/char",
+              "schemaVersion": "s4-evidence-v1",
+              "toolId": "flawfinder"
+            },
+            "flawfinderLevel": 2,
+            "name": "char"
+          },
+          "origin": null,
+          "ruleId": "flawfinder:buffer/char",
+          "severity": "warning",
+          "toolId": "flawfinder"
+        },
+        {
+          "dataFlow": null,
+          "location": {
+            "column": 38,
+            "endColumn": null,
+            "endLine": null,
+            "file": "main.cpp",
+            "line": 33
+          },
+          "message": "do not use 'std::endl' with streams; use '\\n' instead",
+          "metadata": {
+            "clangTidyCheck": "performance-avoid-endl",
+            "evidenceResolution": {
+              "cwe": {
+                "id": null,
+                "source": null,
+                "status": "unknown"
+              },
+              "dataFlow": {
+                "present": false,
+                "stepCount": 0
+              },
+              "diagnostics": [
+                "CWE_UNKNOWN",
+                "DATAFLOW_NOT_PROVIDED"
+              ],
+              "kind": "sast-finding",
+              "location": {
+                "column": 38,
+                "endColumn": null,
+                "endLine": null,
+                "file": "main.cpp",
+                "line": 33,
+                "status": "present"
+              },
+              "origin": {
+                "source": "default",
+                "status": "user-code"
+              },
+              "ruleId": "clang-tidy:performance-avoid-endl",
+              "schemaVersion": "s4-evidence-v1",
+              "toolId": "clang-tidy"
+            }
+          },
+          "origin": null,
+          "ruleId": "clang-tidy:performance-avoid-endl",
+          "severity": "warning",
+          "toolId": "clang-tidy"
+        },
+        {
+          "dataFlow": null,
+          "location": {
+            "column": 13,
+            "endColumn": null,
+            "endLine": null,
+            "file": "main.cpp",
+            "line": 35
+          },
+          "message": "calling 'popen' uses a command processor",
+          "metadata": {
+            "clangTidyCheck": "cert-env33-c",
+            "cwe": [
+              "CWE-78"
+            ],
+            "cweId": "CWE-78",
+            "evidenceResolution": {
+              "cwe": {
+                "id": "CWE-78",
+                "source": "metadata.cweId",
+                "status": "known"
+              },
+              "dataFlow": {
+                "present": false,
+                "stepCount": 0
+              },
+              "diagnostics": [
+                "DATAFLOW_NOT_PROVIDED"
+              ],
+              "kind": "sast-finding",
+              "location": {
+                "column": 13,
+                "endColumn": null,
+                "endLine": null,
+                "file": "main.cpp",
+                "line": 35,
+                "status": "present"
+              },
+              "origin": {
+                "source": "default",
+                "status": "user-code"
+              },
+              "ruleId": "clang-tidy:cert-env33-c",
+              "schemaVersion": "s4-evidence-v1",
+              "toolId": "clang-tidy"
+            }
+          },
+          "origin": null,
+          "ruleId": "clang-tidy:cert-env33-c",
+          "severity": "warning",
+          "toolId": "clang-tidy"
+        },
+        {
+          "dataFlow": null,
+          "location": {
+            "column": 30,
+            "endColumn": null,
+            "endLine": null,
+            "file": "main.cpp",
+            "line": 106
+          },
+          "message": "2 adjacent parameters of 'build_san' of similar type ('const std::vector<std::string> &') are easily swapped by mistake",
+          "metadata": {
+            "clangTidyCheck": "bugprone-easily-swappable-parameters",
+            "evidenceResolution": {
+              "cwe": {
+                "id": null,
+                "source": null,
+                "status": "unknown"
+              },
+              "dataFlow": {
+                "present": false,
+                "stepCount": 0
+              },
+              "diagnostics": [
+                "CWE_UNKNOWN",
+                "DATAFLOW_NOT_PROVIDED"
+              ],
+              "kind": "sast-finding",
+              "location": {
+                "column": 30,
+                "endColumn": null,
+                "endLine": null,
+                "file": "main.cpp",
+                "line": 106,
+                "status": "present"
+              },
+              "origin": {
+                "source": "default",
+                "status": "user-code"
+              },
+              "ruleId": "clang-tidy:bugprone-easily-swappable-parameters",
+              "schemaVersion": "s4-evidence-v1",
+              "toolId": "clang-tidy"
+            }
+          },
+          "origin": null,
+          "ruleId": "clang-tidy:bugprone-easily-swappable-parameters",
+          "severity": "warning",
+          "toolId": "clang-tidy"
+        },
+        {
+          "dataFlow": null,
+          "location": {
+            "column": 23,
+            "endColumn": null,
+            "endLine": null,
+            "file": "main.cpp",
+            "line": 131
+          },
+          "message": "2 adjacent parameters of 'write_ext' of similar type ('const std::string &') are easily swapped by mistake",
+          "metadata": {
+            "clangTidyCheck": "bugprone-easily-swappable-parameters",
+            "evidenceResolution": {
+              "cwe": {
+                "id": null,
+                "source": null,
+                "status": "unknown"
+              },
+              "dataFlow": {
+                "present": false,
+                "stepCount": 0
+              },
+              "diagnostics": [
+                "CWE_UNKNOWN",
+                "DATAFLOW_NOT_PROVIDED"
+              ],
+              "kind": "sast-finding",
+              "location": {
+                "column": 23,
+                "endColumn": null,
+                "endLine": null,
+                "file": "main.cpp",
+                "line": 131,
+                "status": "present"
+              },
+              "origin": {
+                "source": "default",
+                "status": "user-code"
+              },
+              "ruleId": "clang-tidy:bugprone-easily-swappable-parameters",
+              "schemaVersion": "s4-evidence-v1",
+              "toolId": "clang-tidy"
+            }
+          },
+          "origin": null,
+          "ruleId": "clang-tidy:bugprone-easily-swappable-parameters",
+          "severity": "warning",
+          "toolId": "clang-tidy"
+        },
+        {
+          "dataFlow": null,
+          "location": {
+            "column": 22,
+            "endColumn": null,
+            "endLine": null,
+            "file": "main.cpp",
+            "line": 143
+          },
+          "message": "2 adjacent parameters of 'create_ca' of similar type ('const std::string &') are easily swapped by mistake",
+          "metadata": {
+            "clangTidyCheck": "bugprone-easily-swappable-parameters",
+            "evidenceResolution": {
+              "cwe": {
+                "id": null,
+                "source": null,
+                "status": "unknown"
+              },
+              "dataFlow": {
+                "present": false,
+                "stepCount": 0
+              },
+              "diagnostics": [
+                "CWE_UNKNOWN",
+                "DATAFLOW_NOT_PROVIDED"
+              ],
+              "kind": "sast-finding",
+              "location": {
+                "column": 22,
+                "endColumn": null,
+                "endLine": null,
+                "file": "main.cpp",
+                "line": 143,
+                "status": "present"
+              },
+              "origin": {
+                "source": "default",
+                "status": "user-code"
+              },
+              "ruleId": "clang-tidy:bugprone-easily-swappable-parameters",
+              "schemaVersion": "s4-evidence-v1",
+              "toolId": "clang-tidy"
+            }
+          },
+          "origin": null,
+          "ruleId": "clang-tidy:bugprone-easily-swappable-parameters",
+          "severity": "warning",
+          "toolId": "clang-tidy"
+        }
+      ]
+    },
+    {
+      "compileCommands": "uploads/proj-01d952e7-1a4a-4131-a011-4a1a8ed603b7/compile_commands.json",
+      "elapsedMs": 3052,
+      "findingsByTool": {
+        "clang-tidy": 8,
+        "cppcheck": 3,
+        "flawfinder": 2,
+        "gcc-fanalyzer": 4,
+        "scan-build": 1,
+        "semgrep": 0
+      },
+      "findingsTotal": 18,
+      "ok": true,
+      "project": "uploads/proj-01d952e7-1a4a-4131-a011-4a1a8ed603b7",
+      "requestedTools": [
+        "cppcheck",
+        "flawfinder",
+        "clang-tidy",
+        "scan-build",
+        "gcc-fanalyzer"
+      ],
+      "sourceFileCount": 2,
+      "toolSkipReasons": {
+        "semgrep": "operator-requested-subset"
+      },
+      "toolStatuses": {
+        "clang-tidy": "ok",
+        "cppcheck": "ok",
+        "flawfinder": "ok",
+        "gcc-fanalyzer": "ok",
+        "scan-build": "ok",
+        "semgrep": "skipped"
+      },
+      "toolsRun": [
+        "cppcheck",
+        "flawfinder",
+        "clang-tidy",
+        "scan-build",
+        "gcc-fanalyzer"
+      ],
+      "topFindings": [
+        {
+          "dataFlow": null,
+          "location": {
+            "column": 14,
+            "endColumn": null,
+            "endLine": null,
+            "file": "main.cpp",
+            "line": 110
+          },
+          "message": "Variable 'ip' can be declared as reference to const",
+          "metadata": {
+            "cppcheckId": "constVariableReference",
+            "cwe": [
+              "CWE-398"
+            ],
+            "cweId": "CWE-398",
+            "evidenceResolution": {
+              "cwe": {
+                "id": "CWE-398",
+                "source": "metadata.cweId",
+                "status": "known"
+              },
+              "dataFlow": {
+                "present": false,
+                "stepCount": 0
+              },
+              "diagnostics": [
+                "DATAFLOW_NOT_PROVIDED"
+              ],
+              "kind": "sast-finding",
+              "location": {
+                "column": 14,
+                "endColumn": null,
+                "endLine": null,
+                "file": "main.cpp",
+                "line": 110,
+                "status": "present"
+              },
+              "origin": {
+                "source": "default",
+                "status": "user-code"
+              },
+              "ruleId": "cppcheck:constVariableReference",
+              "schemaVersion": "s4-evidence-v1",
+              "toolId": "cppcheck"
+            }
+          },
+          "origin": null,
+          "ruleId": "cppcheck:constVariableReference",
+          "severity": "style",
+          "toolId": "cppcheck"
+        },
+        {
+          "dataFlow": null,
+          "location": {
+            "column": 14,
+            "endColumn": null,
+            "endLine": null,
+            "file": "main.cpp",
+            "line": 119
+          },
+          "message": "Variable 'd' can be declared as reference to const",
+          "metadata": {
+            "cppcheckId": "constVariableReference",
+            "cwe": [
+              "CWE-398"
+            ],
+            "cweId": "CWE-398",
+            "evidenceResolution": {
+              "cwe": {
+                "id": "CWE-398",
+                "source": "metadata.cweId",
+                "status": "known"
+              },
+              "dataFlow": {
+                "present": false,
+                "stepCount": 0
+              },
+              "diagnostics": [
+                "DATAFLOW_NOT_PROVIDED"
+              ],
+              "kind": "sast-finding",
+              "location": {
+                "column": 14,
+                "endColumn": null,
+                "endLine": null,
+                "file": "main.cpp",
+                "line": 119,
+                "status": "present"
+              },
+              "origin": {
+                "source": "default",
+                "status": "user-code"
+              },
+              "ruleId": "cppcheck:constVariableReference",
+              "schemaVersion": "s4-evidence-v1",
+              "toolId": "cppcheck"
+            }
+          },
+          "origin": null,
+          "ruleId": "cppcheck:constVariableReference",
+          "severity": "style",
+          "toolId": "cppcheck"
+        },
+        {
+          "dataFlow": null,
+          "location": {
+            "column": 16,
+            "endColumn": null,
+            "endLine": null,
+            "file": "main.cpp",
+            "line": 276
+          },
+          "message": "Variable 'exitLoop' is assigned a value that is never used.",
+          "metadata": {
+            "cppcheckId": "unreadVariable",
+            "cwe": [
+              "CWE-563"
+            ],
+            "cweId": "CWE-563",
+            "evidenceResolution": {
+              "cwe": {
+                "id": "CWE-563",
+                "source": "metadata.cweId",
+                "status": "known"
+              },
+              "dataFlow": {
+                "present": false,
+                "stepCount": 0
+              },
+              "diagnostics": [
+                "DATAFLOW_NOT_PROVIDED"
+              ],
+              "kind": "sast-finding",
+              "location": {
+                "column": 16,
+                "endColumn": null,
+                "endLine": null,
+                "file": "main.cpp",
+                "line": 276,
+                "status": "present"
+              },
+              "origin": {
+                "source": "default",
+                "status": "user-code"
+              },
+              "ruleId": "cppcheck:unreadVariable",
+              "schemaVersion": "s4-evidence-v1",
+              "toolId": "cppcheck"
+            }
+          },
+          "origin": null,
+          "ruleId": "cppcheck:unreadVariable",
+          "severity": "style",
+          "toolId": "cppcheck"
+        },
+        {
+          "dataFlow": null,
+          "location": {
+            "column": 13,
+            "endColumn": null,
+            "endLine": null,
+            "file": "main.cpp",
+            "line": 35
+          },
+          "message": "This causes a new program to execute and is difficult to use safely (CWE-78).",
+          "metadata": {
+            "category": "shell",
+            "context": "FILE *p = popen(cmd.c_str(), \"r\");",
+            "cwe": [
+              "CWE-78"
+            ],
+            "cweId": "CWE-78",
+            "evidenceResolution": {
+              "cwe": {
+                "id": "CWE-78",
+                "source": "metadata.cweId",
+                "status": "known"
+              },
+              "dataFlow": {
+                "present": false,
+                "stepCount": 0
+              },
+              "diagnostics": [
+                "DATAFLOW_NOT_PROVIDED"
+              ],
+              "kind": "sast-finding",
+              "location": {
+                "column": 13,
+                "endColumn": null,
+                "endLine": null,
+                "file": "main.cpp",
+                "line": 35,
+                "status": "present"
+              },
+              "origin": {
+                "source": "default",
+                "status": "user-code"
+              },
+              "ruleId": "flawfinder:shell/popen",
+              "schemaVersion": "s4-evidence-v1",
+              "toolId": "flawfinder"
+            },
+            "flawfinderLevel": 4,
+            "name": "popen"
+          },
+          "origin": null,
+          "ruleId": "flawfinder:shell/popen",
+          "severity": "error",
+          "toolId": "flawfinder"
+        },
+        {
+          "dataFlow": null,
+          "location": {
+            "column": 3,
+            "endColumn": null,
+            "endLine": null,
+            "file": "main.cpp",
+            "line": 40
+          },
+          "message": "Statically-sized arrays can be improperly restricted, leading to potential overflows or other issues (CWE-119!/CWE-120).",
+          "metadata": {
+            "category": "buffer",
+            "context": "char buf[512];",
+            "cwe": [
+              "CWE-119",
+              "CWE-120"
+            ],
+            "cweId": "CWE-119",
+            "evidenceResolution": {
+              "cwe": {
+                "id": "CWE-119",
+                "source": "metadata.cweId",
+                "status": "known"
+              },
+              "dataFlow": {
+                "present": false,
+                "stepCount": 0
+              },
+              "diagnostics": [
+                "DATAFLOW_NOT_PROVIDED"
+              ],
+              "kind": "sast-finding",
+              "location": {
+                "column": 3,
+                "endColumn": null,
+                "endLine": null,
+                "file": "main.cpp",
+                "line": 40,
+                "status": "present"
+              },
+              "origin": {
+                "source": "default",
+                "status": "user-code"
+              },
+              "ruleId": "flawfinder:buffer/char",
+              "schemaVersion": "s4-evidence-v1",
+              "toolId": "flawfinder"
+            },
+            "flawfinderLevel": 2,
+            "name": "char"
+          },
+          "origin": null,
+          "ruleId": "flawfinder:buffer/char",
+          "severity": "warning",
+          "toolId": "flawfinder"
+        },
+        {
+          "dataFlow": null,
+          "location": {
+            "column": 38,
+            "endColumn": null,
+            "endLine": null,
+            "file": "main.cpp",
+            "line": 33
+          },
+          "message": "do not use 'std::endl' with streams; use '\\n' instead",
+          "metadata": {
+            "clangTidyCheck": "performance-avoid-endl",
+            "evidenceResolution": {
+              "cwe": {
+                "id": null,
+                "source": null,
+                "status": "unknown"
+              },
+              "dataFlow": {
+                "present": false,
+                "stepCount": 0
+              },
+              "diagnostics": [
+                "CWE_UNKNOWN",
+                "DATAFLOW_NOT_PROVIDED"
+              ],
+              "kind": "sast-finding",
+              "location": {
+                "column": 38,
+                "endColumn": null,
+                "endLine": null,
+                "file": "main.cpp",
+                "line": 33,
+                "status": "present"
+              },
+              "origin": {
+                "source": "default",
+                "status": "user-code"
+              },
+              "ruleId": "clang-tidy:performance-avoid-endl",
+              "schemaVersion": "s4-evidence-v1",
+              "toolId": "clang-tidy"
+            }
+          },
+          "origin": null,
+          "ruleId": "clang-tidy:performance-avoid-endl",
+          "severity": "warning",
+          "toolId": "clang-tidy"
+        },
+        {
+          "dataFlow": null,
+          "location": {
+            "column": 13,
+            "endColumn": null,
+            "endLine": null,
+            "file": "main.cpp",
+            "line": 35
+          },
+          "message": "calling 'popen' uses a command processor",
+          "metadata": {
+            "clangTidyCheck": "cert-env33-c",
+            "cwe": [
+              "CWE-78"
+            ],
+            "cweId": "CWE-78",
+            "evidenceResolution": {
+              "cwe": {
+                "id": "CWE-78",
+                "source": "metadata.cweId",
+                "status": "known"
+              },
+              "dataFlow": {
+                "present": false,
+                "stepCount": 0
+              },
+              "diagnostics": [
+                "DATAFLOW_NOT_PROVIDED"
+              ],
+              "kind": "sast-finding",
+              "location": {
+                "column": 13,
+                "endColumn": null,
+                "endLine": null,
+                "file": "main.cpp",
+                "line": 35,
+                "status": "present"
+              },
+              "origin": {
+                "source": "default",
+                "status": "user-code"
+              },
+              "ruleId": "clang-tidy:cert-env33-c",
+              "schemaVersion": "s4-evidence-v1",
+              "toolId": "clang-tidy"
+            }
+          },
+          "origin": null,
+          "ruleId": "clang-tidy:cert-env33-c",
+          "severity": "warning",
+          "toolId": "clang-tidy"
+        },
+        {
+          "dataFlow": null,
+          "location": {
+            "column": 30,
+            "endColumn": null,
+            "endLine": null,
+            "file": "main.cpp",
+            "line": 106
+          },
+          "message": "2 adjacent parameters of 'build_san' of similar type ('const std::vector<std::string> &') are easily swapped by mistake",
+          "metadata": {
+            "clangTidyCheck": "bugprone-easily-swappable-parameters",
+            "evidenceResolution": {
+              "cwe": {
+                "id": null,
+                "source": null,
+                "status": "unknown"
+              },
+              "dataFlow": {
+                "present": false,
+                "stepCount": 0
+              },
+              "diagnostics": [
+                "CWE_UNKNOWN",
+                "DATAFLOW_NOT_PROVIDED"
+              ],
+              "kind": "sast-finding",
+              "location": {
+                "column": 30,
+                "endColumn": null,
+                "endLine": null,
+                "file": "main.cpp",
+                "line": 106,
+                "status": "present"
+              },
+              "origin": {
+                "source": "default",
+                "status": "user-code"
+              },
+              "ruleId": "clang-tidy:bugprone-easily-swappable-parameters",
+              "schemaVersion": "s4-evidence-v1",
+              "toolId": "clang-tidy"
+            }
+          },
+          "origin": null,
+          "ruleId": "clang-tidy:bugprone-easily-swappable-parameters",
+          "severity": "warning",
+          "toolId": "clang-tidy"
+        },
+        {
+          "dataFlow": null,
+          "location": {
+            "column": 23,
+            "endColumn": null,
+            "endLine": null,
+            "file": "main.cpp",
+            "line": 131
+          },
+          "message": "2 adjacent parameters of 'write_ext' of similar type ('const std::string &') are easily swapped by mistake",
+          "metadata": {
+            "clangTidyCheck": "bugprone-easily-swappable-parameters",
+            "evidenceResolution": {
+              "cwe": {
+                "id": null,
+                "source": null,
+                "status": "unknown"
+              },
+              "dataFlow": {
+                "present": false,
+                "stepCount": 0
+              },
+              "diagnostics": [
+                "CWE_UNKNOWN",
+                "DATAFLOW_NOT_PROVIDED"
+              ],
+              "kind": "sast-finding",
+              "location": {
+                "column": 23,
+                "endColumn": null,
+                "endLine": null,
+                "file": "main.cpp",
+                "line": 131,
+                "status": "present"
+              },
+              "origin": {
+                "source": "default",
+                "status": "user-code"
+              },
+              "ruleId": "clang-tidy:bugprone-easily-swappable-parameters",
+              "schemaVersion": "s4-evidence-v1",
+              "toolId": "clang-tidy"
+            }
+          },
+          "origin": null,
+          "ruleId": "clang-tidy:bugprone-easily-swappable-parameters",
+          "severity": "warning",
+          "toolId": "clang-tidy"
+        },
+        {
+          "dataFlow": null,
+          "location": {
+            "column": 22,
+            "endColumn": null,
+            "endLine": null,
+            "file": "main.cpp",
+            "line": 143
+          },
+          "message": "2 adjacent parameters of 'create_ca' of similar type ('const std::string &') are easily swapped by mistake",
+          "metadata": {
+            "clangTidyCheck": "bugprone-easily-swappable-parameters",
+            "evidenceResolution": {
+              "cwe": {
+                "id": null,
+                "source": null,
+                "status": "unknown"
+              },
+              "dataFlow": {
+                "present": false,
+                "stepCount": 0
+              },
+              "diagnostics": [
+                "CWE_UNKNOWN",
+                "DATAFLOW_NOT_PROVIDED"
+              ],
+              "kind": "sast-finding",
+              "location": {
+                "column": 22,
+                "endColumn": null,
+                "endLine": null,
+                "file": "main.cpp",
+                "line": 143,
+                "status": "present"
+              },
+              "origin": {
+                "source": "default",
+                "status": "user-code"
+              },
+              "ruleId": "clang-tidy:bugprone-easily-swappable-parameters",
+              "schemaVersion": "s4-evidence-v1",
+              "toolId": "clang-tidy"
+            }
+          },
+          "origin": null,
+          "ruleId": "clang-tidy:bugprone-easily-swappable-parameters",
+          "severity": "warning",
+          "toolId": "clang-tidy"
+        }
+      ]
+    },
+    {
+      "compileCommands": "uploads/proj-64fa2962-1375-4958-b78e-e962abc2abe5/compile_commands.json",
+      "elapsedMs": 3015,
+      "findingsByTool": {
+        "clang-tidy": 8,
+        "cppcheck": 3,
+        "flawfinder": 2,
+        "gcc-fanalyzer": 4,
+        "scan-build": 1,
+        "semgrep": 0
+      },
+      "findingsTotal": 18,
+      "ok": true,
+      "project": "uploads/proj-64fa2962-1375-4958-b78e-e962abc2abe5",
+      "requestedTools": [
+        "cppcheck",
+        "flawfinder",
+        "clang-tidy",
+        "scan-build",
+        "gcc-fanalyzer"
+      ],
+      "sourceFileCount": 2,
+      "toolSkipReasons": {
+        "semgrep": "operator-requested-subset"
+      },
+      "toolStatuses": {
+        "clang-tidy": "ok",
+        "cppcheck": "ok",
+        "flawfinder": "ok",
+        "gcc-fanalyzer": "ok",
+        "scan-build": "ok",
+        "semgrep": "skipped"
+      },
+      "toolsRun": [
+        "cppcheck",
+        "flawfinder",
+        "clang-tidy",
+        "scan-build",
+        "gcc-fanalyzer"
+      ],
+      "topFindings": [
+        {
+          "dataFlow": null,
+          "location": {
+            "column": 14,
+            "endColumn": null,
+            "endLine": null,
+            "file": "main.cpp",
+            "line": 110
+          },
+          "message": "Variable 'ip' can be declared as reference to const",
+          "metadata": {
+            "cppcheckId": "constVariableReference",
+            "cwe": [
+              "CWE-398"
+            ],
+            "cweId": "CWE-398",
+            "evidenceResolution": {
+              "cwe": {
+                "id": "CWE-398",
+                "source": "metadata.cweId",
+                "status": "known"
+              },
+              "dataFlow": {
+                "present": false,
+                "stepCount": 0
+              },
+              "diagnostics": [
+                "DATAFLOW_NOT_PROVIDED"
+              ],
+              "kind": "sast-finding",
+              "location": {
+                "column": 14,
+                "endColumn": null,
+                "endLine": null,
+                "file": "main.cpp",
+                "line": 110,
+                "status": "present"
+              },
+              "origin": {
+                "source": "default",
+                "status": "user-code"
+              },
+              "ruleId": "cppcheck:constVariableReference",
+              "schemaVersion": "s4-evidence-v1",
+              "toolId": "cppcheck"
+            }
+          },
+          "origin": null,
+          "ruleId": "cppcheck:constVariableReference",
+          "severity": "style",
+          "toolId": "cppcheck"
+        },
+        {
+          "dataFlow": null,
+          "location": {
+            "column": 14,
+            "endColumn": null,
+            "endLine": null,
+            "file": "main.cpp",
+            "line": 119
+          },
+          "message": "Variable 'd' can be declared as reference to const",
+          "metadata": {
+            "cppcheckId": "constVariableReference",
+            "cwe": [
+              "CWE-398"
+            ],
+            "cweId": "CWE-398",
+            "evidenceResolution": {
+              "cwe": {
+                "id": "CWE-398",
+                "source": "metadata.cweId",
+                "status": "known"
+              },
+              "dataFlow": {
+                "present": false,
+                "stepCount": 0
+              },
+              "diagnostics": [
+                "DATAFLOW_NOT_PROVIDED"
+              ],
+              "kind": "sast-finding",
+              "location": {
+                "column": 14,
+                "endColumn": null,
+                "endLine": null,
+                "file": "main.cpp",
+                "line": 119,
+                "status": "present"
+              },
+              "origin": {
+                "source": "default",
+                "status": "user-code"
+              },
+              "ruleId": "cppcheck:constVariableReference",
+              "schemaVersion": "s4-evidence-v1",
+              "toolId": "cppcheck"
+            }
+          },
+          "origin": null,
+          "ruleId": "cppcheck:constVariableReference",
+          "severity": "style",
+          "toolId": "cppcheck"
+        },
+        {
+          "dataFlow": null,
+          "location": {
+            "column": 16,
+            "endColumn": null,
+            "endLine": null,
+            "file": "main.cpp",
+            "line": 276
+          },
+          "message": "Variable 'exitLoop' is assigned a value that is never used.",
+          "metadata": {
+            "cppcheckId": "unreadVariable",
+            "cwe": [
+              "CWE-563"
+            ],
+            "cweId": "CWE-563",
+            "evidenceResolution": {
+              "cwe": {
+                "id": "CWE-563",
+                "source": "metadata.cweId",
+                "status": "known"
+              },
+              "dataFlow": {
+                "present": false,
+                "stepCount": 0
+              },
+              "diagnostics": [
+                "DATAFLOW_NOT_PROVIDED"
+              ],
+              "kind": "sast-finding",
+              "location": {
+                "column": 16,
+                "endColumn": null,
+                "endLine": null,
+                "file": "main.cpp",
+                "line": 276,
+                "status": "present"
+              },
+              "origin": {
+                "source": "default",
+                "status": "user-code"
+              },
+              "ruleId": "cppcheck:unreadVariable",
+              "schemaVersion": "s4-evidence-v1",
+              "toolId": "cppcheck"
+            }
+          },
+          "origin": null,
+          "ruleId": "cppcheck:unreadVariable",
+          "severity": "style",
+          "toolId": "cppcheck"
+        },
+        {
+          "dataFlow": null,
+          "location": {
+            "column": 13,
+            "endColumn": null,
+            "endLine": null,
+            "file": "main.cpp",
+            "line": 35
+          },
+          "message": "This causes a new program to execute and is difficult to use safely (CWE-78).",
+          "metadata": {
+            "category": "shell",
+            "context": "FILE *p = popen(cmd.c_str(), \"r\");",
+            "cwe": [
+              "CWE-78"
+            ],
+            "cweId": "CWE-78",
+            "evidenceResolution": {
+              "cwe": {
+                "id": "CWE-78",
+                "source": "metadata.cweId",
+                "status": "known"
+              },
+              "dataFlow": {
+                "present": false,
+                "stepCount": 0
+              },
+              "diagnostics": [
+                "DATAFLOW_NOT_PROVIDED"
+              ],
+              "kind": "sast-finding",
+              "location": {
+                "column": 13,
+                "endColumn": null,
+                "endLine": null,
+                "file": "main.cpp",
+                "line": 35,
+                "status": "present"
+              },
+              "origin": {
+                "source": "default",
+                "status": "user-code"
+              },
+              "ruleId": "flawfinder:shell/popen",
+              "schemaVersion": "s4-evidence-v1",
+              "toolId": "flawfinder"
+            },
+            "flawfinderLevel": 4,
+            "name": "popen"
+          },
+          "origin": null,
+          "ruleId": "flawfinder:shell/popen",
+          "severity": "error",
+          "toolId": "flawfinder"
+        },
+        {
+          "dataFlow": null,
+          "location": {
+            "column": 3,
+            "endColumn": null,
+            "endLine": null,
+            "file": "main.cpp",
+            "line": 40
+          },
+          "message": "Statically-sized arrays can be improperly restricted, leading to potential overflows or other issues (CWE-119!/CWE-120).",
+          "metadata": {
+            "category": "buffer",
+            "context": "char buf[512];",
+            "cwe": [
+              "CWE-119",
+              "CWE-120"
+            ],
+            "cweId": "CWE-119",
+            "evidenceResolution": {
+              "cwe": {
+                "id": "CWE-119",
+                "source": "metadata.cweId",
+                "status": "known"
+              },
+              "dataFlow": {
+                "present": false,
+                "stepCount": 0
+              },
+              "diagnostics": [
+                "DATAFLOW_NOT_PROVIDED"
+              ],
+              "kind": "sast-finding",
+              "location": {
+                "column": 3,
+                "endColumn": null,
+                "endLine": null,
+                "file": "main.cpp",
+                "line": 40,
+                "status": "present"
+              },
+              "origin": {
+                "source": "default",
+                "status": "user-code"
+              },
+              "ruleId": "flawfinder:buffer/char",
+              "schemaVersion": "s4-evidence-v1",
+              "toolId": "flawfinder"
+            },
+            "flawfinderLevel": 2,
+            "name": "char"
+          },
+          "origin": null,
+          "ruleId": "flawfinder:buffer/char",
+          "severity": "warning",
+          "toolId": "flawfinder"
+        },
+        {
+          "dataFlow": null,
+          "location": {
+            "column": 38,
+            "endColumn": null,
+            "endLine": null,
+            "file": "main.cpp",
+            "line": 33
+          },
+          "message": "do not use 'std::endl' with streams; use '\\n' instead",
+          "metadata": {
+            "clangTidyCheck": "performance-avoid-endl",
+            "evidenceResolution": {
+              "cwe": {
+                "id": null,
+                "source": null,
+                "status": "unknown"
+              },
+              "dataFlow": {
+                "present": false,
+                "stepCount": 0
+              },
+              "diagnostics": [
+                "CWE_UNKNOWN",
+                "DATAFLOW_NOT_PROVIDED"
+              ],
+              "kind": "sast-finding",
+              "location": {
+                "column": 38,
+                "endColumn": null,
+                "endLine": null,
+                "file": "main.cpp",
+                "line": 33,
+                "status": "present"
+              },
+              "origin": {
+                "source": "default",
+                "status": "user-code"
+              },
+              "ruleId": "clang-tidy:performance-avoid-endl",
+              "schemaVersion": "s4-evidence-v1",
+              "toolId": "clang-tidy"
+            }
+          },
+          "origin": null,
+          "ruleId": "clang-tidy:performance-avoid-endl",
+          "severity": "warning",
+          "toolId": "clang-tidy"
+        },
+        {
+          "dataFlow": null,
+          "location": {
+            "column": 13,
+            "endColumn": null,
+            "endLine": null,
+            "file": "main.cpp",
+            "line": 35
+          },
+          "message": "calling 'popen' uses a command processor",
+          "metadata": {
+            "clangTidyCheck": "cert-env33-c",
+            "cwe": [
+              "CWE-78"
+            ],
+            "cweId": "CWE-78",
+            "evidenceResolution": {
+              "cwe": {
+                "id": "CWE-78",
+                "source": "metadata.cweId",
+                "status": "known"
+              },
+              "dataFlow": {
+                "present": false,
+                "stepCount": 0
+              },
+              "diagnostics": [
+                "DATAFLOW_NOT_PROVIDED"
+              ],
+              "kind": "sast-finding",
+              "location": {
+                "column": 13,
+                "endColumn": null,
+                "endLine": null,
+                "file": "main.cpp",
+                "line": 35,
+                "status": "present"
+              },
+              "origin": {
+                "source": "default",
+                "status": "user-code"
+              },
+              "ruleId": "clang-tidy:cert-env33-c",
+              "schemaVersion": "s4-evidence-v1",
+              "toolId": "clang-tidy"
+            }
+          },
+          "origin": null,
+          "ruleId": "clang-tidy:cert-env33-c",
+          "severity": "warning",
+          "toolId": "clang-tidy"
+        },
+        {
+          "dataFlow": null,
+          "location": {
+            "column": 30,
+            "endColumn": null,
+            "endLine": null,
+            "file": "main.cpp",
+            "line": 106
+          },
+          "message": "2 adjacent parameters of 'build_san' of similar type ('const std::vector<std::string> &') are easily swapped by mistake",
+          "metadata": {
+            "clangTidyCheck": "bugprone-easily-swappable-parameters",
+            "evidenceResolution": {
+              "cwe": {
+                "id": null,
+                "source": null,
+                "status": "unknown"
+              },
+              "dataFlow": {
+                "present": false,
+                "stepCount": 0
+              },
+              "diagnostics": [
+                "CWE_UNKNOWN",
+                "DATAFLOW_NOT_PROVIDED"
+              ],
+              "kind": "sast-finding",
+              "location": {
+                "column": 30,
+                "endColumn": null,
+                "endLine": null,
+                "file": "main.cpp",
+                "line": 106,
+                "status": "present"
+              },
+              "origin": {
+                "source": "default",
+                "status": "user-code"
+              },
+              "ruleId": "clang-tidy:bugprone-easily-swappable-parameters",
+              "schemaVersion": "s4-evidence-v1",
+              "toolId": "clang-tidy"
+            }
+          },
+          "origin": null,
+          "ruleId": "clang-tidy:bugprone-easily-swappable-parameters",
+          "severity": "warning",
+          "toolId": "clang-tidy"
+        },
+        {
+          "dataFlow": null,
+          "location": {
+            "column": 23,
+            "endColumn": null,
+            "endLine": null,
+            "file": "main.cpp",
+            "line": 131
+          },
+          "message": "2 adjacent parameters of 'write_ext' of similar type ('const std::string &') are easily swapped by mistake",
+          "metadata": {
+            "clangTidyCheck": "bugprone-easily-swappable-parameters",
+            "evidenceResolution": {
+              "cwe": {
+                "id": null,
+                "source": null,
+                "status": "unknown"
+              },
+              "dataFlow": {
+                "present": false,
+                "stepCount": 0
+              },
+              "diagnostics": [
+                "CWE_UNKNOWN",
+                "DATAFLOW_NOT_PROVIDED"
+              ],
+              "kind": "sast-finding",
+              "location": {
+                "column": 23,
+                "endColumn": null,
+                "endLine": null,
+                "file": "main.cpp",
+                "line": 131,
+                "status": "present"
+              },
+              "origin": {
+                "source": "default",
+                "status": "user-code"
+              },
+              "ruleId": "clang-tidy:bugprone-easily-swappable-parameters",
+              "schemaVersion": "s4-evidence-v1",
+              "toolId": "clang-tidy"
+            }
+          },
+          "origin": null,
+          "ruleId": "clang-tidy:bugprone-easily-swappable-parameters",
+          "severity": "warning",
+          "toolId": "clang-tidy"
+        },
+        {
+          "dataFlow": null,
+          "location": {
+            "column": 22,
+            "endColumn": null,
+            "endLine": null,
+            "file": "main.cpp",
+            "line": 143
+          },
+          "message": "2 adjacent parameters of 'create_ca' of similar type ('const std::string &') are easily swapped by mistake",
+          "metadata": {
+            "clangTidyCheck": "bugprone-easily-swappable-parameters",
+            "evidenceResolution": {
+              "cwe": {
+                "id": null,
+                "source": null,
+                "status": "unknown"
+              },
+              "dataFlow": {
+                "present": false,
+                "stepCount": 0
+              },
+              "diagnostics": [
+                "CWE_UNKNOWN",
+                "DATAFLOW_NOT_PROVIDED"
+              ],
+              "kind": "sast-finding",
+              "location": {
+                "column": 22,
+                "endColumn": null,
+                "endLine": null,
+                "file": "main.cpp",
+                "line": 143,
+                "status": "present"
+              },
+              "origin": {
+                "source": "default",
+                "status": "user-code"
+              },
+              "ruleId": "clang-tidy:bugprone-easily-swappable-parameters",
+              "schemaVersion": "s4-evidence-v1",
+              "toolId": "clang-tidy"
+            }
+          },
+          "origin": null,
+          "ruleId": "clang-tidy:bugprone-easily-swappable-parameters",
+          "severity": "warning",
+          "toolId": "clang-tidy"
+        }
+      ]
+    },
+    {
+      "compileCommands": "uploads/proj-e2e-s3-toolintent-cert-maker-20260504-final/compile_commands.json",
+      "elapsedMs": 3026,
+      "findingsByTool": {
+        "clang-tidy": 8,
+        "cppcheck": 3,
+        "flawfinder": 2,
+        "gcc-fanalyzer": 4,
+        "scan-build": 1,
+        "semgrep": 0
+      },
+      "findingsTotal": 18,
+      "ok": true,
+      "project": "uploads/proj-e2e-s3-toolintent-cert-maker-20260504-final",
+      "requestedTools": [
+        "cppcheck",
+        "flawfinder",
+        "clang-tidy",
+        "scan-build",
+        "gcc-fanalyzer"
+      ],
+      "sourceFileCount": 2,
+      "toolSkipReasons": {
+        "semgrep": "operator-requested-subset"
+      },
+      "toolStatuses": {
+        "clang-tidy": "ok",
+        "cppcheck": "ok",
+        "flawfinder": "ok",
+        "gcc-fanalyzer": "ok",
+        "scan-build": "ok",
+        "semgrep": "skipped"
+      },
+      "toolsRun": [
+        "cppcheck",
+        "flawfinder",
+        "clang-tidy",
+        "scan-build",
+        "gcc-fanalyzer"
+      ],
+      "topFindings": [
+        {
+          "dataFlow": null,
+          "location": {
+            "column": 14,
+            "endColumn": null,
+            "endLine": null,
+            "file": "main.cpp",
+            "line": 110
+          },
+          "message": "Variable 'ip' can be declared as reference to const",
+          "metadata": {
+            "cppcheckId": "constVariableReference",
+            "cwe": [
+              "CWE-398"
+            ],
+            "cweId": "CWE-398",
+            "evidenceResolution": {
+              "cwe": {
+                "id": "CWE-398",
+                "source": "metadata.cweId",
+                "status": "known"
+              },
+              "dataFlow": {
+                "present": false,
+                "stepCount": 0
+              },
+              "diagnostics": [
+                "DATAFLOW_NOT_PROVIDED"
+              ],
+              "kind": "sast-finding",
+              "location": {
+                "column": 14,
+                "endColumn": null,
+                "endLine": null,
+                "file": "main.cpp",
+                "line": 110,
+                "status": "present"
+              },
+              "origin": {
+                "source": "default",
+                "status": "user-code"
+              },
+              "ruleId": "cppcheck:constVariableReference",
+              "schemaVersion": "s4-evidence-v1",
+              "toolId": "cppcheck"
+            }
+          },
+          "origin": null,
+          "ruleId": "cppcheck:constVariableReference",
+          "severity": "style",
+          "toolId": "cppcheck"
+        },
+        {
+          "dataFlow": null,
+          "location": {
+            "column": 14,
+            "endColumn": null,
+            "endLine": null,
+            "file": "main.cpp",
+            "line": 119
+          },
+          "message": "Variable 'd' can be declared as reference to const",
+          "metadata": {
+            "cppcheckId": "constVariableReference",
+            "cwe": [
+              "CWE-398"
+            ],
+            "cweId": "CWE-398",
+            "evidenceResolution": {
+              "cwe": {
+                "id": "CWE-398",
+                "source": "metadata.cweId",
+                "status": "known"
+              },
+              "dataFlow": {
+                "present": false,
+                "stepCount": 0
+              },
+              "diagnostics": [
+                "DATAFLOW_NOT_PROVIDED"
+              ],
+              "kind": "sast-finding",
+              "location": {
+                "column": 14,
+                "endColumn": null,
+                "endLine": null,
+                "file": "main.cpp",
+                "line": 119,
+                "status": "present"
+              },
+              "origin": {
+                "source": "default",
+                "status": "user-code"
+              },
+              "ruleId": "cppcheck:constVariableReference",
+              "schemaVersion": "s4-evidence-v1",
+              "toolId": "cppcheck"
+            }
+          },
+          "origin": null,
+          "ruleId": "cppcheck:constVariableReference",
+          "severity": "style",
+          "toolId": "cppcheck"
+        },
+        {
+          "dataFlow": null,
+          "location": {
+            "column": 16,
+            "endColumn": null,
+            "endLine": null,
+            "file": "main.cpp",
+            "line": 276
+          },
+          "message": "Variable 'exitLoop' is assigned a value that is never used.",
+          "metadata": {
+            "cppcheckId": "unreadVariable",
+            "cwe": [
+              "CWE-563"
+            ],
+            "cweId": "CWE-563",
+            "evidenceResolution": {
+              "cwe": {
+                "id": "CWE-563",
+                "source": "metadata.cweId",
+                "status": "known"
+              },
+              "dataFlow": {
+                "present": false,
+                "stepCount": 0
+              },
+              "diagnostics": [
+                "DATAFLOW_NOT_PROVIDED"
+              ],
+              "kind": "sast-finding",
+              "location": {
+                "column": 16,
+                "endColumn": null,
+                "endLine": null,
+                "file": "main.cpp",
+                "line": 276,
+                "status": "present"
+              },
+              "origin": {
+                "source": "default",
+                "status": "user-code"
+              },
+              "ruleId": "cppcheck:unreadVariable",
+              "schemaVersion": "s4-evidence-v1",
+              "toolId": "cppcheck"
+            }
+          },
+          "origin": null,
+          "ruleId": "cppcheck:unreadVariable",
+          "severity": "style",
+          "toolId": "cppcheck"
+        },
+        {
+          "dataFlow": null,
+          "location": {
+            "column": 13,
+            "endColumn": null,
+            "endLine": null,
+            "file": "main.cpp",
+            "line": 35
+          },
+          "message": "This causes a new program to execute and is difficult to use safely (CWE-78).",
+          "metadata": {
+            "category": "shell",
+            "context": "FILE *p = popen(cmd.c_str(), \"r\");",
+            "cwe": [
+              "CWE-78"
+            ],
+            "cweId": "CWE-78",
+            "evidenceResolution": {
+              "cwe": {
+                "id": "CWE-78",
+                "source": "metadata.cweId",
+                "status": "known"
+              },
+              "dataFlow": {
+                "present": false,
+                "stepCount": 0
+              },
+              "diagnostics": [
+                "DATAFLOW_NOT_PROVIDED"
+              ],
+              "kind": "sast-finding",
+              "location": {
+                "column": 13,
+                "endColumn": null,
+                "endLine": null,
+                "file": "main.cpp",
+                "line": 35,
+                "status": "present"
+              },
+              "origin": {
+                "source": "default",
+                "status": "user-code"
+              },
+              "ruleId": "flawfinder:shell/popen",
+              "schemaVersion": "s4-evidence-v1",
+              "toolId": "flawfinder"
+            },
+            "flawfinderLevel": 4,
+            "name": "popen"
+          },
+          "origin": null,
+          "ruleId": "flawfinder:shell/popen",
+          "severity": "error",
+          "toolId": "flawfinder"
+        },
+        {
+          "dataFlow": null,
+          "location": {
+            "column": 3,
+            "endColumn": null,
+            "endLine": null,
+            "file": "main.cpp",
+            "line": 40
+          },
+          "message": "Statically-sized arrays can be improperly restricted, leading to potential overflows or other issues (CWE-119!/CWE-120).",
+          "metadata": {
+            "category": "buffer",
+            "context": "char buf[512];",
+            "cwe": [
+              "CWE-119",
+              "CWE-120"
+            ],
+            "cweId": "CWE-119",
+            "evidenceResolution": {
+              "cwe": {
+                "id": "CWE-119",
+                "source": "metadata.cweId",
+                "status": "known"
+              },
+              "dataFlow": {
+                "present": false,
+                "stepCount": 0
+              },
+              "diagnostics": [
+                "DATAFLOW_NOT_PROVIDED"
+              ],
+              "kind": "sast-finding",
+              "location": {
+                "column": 3,
+                "endColumn": null,
+                "endLine": null,
+                "file": "main.cpp",
+                "line": 40,
+                "status": "present"
+              },
+              "origin": {
+                "source": "default",
+                "status": "user-code"
+              },
+              "ruleId": "flawfinder:buffer/char",
+              "schemaVersion": "s4-evidence-v1",
+              "toolId": "flawfinder"
+            },
+            "flawfinderLevel": 2,
+            "name": "char"
+          },
+          "origin": null,
+          "ruleId": "flawfinder:buffer/char",
+          "severity": "warning",
+          "toolId": "flawfinder"
+        },
+        {
+          "dataFlow": null,
+          "location": {
+            "column": 38,
+            "endColumn": null,
+            "endLine": null,
+            "file": "main.cpp",
+            "line": 33
+          },
+          "message": "do not use 'std::endl' with streams; use '\\n' instead",
+          "metadata": {
+            "clangTidyCheck": "performance-avoid-endl",
+            "evidenceResolution": {
+              "cwe": {
+                "id": null,
+                "source": null,
+                "status": "unknown"
+              },
+              "dataFlow": {
+                "present": false,
+                "stepCount": 0
+              },
+              "diagnostics": [
+                "CWE_UNKNOWN",
+                "DATAFLOW_NOT_PROVIDED"
+              ],
+              "kind": "sast-finding",
+              "location": {
+                "column": 38,
+                "endColumn": null,
+                "endLine": null,
+                "file": "main.cpp",
+                "line": 33,
+                "status": "present"
+              },
+              "origin": {
+                "source": "default",
+                "status": "user-code"
+              },
+              "ruleId": "clang-tidy:performance-avoid-endl",
+              "schemaVersion": "s4-evidence-v1",
+              "toolId": "clang-tidy"
+            }
+          },
+          "origin": null,
+          "ruleId": "clang-tidy:performance-avoid-endl",
+          "severity": "warning",
+          "toolId": "clang-tidy"
+        },
+        {
+          "dataFlow": null,
+          "location": {
+            "column": 13,
+            "endColumn": null,
+            "endLine": null,
+            "file": "main.cpp",
+            "line": 35
+          },
+          "message": "calling 'popen' uses a command processor",
+          "metadata": {
+            "clangTidyCheck": "cert-env33-c",
+            "cwe": [
+              "CWE-78"
+            ],
+            "cweId": "CWE-78",
+            "evidenceResolution": {
+              "cwe": {
+                "id": "CWE-78",
+                "source": "metadata.cweId",
+                "status": "known"
+              },
+              "dataFlow": {
+                "present": false,
+                "stepCount": 0
+              },
+              "diagnostics": [
+                "DATAFLOW_NOT_PROVIDED"
+              ],
+              "kind": "sast-finding",
+              "location": {
+                "column": 13,
+                "endColumn": null,
+                "endLine": null,
+                "file": "main.cpp",
+                "line": 35,
+                "status": "present"
+              },
+              "origin": {
+                "source": "default",
+                "status": "user-code"
+              },
+              "ruleId": "clang-tidy:cert-env33-c",
+              "schemaVersion": "s4-evidence-v1",
+              "toolId": "clang-tidy"
+            }
+          },
+          "origin": null,
+          "ruleId": "clang-tidy:cert-env33-c",
+          "severity": "warning",
+          "toolId": "clang-tidy"
+        },
+        {
+          "dataFlow": null,
+          "location": {
+            "column": 30,
+            "endColumn": null,
+            "endLine": null,
+            "file": "main.cpp",
+            "line": 106
+          },
+          "message": "2 adjacent parameters of 'build_san' of similar type ('const std::vector<std::string> &') are easily swapped by mistake",
+          "metadata": {
+            "clangTidyCheck": "bugprone-easily-swappable-parameters",
+            "evidenceResolution": {
+              "cwe": {
+                "id": null,
+                "source": null,
+                "status": "unknown"
+              },
+              "dataFlow": {
+                "present": false,
+                "stepCount": 0
+              },
+              "diagnostics": [
+                "CWE_UNKNOWN",
+                "DATAFLOW_NOT_PROVIDED"
+              ],
+              "kind": "sast-finding",
+              "location": {
+                "column": 30,
+                "endColumn": null,
+                "endLine": null,
+                "file": "main.cpp",
+                "line": 106,
+                "status": "present"
+              },
+              "origin": {
+                "source": "default",
+                "status": "user-code"
+              },
+              "ruleId": "clang-tidy:bugprone-easily-swappable-parameters",
+              "schemaVersion": "s4-evidence-v1",
+              "toolId": "clang-tidy"
+            }
+          },
+          "origin": null,
+          "ruleId": "clang-tidy:bugprone-easily-swappable-parameters",
+          "severity": "warning",
+          "toolId": "clang-tidy"
+        },
+        {
+          "dataFlow": null,
+          "location": {
+            "column": 23,
+            "endColumn": null,
+            "endLine": null,
+            "file": "main.cpp",
+            "line": 131
+          },
+          "message": "2 adjacent parameters of 'write_ext' of similar type ('const std::string &') are easily swapped by mistake",
+          "metadata": {
+            "clangTidyCheck": "bugprone-easily-swappable-parameters",
+            "evidenceResolution": {
+              "cwe": {
+                "id": null,
+                "source": null,
+                "status": "unknown"
+              },
+              "dataFlow": {
+                "present": false,
+                "stepCount": 0
+              },
+              "diagnostics": [
+                "CWE_UNKNOWN",
+                "DATAFLOW_NOT_PROVIDED"
+              ],
+              "kind": "sast-finding",
+              "location": {
+                "column": 23,
+                "endColumn": null,
+                "endLine": null,
+                "file": "main.cpp",
+                "line": 131,
+                "status": "present"
+              },
+              "origin": {
+                "source": "default",
+                "status": "user-code"
+              },
+              "ruleId": "clang-tidy:bugprone-easily-swappable-parameters",
+              "schemaVersion": "s4-evidence-v1",
+              "toolId": "clang-tidy"
+            }
+          },
+          "origin": null,
+          "ruleId": "clang-tidy:bugprone-easily-swappable-parameters",
+          "severity": "warning",
+          "toolId": "clang-tidy"
+        },
+        {
+          "dataFlow": null,
+          "location": {
+            "column": 22,
+            "endColumn": null,
+            "endLine": null,
+            "file": "main.cpp",
+            "line": 143
+          },
+          "message": "2 adjacent parameters of 'create_ca' of similar type ('const std::string &') are easily swapped by mistake",
+          "metadata": {
+            "clangTidyCheck": "bugprone-easily-swappable-parameters",
+            "evidenceResolution": {
+              "cwe": {
+                "id": null,
+                "source": null,
+                "status": "unknown"
+              },
+              "dataFlow": {
+                "present": false,
+                "stepCount": 0
+              },
+              "diagnostics": [
+                "CWE_UNKNOWN",
+                "DATAFLOW_NOT_PROVIDED"
+              ],
+              "kind": "sast-finding",
+              "location": {
+                "column": 22,
+                "endColumn": null,
+                "endLine": null,
+                "file": "main.cpp",
+                "line": 143,
+                "status": "present"
+              },
+              "origin": {
+                "source": "default",
+                "status": "user-code"
+              },
+              "ruleId": "clang-tidy:bugprone-easily-swappable-parameters",
+              "schemaVersion": "s4-evidence-v1",
+              "toolId": "clang-tidy"
+            }
+          },
+          "origin": null,
+          "ruleId": "clang-tidy:bugprone-easily-swappable-parameters",
+          "severity": "warning",
+          "toolId": "clang-tidy"
+        }
+      ]
+    },
+    {
+      "compileCommands": "uploads/build-agent-stabilization-datasets/certificate-maker/compile_commands.json",
+      "elapsedMs": 2026,
+      "findingsByTool": {
+        "clang-tidy": 0,
+        "cppcheck": 0,
+        "flawfinder": 2,
+        "gcc-fanalyzer": 4,
+        "scan-build": 1,
+        "semgrep": 0
+      },
+      "findingsTotal": 7,
+      "ok": true,
+      "project": "uploads/build-agent-stabilization-datasets/certificate-maker",
+      "requestedTools": [
+        "cppcheck",
+        "flawfinder",
+        "clang-tidy",
+        "scan-build",
+        "gcc-fanalyzer"
+      ],
+      "sourceFileCount": 4,
+      "toolSkipReasons": {
+        "semgrep": "operator-requested-subset"
+      },
+      "toolStatuses": {
+        "clang-tidy": "ok",
+        "cppcheck": "ok",
+        "flawfinder": "ok",
+        "gcc-fanalyzer": "ok",
+        "scan-build": "ok",
+        "semgrep": "skipped"
+      },
+      "toolsRun": [
+        "cppcheck",
+        "flawfinder",
+        "clang-tidy",
+        "scan-build",
+        "gcc-fanalyzer"
+      ],
+      "topFindings": [
+        {
+          "dataFlow": null,
+          "location": {
+            "column": 13,
+            "endColumn": null,
+            "endLine": null,
+            "file": "main.cpp",
+            "line": 35
+          },
+          "message": "This causes a new program to execute and is difficult to use safely (CWE-78).",
+          "metadata": {
+            "category": "shell",
+            "context": "FILE *p = popen(cmd.c_str(), \"r\");",
+            "cwe": [
+              "CWE-78"
+            ],
+            "cweId": "CWE-78",
+            "evidenceResolution": {
+              "cwe": {
+                "id": "CWE-78",
+                "source": "metadata.cweId",
+                "status": "known"
+              },
+              "dataFlow": {
+                "present": false,
+                "stepCount": 0
+              },
+              "diagnostics": [
+                "DATAFLOW_NOT_PROVIDED"
+              ],
+              "kind": "sast-finding",
+              "location": {
+                "column": 13,
+                "endColumn": null,
+                "endLine": null,
+                "file": "main.cpp",
+                "line": 35,
+                "status": "present"
+              },
+              "origin": {
+                "source": "default",
+                "status": "user-code"
+              },
+              "ruleId": "flawfinder:shell/popen",
+              "schemaVersion": "s4-evidence-v1",
+              "toolId": "flawfinder"
+            },
+            "flawfinderLevel": 4,
+            "name": "popen"
+          },
+          "origin": null,
+          "ruleId": "flawfinder:shell/popen",
+          "severity": "error",
+          "toolId": "flawfinder"
+        },
+        {
+          "dataFlow": null,
+          "location": {
+            "column": 3,
+            "endColumn": null,
+            "endLine": null,
+            "file": "main.cpp",
+            "line": 40
+          },
+          "message": "Statically-sized arrays can be improperly restricted, leading to potential overflows or other issues (CWE-119!/CWE-120).",
+          "metadata": {
+            "category": "buffer",
+            "context": "char buf[512];",
+            "cwe": [
+              "CWE-119",
+              "CWE-120"
+            ],
+            "cweId": "CWE-119",
+            "evidenceResolution": {
+              "cwe": {
+                "id": "CWE-119",
+                "source": "metadata.cweId",
+                "status": "known"
+              },
+              "dataFlow": {
+                "present": false,
+                "stepCount": 0
+              },
+              "diagnostics": [
+                "DATAFLOW_NOT_PROVIDED"
+              ],
+              "kind": "sast-finding",
+              "location": {
+                "column": 3,
+                "endColumn": null,
+                "endLine": null,
+                "file": "main.cpp",
+                "line": 40,
+                "status": "present"
+              },
+              "origin": {
+                "source": "default",
+                "status": "user-code"
+              },
+              "ruleId": "flawfinder:buffer/char",
+              "schemaVersion": "s4-evidence-v1",
+              "toolId": "flawfinder"
+            },
+            "flawfinderLevel": 2,
+            "name": "char"
+          },
+          "origin": null,
+          "ruleId": "flawfinder:buffer/char",
+          "severity": "warning",
+          "toolId": "flawfinder"
+        },
+        {
+          "dataFlow": [
+            {
+              "content": "Value stored to 'exitLoop' is never read",
+              "file": "main.cpp",
+              "line": 276
+            }
+          ],
+          "location": {
+            "column": 7,
+            "endColumn": null,
+            "endLine": null,
+            "file": "main.cpp",
+            "line": 276
+          },
+          "message": "Value stored to 'exitLoop' is never read",
+          "metadata": {
+            "category": "Unused code",
+            "checkName": "deadcode.DeadStores",
+            "cwe": [
+              "CWE-563"
+            ],
+            "cweId": "CWE-563",
+            "evidenceResolution": {
+              "cwe": {
+                "id": "CWE-563",
+                "source": "metadata.cweId",
+                "status": "known"
+              },
+              "dataFlow": {
+                "present": true,
+                "stepCount": 1
+              },
+              "diagnostics": [],
+              "kind": "sast-finding",
+              "location": {
+                "column": 7,
+                "endColumn": null,
+                "endLine": null,
+                "file": "main.cpp",
+                "line": 276,
+                "status": "present"
+              },
+              "origin": {
+                "source": "default",
+                "status": "user-code"
+              },
+              "ruleId": "scan-build:deadcode.DeadStores",
+              "schemaVersion": "s4-evidence-v1",
+              "toolId": "scan-build"
+            }
+          },
+          "origin": null,
+          "ruleId": "scan-build:deadcode.DeadStores",
+          "severity": "warning",
+          "toolId": "scan-build"
+        },
+        {
+          "dataFlow": null,
+          "location": {
+            "column": 18,
+            "endColumn": null,
+            "endLine": null,
+            "file": "main.cpp",
+            "line": 35
+          },
+          "message": "leak of \u2018popen(cmd->std::__cxx11::basic_string<char>::c_str(), \"r\")\u2019",
+          "metadata": {
+            "cwe": [
+              "CWE-401"
+            ],
+            "cweId": "CWE-401",
+            "evidenceResolution": {
+              "cwe": {
+                "id": "CWE-401",
+                "source": "metadata.cweId",
+                "status": "known"
+              },
+              "dataFlow": {
+                "present": false,
+                "stepCount": 0
+              },
+              "diagnostics": [
+                "DATAFLOW_NOT_PROVIDED"
+              ],
+              "kind": "sast-finding",
+              "location": {
+                "column": 18,
+                "endColumn": null,
+                "endLine": null,
+                "file": "main.cpp",
+                "line": 35,
+                "status": "present"
+              },
+              "origin": {
+                "source": "default",
+                "status": "user-code"
+              },
+              "ruleId": "gcc-fanalyzer:analyzer-malloc-leak",
+              "schemaVersion": "s4-evidence-v1",
+              "toolId": "gcc-fanalyzer"
+            },
+            "gccFlag": "-Wanalyzer-malloc-leak"
+          },
+          "origin": null,
+          "ruleId": "gcc-fanalyzer:analyzer-malloc-leak",
+          "severity": "warning",
+          "toolId": "gcc-fanalyzer"
+        },
+        {
+          "dataFlow": null,
+          "location": {
+            "column": 27,
+            "endColumn": null,
+            "endLine": null,
+            "file": "main.cpp",
+            "line": 66
+          },
+          "message": "use of uninitialized value \u2018<unknown>\u2019",
+          "metadata": {
+            "cwe": [
+              "CWE-457"
+            ],
+            "cweId": "CWE-457",
+            "evidenceResolution": {
+              "cwe": {
+                "id": "CWE-457",
+                "source": "metadata.cweId",
+                "status": "known"
+              },
+              "dataFlow": {
+                "present": false,
+                "stepCount": 0
+              },
+              "diagnostics": [
+                "DATAFLOW_NOT_PROVIDED"
+              ],
+              "kind": "sast-finding",
+              "location": {
+                "column": 27,
+                "endColumn": null,
+                "endLine": null,
+                "file": "main.cpp",
+                "line": 66,
+                "status": "present"
+              },
+              "origin": {
+                "source": "default",
+                "status": "user-code"
+              },
+              "ruleId": "gcc-fanalyzer:analyzer-use-of-uninitialized-value",
+              "schemaVersion": "s4-evidence-v1",
+              "toolId": "gcc-fanalyzer"
+            },
+            "gccFlag": "-Wanalyzer-use-of-uninitialized-value"
+          },
+          "origin": null,
+          "ruleId": "gcc-fanalyzer:analyzer-use-of-uninitialized-value",
+          "severity": "warning",
+          "toolId": "gcc-fanalyzer"
+        },
+        {
+          "dataFlow": null,
+          "location": {
+            "column": 28,
+            "endColumn": null,
+            "endLine": null,
+            "file": "main.cpp",
+            "line": 92
+          },
+          "message": "use of uninitialized value \u2018<unknown>\u2019",
+          "metadata": {
+            "cwe": [
+              "CWE-457"
+            ],
+            "cweId": "CWE-457",
+            "evidenceResolution": {
+              "cwe": {
+                "id": "CWE-457",
+                "source": "metadata.cweId",
+                "status": "known"
+              },
+              "dataFlow": {
+                "present": false,
+                "stepCount": 0
+              },
+              "diagnostics": [
+                "DATAFLOW_NOT_PROVIDED"
+              ],
+              "kind": "sast-finding",
+              "location": {
+                "column": 28,
+                "endColumn": null,
+                "endLine": null,
+                "file": "main.cpp",
+                "line": 92,
+                "status": "present"
+              },
+              "origin": {
+                "source": "default",
+                "status": "user-code"
+              },
+              "ruleId": "gcc-fanalyzer:analyzer-use-of-uninitialized-value",
+              "schemaVersion": "s4-evidence-v1",
+              "toolId": "gcc-fanalyzer"
+            },
+            "gccFlag": "-Wanalyzer-use-of-uninitialized-value"
+          },
+          "origin": null,
+          "ruleId": "gcc-fanalyzer:analyzer-use-of-uninitialized-value",
+          "severity": "warning",
+          "toolId": "gcc-fanalyzer"
+        },
+        {
+          "dataFlow": null,
+          "location": {
+            "column": 16,
+            "endColumn": null,
+            "endLine": null,
+            "file": "main.cpp",
+            "line": 128
+          },
+          "message": "use of uninitialized value \u2018<unknown>\u2019",
+          "metadata": {
+            "cwe": [
+              "CWE-457"
+            ],
+            "cweId": "CWE-457",
+            "evidenceResolution": {
+              "cwe": {
+                "id": "CWE-457",
+                "source": "metadata.cweId",
+                "status": "known"
+              },
+              "dataFlow": {
+                "present": false,
+                "stepCount": 0
+              },
+              "diagnostics": [
+                "DATAFLOW_NOT_PROVIDED"
+              ],
+              "kind": "sast-finding",
+              "location": {
+                "column": 16,
+                "endColumn": null,
+                "endLine": null,
+                "file": "main.cpp",
+                "line": 128,
+                "status": "present"
+              },
+              "origin": {
+                "source": "default",
+                "status": "user-code"
+              },
+              "ruleId": "gcc-fanalyzer:analyzer-use-of-uninitialized-value",
+              "schemaVersion": "s4-evidence-v1",
+              "toolId": "gcc-fanalyzer"
+            },
+            "gccFlag": "-Wanalyzer-use-of-uninitialized-value"
+          },
+          "origin": null,
+          "ruleId": "gcc-fanalyzer:analyzer-use-of-uninitialized-value",
+          "severity": "warning",
+          "toolId": "gcc-fanalyzer"
+        }
+      ]
+    }
+  ],
+  "runId": "s4-local-multiproject-battery-20260512T042938Z",
+  "schemaVersion": "s4-local-multiproject-operational-battery-v1",
+  "scope": "operational-smoke-no-oracle",
+  "systemPreflight": {
+    "reasonCodes": [
+      "REQUIRED_TOOL_UNAVAILABLE",
+      "SEMGREP_NOT_EXECUTED_IN_REQUESTED_BATTERY"
+    ],
+    "status": "fail"
+  },
+  "toolAvailability": {
+    "clang-tidy": {
+      "available": true,
+      "expectedExecutablePath": null,
+      "probeReason": null,
+      "version": "18.1.3"
+    },
+    "cppcheck": {
+      "available": true,
+      "expectedExecutablePath": null,
+      "probeReason": null,
+      "version": "2.13.0"
+    },
+    "flawfinder": {
+      "available": true,
+      "expectedExecutablePath": null,
+      "probeReason": null,
+      "version": "2.0.19"
+    },
+    "gcc-fanalyzer": {
+      "available": true,
+      "expectedExecutablePath": null,
+      "probeReason": null,
+      "version": "13.3.0"
+    },
+    "scan-build": {
+      "available": true,
+      "expectedExecutablePath": null,
+      "probeReason": null,
+      "version": "scan-build"
+    },
+    "semgrep": {
+      "available": false,
+      "expectedExecutablePath": "/home/kosh/AEGIS/services/sast-runner/.venv/bin/semgrep",
+      "probeReason": "environment-drift",
+      "version": null
+    }
+  }
+}

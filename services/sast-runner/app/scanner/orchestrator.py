@@ -16,6 +16,7 @@ FileProgressCallback = Callable[[str, str, int, int], Awaitable[None]]
 # Runtime 상태 콜백 타입: (tool_name, state_dict) -> None
 RuntimeStateCallback = Callable[[str, dict[str, Any]], Awaitable[None]]
 
+from app.errors import RequiredToolUnavailableError
 from app.scanner.clangtidy_runner import ClangTidyRunner
 from app.scanner.cppcheck_runner import CppcheckRunner
 from app.scanner.evidence import enrich_findings_evidence
@@ -151,18 +152,62 @@ class ScanOrchestrator:
             "allowedSkipReasons": list(ALLOWED_SKIP_REASONS),
         }
 
-    def evaluate_policy(self, execution: ExecutionReport) -> dict[str, Any] | None:
+    def evaluate_policy(
+        self,
+        execution: ExecutionReport,
+        *,
+        required_tools: list[str] | None = None,
+    ) -> dict[str, Any] | None:
+        required = list(required_tools if required_tools is not None else execution.tools_run)
         disallowed_tools: list[str] = []
         policy_reasons: list[str] = []
+        unstable_tools: list[str] = []
+        unstable_reasons: list[str] = []
         for tool_name, result in execution.tool_results.items():
             reason = result.skip_reason
             if result.status == "skipped" and reason and reason not in ALLOWED_SKIP_REASONS:
                 disallowed_tools.append(tool_name)
                 if reason not in policy_reasons:
                     policy_reasons.append(reason)
+        for tool_name in required:
+            result = execution.tool_results.get(tool_name)
+            if result is None:
+                unstable_tools.append(tool_name)
+                unstable_reasons.append("tool-result-missing")
+                continue
+            if result.status == "ok" and not result.degraded:
+                continue
+            if result.status == "ok" and result.degraded:
+                unstable_tools.append(tool_name)
+                unstable_reasons.extend(result.degrade_reasons or ["tool-degraded"])
+                continue
+            if result.status in {"failed", "partial", "skipped"}:
+                unstable_tools.append(tool_name)
+                unstable_reasons.append(result.skip_reason or f"tool-{result.status}")
+                unstable_reasons.extend(result.degrade_reasons or [])
+                continue
+            unstable_tools.append(tool_name)
+            unstable_reasons.append("tool-status-unknown")
 
-        if not disallowed_tools:
+        if not disallowed_tools and not unstable_tools:
             return None
+
+        if unstable_tools:
+            unique_reasons = sorted({reason for reason in unstable_reasons if reason})
+            msg = (
+                "Required SAST tool execution incomplete: "
+                + ", ".join(
+                    f"{tool}({execution.tool_results[tool].status if tool in execution.tool_results else 'missing'})"
+                    for tool in unstable_tools
+                )
+            )
+            return {
+                "code": "REQUIRED_TOOL_EXECUTION_INCOMPLETE",
+                "message": msg,
+                "unstableTools": unstable_tools,
+                "omittedTools": [tool for tool in unstable_tools if tool in disallowed_tools],
+                "policyReasons": unique_reasons,
+            }
 
         code = (
             "DISALLOWED_TOOL_ENVIRONMENT_DRIFT"
@@ -203,6 +248,12 @@ class ScanOrchestrator:
         available_tools = await self.check_tools(force=True)
         active_tools = await self._select_tools(
             tools, profile, available_tools,
+        )
+        self._raise_if_required_tools_unavailable(
+            requested=tools,
+            active_tools=active_tools,
+            available_tools=available_tools,
+            profile=profile,
         )
 
         # 2. SDK 경로 해석
@@ -384,6 +435,103 @@ class ScanOrchestrator:
         )
 
         return all_findings, execution
+
+    def _raise_if_required_tools_unavailable(
+        self,
+        *,
+        requested: list[str] | None,
+        active_tools: dict[str, Any],
+        available_tools: dict[str, dict],
+        profile: BuildProfile | None,
+    ) -> None:
+        """Fail closed before execution if any required tool is unavailable.
+
+        Default scans require the full current-six portfolio. Explicit subsets
+        require only the requested tools; non-requested tools remain documented as
+        operator-requested-subset and cannot be promoted to full-current-six
+        quality evidence by downstream gates.
+        """
+        required = list(requested or ALL_TOOLS)
+        skipped = active_tools.get("_skipped", {})
+        failures = []
+        for tool in required:
+            if tool in skipped:
+                info = available_tools.get(tool, {})
+                failures.append({
+                    "toolId": tool,
+                    "reasonCode": skipped[tool],
+                    "version": info.get("version"),
+                    "expectedExecutablePath": info.get("expectedExecutablePath"),
+                })
+
+        if not failures:
+            return
+
+        sdk_info = self._build_sdk_info(profile, profile)
+        execution = self._preflight_failure_execution(
+            required_tools=required,
+            failures=failures,
+            skipped=skipped,
+            available_tools=available_tools,
+            sdk_info=sdk_info,
+        )
+        message = "Required SAST tool preflight failed: " + ", ".join(
+            f"{failure['toolId']}({failure['reasonCode']})"
+            for failure in failures
+        )
+        logger.error(
+            "Required SAST tool preflight failed",
+            extra={
+                "requiredTools": required,
+                "failures": failures,
+            },
+        )
+        raise RequiredToolUnavailableError(
+            message,
+            execution=execution,
+            tool_failures=failures,
+        )
+
+    def _preflight_failure_execution(
+        self,
+        *,
+        required_tools: list[str],
+        failures: list[dict[str, Any]],
+        skipped: dict[str, str],
+        available_tools: dict[str, dict],
+        sdk_info: dict[str, Any],
+    ) -> ExecutionReport:
+        failed_tools = {failure["toolId"] for failure in failures}
+        tool_results: dict[str, ToolExecutionResult] = {}
+        for tool in ALL_TOOLS:
+            info = available_tools.get(tool, {})
+            if tool in failed_tools:
+                reason = skipped.get(tool) or info.get("probeReason") or "runtime-tool-missing"
+            elif tool in skipped:
+                reason = skipped[tool]
+            else:
+                reason = "blocked-by-required-tool-preflight-failure"
+            tool_results[tool] = ToolExecutionResult(
+                status="skipped",
+                findings_count=0,
+                elapsed_ms=0,
+                skip_reason=reason,
+                version=info.get("version"),
+                degraded=(tool in failed_tools),
+                degrade_reasons=([reason] if tool in failed_tools else None),
+            )
+
+        return ExecutionReport(
+            tools_run=[],
+            tool_results=tool_results,
+            sdk=SdkResolutionInfo(**sdk_info),
+            filtering=FindingsFilterInfo(before_filter=0, after_filter=0),
+            degraded=True,
+            degrade_reasons=sorted({
+                "required-tool-unavailable",
+                *[failure["reasonCode"] for failure in failures],
+            }),
+        )
 
     async def _select_tools(
         self,

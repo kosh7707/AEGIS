@@ -1,0 +1,137 @@
+{
+  "schemaVersion": "s5-source-coverage-matrix-v1",
+  "matrixId": "s5-default-source-coverage-matrix",
+  "matrixVersion": "v1",
+  "coverageGateKind": "source_coverage_quality_gate_not_service_health",
+  "domainScope": {
+    "firstClass": ["native", "system", "embedded", "ics_ot"],
+    "specialization": ["c_cpp_static_analysis", "vulnerability_intelligence", "evidence_grounded_threat_kb"],
+    "nonGoals": ["javascript_first_class", "python_first_class", "web_app_only_first_class"]
+  },
+  "languageScope": {
+    "firstClass": ["c", "cpp"],
+    "supportingOnly": ["json", "yaml", "xml", "csv", "markdown"],
+    "excludedFirstClass": ["javascript", "typescript", "python", "java", "ruby", "go", "rust"]
+  },
+  "firstClassSourceKindAllowlist": [
+    "knowledge-corpus-v1",
+    "golden-set-v1",
+    "CWE",
+    "CAPEC",
+    "ATTACK_ENTERPRISE",
+    "ATTACK_ICS",
+    "OSV",
+    "NVD_CVE",
+    "GHSA",
+    "package-identity",
+    "CISA_KEV",
+    "FIRST_EPSS",
+    "semgrep",
+    "cppcheck",
+    "clang-tidy",
+    "gcc-fanalyzer",
+    "scan-build",
+    "flawfinder"
+  ],
+  "roles": [
+    {
+      "roleId": "weakness_taxonomy",
+      "description": "Weakness taxonomy and CWE relation substrate.",
+      "requiredSourceKinds": ["CWE"],
+      "answerAxes": ["B"],
+      "minimumCoverageProfile": "fixture_slice",
+      "allowedCoverageProfiles": ["fixture_slice", "cached_catalog_snapshot", "production_snapshot", "full_cwe_expected"],
+      "liveDownloadDefault": false,
+      "manualCacheAllowed": true,
+      "hardFailIfMissing": true,
+      "productionCoverageRequires": ["minimumWeaknessCount", "requiredWeaknessIds"]
+    },
+    {
+      "roleId": "attack_pattern_ontology",
+      "description": "Attack pattern / adversary behavior semantics for CAPEC and ATT&CK.",
+      "requiredSourceKinds": ["CAPEC", "ATTACK_ENTERPRISE", "ATTACK_ICS"],
+      "answerAxes": ["B"],
+      "minimumCoverageProfile": "fixture_slice",
+      "allowedCoverageProfiles": ["fixture_slice", "cached_catalog_snapshot", "production_snapshot"],
+      "liveDownloadDefault": false,
+      "manualCacheAllowed": true,
+      "hardFailIfMissing": true,
+      "productionCoverageRequires": ["catalogSnapshotVersion", "externalRelationCompleteness"]
+    },
+    {
+      "roleId": "vulnerability_advisory_fact",
+      "description": "Advisory facts, affected ranges, aliases, CWE labels, and provider evidence.",
+      "requiredSourceKinds": ["OSV", "NVD_CVE", "GHSA"],
+      "answerAxes": ["A", "B"],
+      "minimumCoverageProfile": "fixture_slice",
+      "allowedCoverageProfiles": ["fixture_slice", "cached_catalog_snapshot", "production_snapshot"],
+      "liveDownloadDefault": false,
+      "manualCacheAllowed": true,
+      "hardFailIfMissing": true,
+      "productionCoverageRequires": ["affectedRangeCoverage", "aliasCoverage", "publishedModifiedTimestamps"]
+    },
+    {
+      "roleId": "product_package_identity",
+      "description": "Package/product/source-component identity mapping without collapsing PURL, CPE, and source identity classes.",
+      "requiredSourceKinds": ["package-identity"],
+      "answerAxes": ["A"],
+      "minimumCoverageProfile": "fixture_slice",
+      "allowedCoverageProfiles": ["fixture_slice", "cached_catalog_snapshot", "production_snapshot"],
+      "liveDownloadDefault": false,
+      "manualCacheAllowed": true,
+      "hardFailIfMissing": true,
+      "productionCoverageRequires": ["purlCoverage", "cpeCoverage", "sourceComponentCoverage"]
+    },
+    {
+      "roleId": "risk_exploitation_signal",
+      "description": "Prioritization-only risk signals. CVSS is extracted from NVD_CVE in v1; CISA KEV and FIRST EPSS are standalone source kinds.",
+      "requiredSourceKinds": ["CISA_KEV", "FIRST_EPSS", "NVD_CVE"],
+      "derivedSignals": [{"signalKind": "CVSS", "sourceKind": "NVD_CVE"}],
+      "answerAxes": ["C"],
+      "minimumCoverageProfile": "fixture_slice",
+      "allowedCoverageProfiles": ["fixture_slice", "cached_catalog_snapshot", "production_snapshot"],
+      "liveDownloadDefault": false,
+      "manualCacheAllowed": true,
+      "hardFailIfMissing": true,
+      "productionCoverageRequires": ["signalTimestamp", "riskSignalFreshness"]
+    },
+    {
+      "roleId": "tool_rule_core",
+      "description": "C/C++ static analyzer rule mappings used as contextual weakness/source-tooling signals.",
+      "requiredSourceKinds": ["semgrep", "cppcheck", "clang-tidy", "gcc-fanalyzer", "scan-build", "flawfinder"],
+      "answerAxes": ["B"],
+      "minimumCoverageProfile": "fixture_slice",
+      "allowedCoverageProfiles": ["fixture_slice", "cached_catalog_snapshot", "production_snapshot"],
+      "liveDownloadDefault": false,
+      "manualCacheAllowed": true,
+      "hardFailIfMissing": true,
+      "productionCoverageRequires": ["ruleIdCoverage", "weaknessMappingCoverage"]
+    },
+    {
+      "roleId": "benchmark_asset",
+      "description": "Golden set and knowledge corpus schema assets for validation, regression, and answerability gates.",
+      "requiredSourceKinds": ["golden-set-v1", "knowledge-corpus-v1"],
+      "answerAxes": ["validation"],
+      "minimumCoverageProfile": "fixture_slice",
+      "allowedCoverageProfiles": ["fixture_slice", "cached_catalog_snapshot", "production_snapshot"],
+      "liveDownloadDefault": false,
+      "manualCacheAllowed": true,
+      "hardFailIfMissing": true,
+      "productionCoverageRequires": ["answerabilityCases", "negativeCases"]
+    },
+    {
+      "roleId": "source_code_kg",
+      "description": "S5-owned Source Code KG producer artifacts are handled by runtime ingest APIs from Loop 1, not fixture corpus ingestion.",
+      "requiredSourceKinds": [],
+      "deferredSourceKinds": ["SOURCE_CODE_KG"],
+      "deferredReason": "runtime_source_kg_ingest_contract_covered_by_loop1_not_fixture_corpus",
+      "answerAxes": ["A", "B"],
+      "minimumCoverageProfile": "deferred",
+      "allowedCoverageProfiles": ["deferred"],
+      "liveDownloadDefault": false,
+      "manualCacheAllowed": false,
+      "hardFailIfMissing": false,
+      "productionCoverageRequires": ["repositorySnapshot", "buildTarget", "analysisArtifactSet"]
+    }
+  ]
+}

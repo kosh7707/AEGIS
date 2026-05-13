@@ -45,6 +45,50 @@ class _MockStreamResponse:
         pass
 
 
+def test_build_result_marks_degraded_static_evidence_as_caveated_not_ready():
+    """Transport success with degraded S4 contract is not clean complete evidence."""
+    result = SastScanTool._build_result({
+        "success": True,
+        "findings": [],
+        "stats": {},
+        "execution": {"toolResults": {"scan-build": {"status": "partial"}}},
+        "staticEvidenceContract": {
+            "gates": {
+                "systemStability": {"status": "degraded", "reasonCodes": ["TOOL_PARTIAL:scan-build"]},
+                "evidenceReadiness": {"status": "partial", "reasonCodes": ["LOCAL_EVIDENCE_PARTIAL"]},
+                "claimSupportReadiness": {"status": "partial", "reasonCodes": ["LOCAL_ARTIFACT_DEGRADED"]},
+            },
+            "claimBoundaryMatrix": [],
+            "toolEvidenceMatrix": [{"toolId": "scan-build", "status": "partial"}],
+        },
+    })
+
+    assert result.success is True
+    data = json.loads(result.content)
+    diagnostics = data["_sast_caveats"]["staticEvidenceDiagnostics"]
+    assert diagnostics["ready"] is False
+    assert diagnostics["systemStability"] == "degraded"
+    assert diagnostics["evidenceReadiness"] == "partial"
+    assert diagnostics["claimSupportReadiness"] == "partial"
+
+
+def test_build_result_marks_missing_static_evidence_contract_as_not_ready_caveat():
+    result = SastScanTool._build_result({
+        "success": True,
+        "findings": [],
+        "stats": {},
+        "execution": {"toolResults": {}},
+    })
+
+    assert result.success is True
+    data = json.loads(result.content)
+    diagnostics = data["_sast_caveats"]["staticEvidenceDiagnostics"]
+    assert diagnostics["ready"] is False
+    assert "STATIC_EVIDENCE_CONTRACT_MISSING" in diagnostics["reasonCodes"]
+    assert diagnostics["hasClaimBoundaryMatrix"] is False
+    assert diagnostics["hasToolEvidenceMatrix"] is False
+
+
 @pytest.mark.asyncio
 async def test_ndjson_streaming_success():
     """progress → heartbeat → result 정상 파싱."""
@@ -235,7 +279,8 @@ async def test_queued_heartbeat_no_stall():
     result = await tool.execute({"scanId": "test", "projectId": "p1"})
     assert result.success is True
     data = json.loads(result.content)
-    assert "_sast_caveats" not in data
+    assert data["_sast_caveats"]["stallDetected"] is False
+    assert "STATIC_EVIDENCE_CONTRACT_MISSING" in data["_sast_caveats"]["staticEvidenceDiagnostics"]["reasonCodes"]
 
 
 @pytest.mark.asyncio
@@ -308,7 +353,8 @@ async def test_no_stall_when_progress_advances():
     result = await tool.execute({"scanId": "test", "projectId": "p1"})
     assert result.success is True
     data = json.loads(result.content)
-    assert "_sast_caveats" not in data
+    assert data["_sast_caveats"]["stallDetected"] is False
+    assert "STATIC_EVIDENCE_CONTRACT_MISSING" in data["_sast_caveats"]["staticEvidenceDiagnostics"]["reasonCodes"]
 
 
 @pytest.mark.asyncio

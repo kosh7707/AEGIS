@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 from app.agent_runtime.context import get_request_id
 from app.agent_runtime.observability import agent_log
 from app.core.phase_one_types import Phase1Result
+from app.core.s4_static_evidence import extract_static_evidence_contract, summarize_static_evidence_contract
 
 if TYPE_CHECKING:
     from app.core.agent_session import AgentSession
@@ -102,6 +103,7 @@ async def execute_phase_one(executor, session: "AgentSession", logger: logging.L
     pre_findings = trusted.get("sastFindings")
     if pre_findings is None:
         pre_findings = quick_context.get("sastFindings")
+    pre_static_contract = extract_static_evidence_contract(trusted, quick_context)
     pre_sca = trusted.get("scaLibraries")
     if pre_sca is None:
         pre_sca = quick_context.get("scaLibraries")
@@ -110,6 +112,9 @@ async def execute_phase_one(executor, session: "AgentSession", logger: logging.L
         result.sast_findings = pre_findings
         result.sast_scan_attempted = True
         result.sast_scan_completed = True
+        result.sast_static_evidence_contract = pre_static_contract
+        result.sast_static_evidence_diagnostics = summarize_static_evidence_contract(pre_static_contract)
+        result.sast_static_evidence_ready = bool(result.sast_static_evidence_diagnostics.get("ready"))
         if pre_sca is not None:
             result.sca_libraries = pre_sca
         agent_log(

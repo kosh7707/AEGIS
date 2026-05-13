@@ -9,8 +9,20 @@
     "dataFlow": true,
     "sca": {
       "libraries": [
-        {"name": "lib-a", "versionEvidence": {"status": "observed"}, "diffAvailable": true},
-        {"name": "lib-b", "versionEvidence": {"status": "observed"}, "diffAvailable": false}
+        {
+          "name": "lib-a",
+          "versionEvidence": {
+            "status": "observed"
+          },
+          "diffAvailable": true
+        },
+        {
+          "name": "lib-b",
+          "versionEvidence": {
+            "status": "observed"
+          },
+          "diffAvailable": false
+        }
       ]
     }
   },
@@ -18,10 +30,13 @@
     "findings[].metadata.evidenceResolution",
     "staticEvidenceContract.coverage.scaDiffEvidence",
     "staticEvidenceContract.gates.evidenceReadiness",
-    "staticEvidenceContract.toolEvidenceMatrix"
+    "staticEvidenceContract.toolEvidenceMatrix",
+    "staticEvidenceContract.gates.claimSupportReadiness"
   ],
   "expectedContractPaths": {
     "staticEvidenceContract.coverage.scaDiffEvidence.status": "partial",
-    "staticEvidenceContract.gates.evidenceReadiness.status": "partial"
+    "staticEvidenceContract.gates.evidenceReadiness.status": "partial",
+    "staticEvidenceContract.gates.claimSupportReadiness.status": "partial",
+    "staticEvidenceContract.claimBoundaryMatrix.build-configuration-dependent-negative-claim.supportStatus": "unsupported"
   }
 }

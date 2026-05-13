@@ -1,0 +1,2887 @@
+{
+  "benchmarkSliceEvidence": {
+    "consumerPolicy": "historical_prerequisite_not_replacement_test_evidence",
+    "schemaVersion": "s4-benchmark-slice-report-v1",
+    "sources": {
+      "allVariants": {
+        "artifact": "v0.7.0-all-variants.json",
+        "cweCount": 12,
+        "summary": {
+          "overallNoisePerFile": 16.2,
+          "overallRecall": 0.7869,
+          "totalFN": 1872,
+          "totalNoise": 142308,
+          "totalTP": 6911
+        },
+        "targetCWEs": [
+          "CWE-78",
+          "CWE-121",
+          "CWE-122",
+          "CWE-134",
+          "CWE-190",
+          "CWE-252",
+          "CWE-369",
+          "CWE-401",
+          "CWE-416",
+          "CWE-457",
+          "CWE-476",
+          "CWE-680"
+        ],
+        "timestamp": "2026-03-27T01:52:15.337089+00:00",
+        "variantFilter": "all"
+      },
+      "variant01": {
+        "artifact": "v0.6.0-full.json",
+        "cweCount": 12,
+        "summary": {
+          "overallF1": 0.1261,
+          "overallPrecision": 0.0682,
+          "overallRecall": 0.8366,
+          "totalFN": 59,
+          "totalFP": 4128,
+          "totalTP": 302
+        },
+        "targetCWEs": [
+          "CWE-78",
+          "CWE-121",
+          "CWE-122",
+          "CWE-134",
+          "CWE-190",
+          "CWE-252",
+          "CWE-369",
+          "CWE-401",
+          "CWE-416",
+          "CWE-457",
+          "CWE-476",
+          "CWE-680"
+        ],
+        "timestamp": "2026-03-26T09:37:03.943733+00:00",
+        "variantFilter": "01"
+      }
+    },
+    "status": "available",
+    "weakestSlices": {
+      "allVariants": [
+        {
+          "cwe": "CWE-457",
+          "profile": "allVariants",
+          "recall": 0.5432,
+          "sourceArtifact": "v0.7.0-all-variants.json",
+          "totalFiles": 486,
+          "variantFilter": "all"
+        },
+        {
+          "cwe": "CWE-416",
+          "profile": "allVariants",
+          "recall": 0.6667,
+          "sourceArtifact": "v0.7.0-all-variants.json",
+          "totalFiles": 108,
+          "variantFilter": "all"
+        },
+        {
+          "cwe": "CWE-369",
+          "profile": "allVariants",
+          "recall": 0.6709,
+          "sourceArtifact": "v0.7.0-all-variants.json",
+          "totalFiles": 468,
+          "variantFilter": "all"
+        }
+      ],
+      "variant01": [
+        {
+          "cwe": "CWE-457",
+          "profile": "variant01",
+          "recall": 0.5556,
+          "sourceArtifact": "v0.6.0-full.json",
+          "totalFiles": 27,
+          "variantFilter": "01"
+        },
+        {
+          "cwe": "CWE-416",
+          "profile": "variant01",
+          "recall": 0.6667,
+          "sourceArtifact": "v0.6.0-full.json",
+          "totalFiles": 6,
+          "variantFilter": "01"
+        },
+        {
+          "cwe": "CWE-252",
+          "profile": "variant01",
+          "recall": 0.7222,
+          "sourceArtifact": "v0.6.0-full.json",
+          "totalFiles": 18,
+          "variantFilter": "01"
+        }
+      ]
+    }
+  },
+  "canaryMetrics": {
+    "byConfig": {
+      "contract-canary-current-six": {
+        "discrimination": 1.0,
+        "findingPrecision": 1.0,
+        "fpFindings": 0,
+        "matchedTpFindings": 1,
+        "negativeTargetCleanCount": 0,
+        "negativeTargetFpr": null,
+        "negativeTargetViolationCount": 0,
+        "noisePerFile": 0.0,
+        "rowMetadata": {
+          "matchingPolicy": "s4-oracle-matching-policy-v1",
+          "toolSetConfig": "contract-canary-current-six"
+        },
+        "rows": [
+          {
+            "caseId": "canary-buffer-copy",
+            "countsAsFp": false,
+            "countsAsTargetTp": true,
+            "findingKey": "semgrep:semgrep:fixture:canary-buffer-copy.c:12",
+            "matchClass": "exact-target-match",
+            "matchingPolicy": "s4-oracle-matching-policy-v1",
+            "reasonCodes": [],
+            "sliceKind": "s4-canary",
+            "sourceArtifact": "s4-harness-fixture",
+            "sourcePath": "canary-buffer-copy.c",
+            "split": "canary",
+            "targetId": "canary-buffer-copy-target",
+            "toolId": "semgrep",
+            "toolSetConfig": "contract-canary-current-six"
+          }
+        ],
+        "targetFN": 0,
+        "targetRecall": 1.0,
+        "targetTP": 1,
+        "toolSetConfig": "contract-canary-current-six",
+        "weakRelatedCount": 0,
+        "wrongCweCount": 0
+      },
+      "full-current-six": {
+        "discrimination": 1.0,
+        "findingPrecision": 1.0,
+        "fpFindings": 0,
+        "matchedTpFindings": 1,
+        "negativeTargetCleanCount": 0,
+        "negativeTargetFpr": null,
+        "negativeTargetViolationCount": 0,
+        "noisePerFile": 0.0,
+        "rowMetadata": {
+          "matchingPolicy": "s4-oracle-matching-policy-v1",
+          "toolSetConfig": "full-current-six"
+        },
+        "rows": [
+          {
+            "caseId": "canary-buffer-copy",
+            "countsAsFp": false,
+            "countsAsTargetTp": true,
+            "findingKey": "semgrep:semgrep:fixture:canary-buffer-copy.c:12",
+            "matchClass": "exact-target-match",
+            "matchingPolicy": "s4-oracle-matching-policy-v1",
+            "reasonCodes": [],
+            "sliceKind": "s4-canary",
+            "sourceArtifact": "s4-harness-fixture",
+            "sourcePath": "canary-buffer-copy.c",
+            "split": "canary",
+            "targetId": "canary-buffer-copy-target",
+            "toolId": "semgrep",
+            "toolSetConfig": "full-current-six"
+          }
+        ],
+        "targetFN": 0,
+        "targetRecall": 1.0,
+        "targetTP": 1,
+        "toolSetConfig": "full-current-six",
+        "weakRelatedCount": 0,
+        "wrongCweCount": 0
+      },
+      "leave-one-out:clang-tidy": {
+        "discrimination": 1.0,
+        "findingPrecision": 1.0,
+        "fpFindings": 0,
+        "matchedTpFindings": 1,
+        "negativeTargetCleanCount": 0,
+        "negativeTargetFpr": null,
+        "negativeTargetViolationCount": 0,
+        "noisePerFile": 0.0,
+        "rowMetadata": {
+          "matchingPolicy": "s4-oracle-matching-policy-v1",
+          "toolSetConfig": "leave-one-out:clang-tidy"
+        },
+        "rows": [
+          {
+            "caseId": "canary-buffer-copy",
+            "countsAsFp": false,
+            "countsAsTargetTp": true,
+            "findingKey": "semgrep:semgrep:fixture:canary-buffer-copy.c:12",
+            "matchClass": "exact-target-match",
+            "matchingPolicy": "s4-oracle-matching-policy-v1",
+            "reasonCodes": [],
+            "sliceKind": "s4-canary",
+            "sourceArtifact": "s4-harness-fixture",
+            "sourcePath": "canary-buffer-copy.c",
+            "split": "canary",
+            "targetId": "canary-buffer-copy-target",
+            "toolId": "semgrep",
+            "toolSetConfig": "leave-one-out:clang-tidy"
+          }
+        ],
+        "targetFN": 0,
+        "targetRecall": 1.0,
+        "targetTP": 1,
+        "toolSetConfig": "leave-one-out:clang-tidy",
+        "weakRelatedCount": 0,
+        "wrongCweCount": 0
+      },
+      "leave-one-out:cppcheck": {
+        "discrimination": 1.0,
+        "findingPrecision": 1.0,
+        "fpFindings": 0,
+        "matchedTpFindings": 1,
+        "negativeTargetCleanCount": 0,
+        "negativeTargetFpr": null,
+        "negativeTargetViolationCount": 0,
+        "noisePerFile": 0.0,
+        "rowMetadata": {
+          "matchingPolicy": "s4-oracle-matching-policy-v1",
+          "toolSetConfig": "leave-one-out:cppcheck"
+        },
+        "rows": [
+          {
+            "caseId": "canary-buffer-copy",
+            "countsAsFp": false,
+            "countsAsTargetTp": true,
+            "findingKey": "semgrep:semgrep:fixture:canary-buffer-copy.c:12",
+            "matchClass": "exact-target-match",
+            "matchingPolicy": "s4-oracle-matching-policy-v1",
+            "reasonCodes": [],
+            "sliceKind": "s4-canary",
+            "sourceArtifact": "s4-harness-fixture",
+            "sourcePath": "canary-buffer-copy.c",
+            "split": "canary",
+            "targetId": "canary-buffer-copy-target",
+            "toolId": "semgrep",
+            "toolSetConfig": "leave-one-out:cppcheck"
+          }
+        ],
+        "targetFN": 0,
+        "targetRecall": 1.0,
+        "targetTP": 1,
+        "toolSetConfig": "leave-one-out:cppcheck",
+        "weakRelatedCount": 0,
+        "wrongCweCount": 0
+      },
+      "leave-one-out:flawfinder": {
+        "discrimination": 1.0,
+        "findingPrecision": 1.0,
+        "fpFindings": 0,
+        "matchedTpFindings": 1,
+        "negativeTargetCleanCount": 0,
+        "negativeTargetFpr": null,
+        "negativeTargetViolationCount": 0,
+        "noisePerFile": 0.0,
+        "rowMetadata": {
+          "matchingPolicy": "s4-oracle-matching-policy-v1",
+          "toolSetConfig": "leave-one-out:flawfinder"
+        },
+        "rows": [
+          {
+            "caseId": "canary-buffer-copy",
+            "countsAsFp": false,
+            "countsAsTargetTp": true,
+            "findingKey": "semgrep:semgrep:fixture:canary-buffer-copy.c:12",
+            "matchClass": "exact-target-match",
+            "matchingPolicy": "s4-oracle-matching-policy-v1",
+            "reasonCodes": [],
+            "sliceKind": "s4-canary",
+            "sourceArtifact": "s4-harness-fixture",
+            "sourcePath": "canary-buffer-copy.c",
+            "split": "canary",
+            "targetId": "canary-buffer-copy-target",
+            "toolId": "semgrep",
+            "toolSetConfig": "leave-one-out:flawfinder"
+          }
+        ],
+        "targetFN": 0,
+        "targetRecall": 1.0,
+        "targetTP": 1,
+        "toolSetConfig": "leave-one-out:flawfinder",
+        "weakRelatedCount": 0,
+        "wrongCweCount": 0
+      },
+      "leave-one-out:gcc-fanalyzer": {
+        "discrimination": 1.0,
+        "findingPrecision": 1.0,
+        "fpFindings": 0,
+        "matchedTpFindings": 1,
+        "negativeTargetCleanCount": 0,
+        "negativeTargetFpr": null,
+        "negativeTargetViolationCount": 0,
+        "noisePerFile": 0.0,
+        "rowMetadata": {
+          "matchingPolicy": "s4-oracle-matching-policy-v1",
+          "toolSetConfig": "leave-one-out:gcc-fanalyzer"
+        },
+        "rows": [
+          {
+            "caseId": "canary-buffer-copy",
+            "countsAsFp": false,
+            "countsAsTargetTp": true,
+            "findingKey": "semgrep:semgrep:fixture:canary-buffer-copy.c:12",
+            "matchClass": "exact-target-match",
+            "matchingPolicy": "s4-oracle-matching-policy-v1",
+            "reasonCodes": [],
+            "sliceKind": "s4-canary",
+            "sourceArtifact": "s4-harness-fixture",
+            "sourcePath": "canary-buffer-copy.c",
+            "split": "canary",
+            "targetId": "canary-buffer-copy-target",
+            "toolId": "semgrep",
+            "toolSetConfig": "leave-one-out:gcc-fanalyzer"
+          }
+        ],
+        "targetFN": 0,
+        "targetRecall": 1.0,
+        "targetTP": 1,
+        "toolSetConfig": "leave-one-out:gcc-fanalyzer",
+        "weakRelatedCount": 0,
+        "wrongCweCount": 0
+      },
+      "leave-one-out:scan-build": {
+        "discrimination": 1.0,
+        "findingPrecision": 1.0,
+        "fpFindings": 0,
+        "matchedTpFindings": 1,
+        "negativeTargetCleanCount": 0,
+        "negativeTargetFpr": null,
+        "negativeTargetViolationCount": 0,
+        "noisePerFile": 0.0,
+        "rowMetadata": {
+          "matchingPolicy": "s4-oracle-matching-policy-v1",
+          "toolSetConfig": "leave-one-out:scan-build"
+        },
+        "rows": [
+          {
+            "caseId": "canary-buffer-copy",
+            "countsAsFp": false,
+            "countsAsTargetTp": true,
+            "findingKey": "semgrep:semgrep:fixture:canary-buffer-copy.c:12",
+            "matchClass": "exact-target-match",
+            "matchingPolicy": "s4-oracle-matching-policy-v1",
+            "reasonCodes": [],
+            "sliceKind": "s4-canary",
+            "sourceArtifact": "s4-harness-fixture",
+            "sourcePath": "canary-buffer-copy.c",
+            "split": "canary",
+            "targetId": "canary-buffer-copy-target",
+            "toolId": "semgrep",
+            "toolSetConfig": "leave-one-out:scan-build"
+          }
+        ],
+        "targetFN": 0,
+        "targetRecall": 1.0,
+        "targetTP": 1,
+        "toolSetConfig": "leave-one-out:scan-build",
+        "weakRelatedCount": 0,
+        "wrongCweCount": 0
+      },
+      "leave-one-out:semgrep": {
+        "discrimination": 0.0,
+        "findingPrecision": null,
+        "fpFindings": 0,
+        "matchedTpFindings": 0,
+        "negativeTargetCleanCount": 0,
+        "negativeTargetFpr": null,
+        "negativeTargetViolationCount": 0,
+        "noisePerFile": 0.0,
+        "rowMetadata": {
+          "matchingPolicy": "s4-oracle-matching-policy-v1",
+          "toolSetConfig": "leave-one-out:semgrep"
+        },
+        "rows": [
+          {
+            "caseId": "canary-buffer-copy",
+            "countsAsFp": false,
+            "countsAsTargetTp": false,
+            "findingKey": null,
+            "matchClass": "missed-target",
+            "matchingPolicy": "s4-oracle-matching-policy-v1",
+            "reasonCodes": [
+              "NO_MATCHING_FINDING"
+            ],
+            "sliceKind": "s4-canary",
+            "sourceArtifact": "s4-harness-fixture",
+            "sourcePath": "canary-buffer-copy.c",
+            "split": "canary",
+            "targetId": "canary-buffer-copy-target",
+            "toolId": null,
+            "toolSetConfig": "leave-one-out:semgrep"
+          }
+        ],
+        "targetFN": 1,
+        "targetRecall": 0.0,
+        "targetTP": 0,
+        "toolSetConfig": "leave-one-out:semgrep",
+        "weakRelatedCount": 0,
+        "wrongCweCount": 0
+      },
+      "parser-only-current-six": {
+        "discrimination": 0.0,
+        "findingPrecision": null,
+        "fpFindings": 0,
+        "matchedTpFindings": 0,
+        "negativeTargetCleanCount": 0,
+        "negativeTargetFpr": null,
+        "negativeTargetViolationCount": 0,
+        "noisePerFile": 0.0,
+        "rowMetadata": {
+          "matchingPolicy": "s4-oracle-matching-policy-v1",
+          "toolSetConfig": "parser-only-current-six"
+        },
+        "rows": [
+          {
+            "caseId": "canary-buffer-copy",
+            "countsAsFp": false,
+            "countsAsTargetTp": false,
+            "findingKey": null,
+            "matchClass": "missed-target",
+            "matchingPolicy": "s4-oracle-matching-policy-v1",
+            "reasonCodes": [
+              "NO_MATCHING_FINDING"
+            ],
+            "sliceKind": "s4-canary",
+            "sourceArtifact": "s4-harness-fixture",
+            "sourcePath": "canary-buffer-copy.c",
+            "split": "canary",
+            "targetId": "canary-buffer-copy-target",
+            "toolId": null,
+            "toolSetConfig": "parser-only-current-six"
+          }
+        ],
+        "targetFN": 1,
+        "targetRecall": 0.0,
+        "targetTP": 0,
+        "toolSetConfig": "parser-only-current-six",
+        "weakRelatedCount": 0,
+        "wrongCweCount": 0
+      },
+      "single-tool:clang-tidy": {
+        "discrimination": 0.0,
+        "findingPrecision": null,
+        "fpFindings": 0,
+        "matchedTpFindings": 0,
+        "negativeTargetCleanCount": 0,
+        "negativeTargetFpr": null,
+        "negativeTargetViolationCount": 0,
+        "noisePerFile": 0.0,
+        "rowMetadata": {
+          "matchingPolicy": "s4-oracle-matching-policy-v1",
+          "toolSetConfig": "single-tool:clang-tidy"
+        },
+        "rows": [
+          {
+            "caseId": "canary-buffer-copy",
+            "countsAsFp": false,
+            "countsAsTargetTp": false,
+            "findingKey": null,
+            "matchClass": "missed-target",
+            "matchingPolicy": "s4-oracle-matching-policy-v1",
+            "reasonCodes": [
+              "NO_MATCHING_FINDING"
+            ],
+            "sliceKind": "s4-canary",
+            "sourceArtifact": "s4-harness-fixture",
+            "sourcePath": "canary-buffer-copy.c",
+            "split": "canary",
+            "targetId": "canary-buffer-copy-target",
+            "toolId": null,
+            "toolSetConfig": "single-tool:clang-tidy"
+          }
+        ],
+        "targetFN": 1,
+        "targetRecall": 0.0,
+        "targetTP": 0,
+        "toolSetConfig": "single-tool:clang-tidy",
+        "weakRelatedCount": 0,
+        "wrongCweCount": 0
+      },
+      "single-tool:cppcheck": {
+        "discrimination": 0.0,
+        "findingPrecision": null,
+        "fpFindings": 0,
+        "matchedTpFindings": 0,
+        "negativeTargetCleanCount": 0,
+        "negativeTargetFpr": null,
+        "negativeTargetViolationCount": 0,
+        "noisePerFile": 0.0,
+        "rowMetadata": {
+          "matchingPolicy": "s4-oracle-matching-policy-v1",
+          "toolSetConfig": "single-tool:cppcheck"
+        },
+        "rows": [
+          {
+            "caseId": "canary-buffer-copy",
+            "countsAsFp": false,
+            "countsAsTargetTp": false,
+            "findingKey": null,
+            "matchClass": "missed-target",
+            "matchingPolicy": "s4-oracle-matching-policy-v1",
+            "reasonCodes": [
+              "NO_MATCHING_FINDING"
+            ],
+            "sliceKind": "s4-canary",
+            "sourceArtifact": "s4-harness-fixture",
+            "sourcePath": "canary-buffer-copy.c",
+            "split": "canary",
+            "targetId": "canary-buffer-copy-target",
+            "toolId": null,
+            "toolSetConfig": "single-tool:cppcheck"
+          }
+        ],
+        "targetFN": 1,
+        "targetRecall": 0.0,
+        "targetTP": 0,
+        "toolSetConfig": "single-tool:cppcheck",
+        "weakRelatedCount": 0,
+        "wrongCweCount": 0
+      },
+      "single-tool:flawfinder": {
+        "discrimination": 0.0,
+        "findingPrecision": null,
+        "fpFindings": 0,
+        "matchedTpFindings": 0,
+        "negativeTargetCleanCount": 0,
+        "negativeTargetFpr": null,
+        "negativeTargetViolationCount": 0,
+        "noisePerFile": 0.0,
+        "rowMetadata": {
+          "matchingPolicy": "s4-oracle-matching-policy-v1",
+          "toolSetConfig": "single-tool:flawfinder"
+        },
+        "rows": [
+          {
+            "caseId": "canary-buffer-copy",
+            "countsAsFp": false,
+            "countsAsTargetTp": false,
+            "findingKey": null,
+            "matchClass": "missed-target",
+            "matchingPolicy": "s4-oracle-matching-policy-v1",
+            "reasonCodes": [
+              "NO_MATCHING_FINDING"
+            ],
+            "sliceKind": "s4-canary",
+            "sourceArtifact": "s4-harness-fixture",
+            "sourcePath": "canary-buffer-copy.c",
+            "split": "canary",
+            "targetId": "canary-buffer-copy-target",
+            "toolId": null,
+            "toolSetConfig": "single-tool:flawfinder"
+          }
+        ],
+        "targetFN": 1,
+        "targetRecall": 0.0,
+        "targetTP": 0,
+        "toolSetConfig": "single-tool:flawfinder",
+        "weakRelatedCount": 0,
+        "wrongCweCount": 0
+      },
+      "single-tool:gcc-fanalyzer": {
+        "discrimination": 0.0,
+        "findingPrecision": null,
+        "fpFindings": 0,
+        "matchedTpFindings": 0,
+        "negativeTargetCleanCount": 0,
+        "negativeTargetFpr": null,
+        "negativeTargetViolationCount": 0,
+        "noisePerFile": 0.0,
+        "rowMetadata": {
+          "matchingPolicy": "s4-oracle-matching-policy-v1",
+          "toolSetConfig": "single-tool:gcc-fanalyzer"
+        },
+        "rows": [
+          {
+            "caseId": "canary-buffer-copy",
+            "countsAsFp": false,
+            "countsAsTargetTp": false,
+            "findingKey": null,
+            "matchClass": "missed-target",
+            "matchingPolicy": "s4-oracle-matching-policy-v1",
+            "reasonCodes": [
+              "NO_MATCHING_FINDING"
+            ],
+            "sliceKind": "s4-canary",
+            "sourceArtifact": "s4-harness-fixture",
+            "sourcePath": "canary-buffer-copy.c",
+            "split": "canary",
+            "targetId": "canary-buffer-copy-target",
+            "toolId": null,
+            "toolSetConfig": "single-tool:gcc-fanalyzer"
+          }
+        ],
+        "targetFN": 1,
+        "targetRecall": 0.0,
+        "targetTP": 0,
+        "toolSetConfig": "single-tool:gcc-fanalyzer",
+        "weakRelatedCount": 0,
+        "wrongCweCount": 0
+      },
+      "single-tool:scan-build": {
+        "discrimination": 0.0,
+        "findingPrecision": null,
+        "fpFindings": 0,
+        "matchedTpFindings": 0,
+        "negativeTargetCleanCount": 0,
+        "negativeTargetFpr": null,
+        "negativeTargetViolationCount": 0,
+        "noisePerFile": 0.0,
+        "rowMetadata": {
+          "matchingPolicy": "s4-oracle-matching-policy-v1",
+          "toolSetConfig": "single-tool:scan-build"
+        },
+        "rows": [
+          {
+            "caseId": "canary-buffer-copy",
+            "countsAsFp": false,
+            "countsAsTargetTp": false,
+            "findingKey": null,
+            "matchClass": "missed-target",
+            "matchingPolicy": "s4-oracle-matching-policy-v1",
+            "reasonCodes": [
+              "NO_MATCHING_FINDING"
+            ],
+            "sliceKind": "s4-canary",
+            "sourceArtifact": "s4-harness-fixture",
+            "sourcePath": "canary-buffer-copy.c",
+            "split": "canary",
+            "targetId": "canary-buffer-copy-target",
+            "toolId": null,
+            "toolSetConfig": "single-tool:scan-build"
+          }
+        ],
+        "targetFN": 1,
+        "targetRecall": 0.0,
+        "targetTP": 0,
+        "toolSetConfig": "single-tool:scan-build",
+        "weakRelatedCount": 0,
+        "wrongCweCount": 0
+      },
+      "single-tool:semgrep": {
+        "discrimination": 1.0,
+        "findingPrecision": 1.0,
+        "fpFindings": 0,
+        "matchedTpFindings": 1,
+        "negativeTargetCleanCount": 0,
+        "negativeTargetFpr": null,
+        "negativeTargetViolationCount": 0,
+        "noisePerFile": 0.0,
+        "rowMetadata": {
+          "matchingPolicy": "s4-oracle-matching-policy-v1",
+          "toolSetConfig": "single-tool:semgrep"
+        },
+        "rows": [
+          {
+            "caseId": "canary-buffer-copy",
+            "countsAsFp": false,
+            "countsAsTargetTp": true,
+            "findingKey": "semgrep:semgrep:fixture:canary-buffer-copy.c:12",
+            "matchClass": "exact-target-match",
+            "matchingPolicy": "s4-oracle-matching-policy-v1",
+            "reasonCodes": [],
+            "sliceKind": "s4-canary",
+            "sourceArtifact": "s4-harness-fixture",
+            "sourcePath": "canary-buffer-copy.c",
+            "split": "canary",
+            "targetId": "canary-buffer-copy-target",
+            "toolId": "semgrep",
+            "toolSetConfig": "single-tool:semgrep"
+          }
+        ],
+        "targetFN": 0,
+        "targetRecall": 1.0,
+        "targetTP": 1,
+        "toolSetConfig": "single-tool:semgrep",
+        "weakRelatedCount": 0,
+        "wrongCweCount": 0
+      }
+    },
+    "split": "canary",
+    "status": "pass"
+  },
+  "claimBoundaryImpact": {
+    "consumerPolicy": "empty_or_missing_s4_evidence_is_not_negative_security_evidence",
+    "status": "pass"
+  },
+  "corpusManifest": {
+    "caseCount": 7,
+    "checksum": "sha256:92d4e79ff4e1cdd2076fce3ba1effbe70653a5785dc5bef64e01a3939d17a310",
+    "schemaVersion": "s4-tool-portfolio-experiment-corpus-v1",
+    "splitCounts": {
+      "canary": 1,
+      "test": 3,
+      "validation": 3
+    }
+  },
+  "createdAt": "2026-05-12T04:24:42.765496+00:00",
+  "decisionCycle": {
+    "corpusManifestChecksum": "sha256:92d4e79ff4e1cdd2076fce3ba1effbe70653a5785dc5bef64e01a3939d17a310",
+    "decisionCycleId": "s4-harness-fixture-20260512T042442Z-cycle",
+    "environmentSummary": {
+      "executionMode": "s4-harness-fixture"
+    },
+    "frozen": true,
+    "lockfileChecksum": "sha256:fbb9bfca528d96a596ebbe101d465402d60046f1b46256e4330a7ff8b71d94c8",
+    "matchingPolicyChecksum": "sha256:2b3887766f0b23772f9d0ac3d95631eaa611ce9da78a36ed7c9354ad4e71c1a6",
+    "phase": "test",
+    "rulesetChecksums": {
+      "current-six": "sha256:5113c0aa659da3fd7b3c33a18c73cb58d8e5b278395f7c475e7f661398380358"
+    },
+    "splitAssignmentChecksum": "sha256:02c4dc15dfee8d065f73c7772065f89b2845c238a7ca725efa367743f6f703b3",
+    "thresholdsChecksum": "sha256:627d2b657cafa88bc83fc4d744b08dd333804856220ef0361ab047152bb31eca",
+    "timeoutConfig": {
+      "timeoutSeconds": "not-run-fixture"
+    },
+    "toolPaths": {
+      "clang-tidy": "not-recorded-fixture",
+      "cppcheck": "not-recorded-fixture",
+      "flawfinder": "not-recorded-fixture",
+      "gcc-fanalyzer": "not-recorded-fixture",
+      "scan-build": "not-recorded-fixture",
+      "semgrep": "not-recorded-fixture"
+    },
+    "toolVersions": {
+      "clang-tidy": "not-recorded-fixture",
+      "cppcheck": "not-recorded-fixture",
+      "flawfinder": "not-recorded-fixture",
+      "gcc-fanalyzer": "not-recorded-fixture",
+      "scan-build": "not-recorded-fixture",
+      "semgrep": "not-recorded-fixture"
+    }
+  },
+  "decisionSupport": {
+    "addCandidates": [],
+    "currentDecision": "insufficient-evidence-for-tool-change",
+    "externalCorpusStatus": {
+      "juliet": {
+        "reasonCodes": [
+          "LOCAL_JULIET_CORPUS_NOT_PRESENT"
+        ],
+        "status": "blocked"
+      }
+    },
+    "futureCandidateActionsRequireWr": true,
+    "removeCandidates": [],
+    "requiredFollowUps": [
+      "Provide local pinned juliet corpus before decision-grade validation/test evidence."
+    ],
+    "upgradeCandidates": []
+  },
+  "matchingPolicy": {
+    "functionFallbackDefault": false,
+    "lineWindowDefault": 3,
+    "schemaVersion": "s4-oracle-matching-policy-v1"
+  },
+  "parserCompatibility": {
+    "reasonCodes": [
+      "PARSER_COMPATIBILITY_CONSUMED_AS_PREREQUISITE_GATE"
+    ],
+    "status": "not_run"
+  },
+  "portfolioMetrics": {
+    "leaveOneOutDelta": {
+      "clang-tidy": {
+        "fpFindingsDelta": 0,
+        "targetRecallDelta": 0.0
+      },
+      "cppcheck": {
+        "fpFindingsDelta": 2,
+        "targetRecallDelta": 0.0
+      },
+      "flawfinder": {
+        "fpFindingsDelta": 2,
+        "targetRecallDelta": 0.0
+      },
+      "gcc-fanalyzer": {
+        "fpFindingsDelta": 0,
+        "targetRecallDelta": 0.2
+      },
+      "scan-build": {
+        "fpFindingsDelta": 0,
+        "targetRecallDelta": 0.2
+      },
+      "semgrep": {
+        "fpFindingsDelta": 1,
+        "targetRecallDelta": 0.4
+      }
+    },
+    "overlapPolicy": "equivalent_strong_related_weak_related_rows_are_reported_per_config",
+    "uniqueTpContribution": {
+      "clang-tidy": 0,
+      "cppcheck": 0,
+      "flawfinder": 0,
+      "gcc-fanalyzer": 1,
+      "scan-build": 1,
+      "semgrep": 2
+    }
+  },
+  "producer": {
+    "deterministic": true,
+    "service": "s4-sast-runner"
+  },
+  "runId": "s4-harness-fixture-20260512T042442Z",
+  "runtimeStability": {
+    "reasonCodes": [
+      "HARNESS_FIXTURE_DOES_NOT_EXECUTE_TOOLS"
+    ],
+    "status": "not_run"
+  },
+  "schemaVersion": "s4-tool-portfolio-experiment-report-v1",
+  "testMetrics": {
+    "byConfig": {
+      "contract-canary-current-six": {
+        "discrimination": 0.0,
+        "findingPrecision": null,
+        "fpFindings": 0,
+        "matchedTpFindings": 0,
+        "negativeTargetCleanCount": 2,
+        "negativeTargetFpr": 0.0,
+        "negativeTargetViolationCount": 0,
+        "noisePerFile": 0.0,
+        "rowMetadata": {
+          "matchingPolicy": "s4-oracle-matching-policy-v1",
+          "toolSetConfig": "contract-canary-current-six"
+        },
+        "rows": [
+          {
+            "caseId": "test-gcc-unique",
+            "countsAsFp": false,
+            "countsAsTargetTp": false,
+            "findingKey": null,
+            "matchClass": "missed-target",
+            "matchingPolicy": "s4-oracle-matching-policy-v1",
+            "reasonCodes": [
+              "NO_MATCHING_FINDING"
+            ],
+            "sliceKind": "s4-harness-fixture-positive",
+            "sourceArtifact": "s4-harness-fixture",
+            "sourcePath": "test-gcc-unique.c",
+            "split": "test",
+            "targetId": "test-gcc-unique-target",
+            "toolId": null,
+            "toolSetConfig": "contract-canary-current-six"
+          }
+        ],
+        "targetFN": 1,
+        "targetRecall": 0.0,
+        "targetTP": 0,
+        "toolSetConfig": "contract-canary-current-six",
+        "weakRelatedCount": 0,
+        "wrongCweCount": 0
+      },
+      "full-current-six": {
+        "discrimination": 0.5,
+        "findingPrecision": 0.5,
+        "fpFindings": 1,
+        "matchedTpFindings": 1,
+        "negativeTargetCleanCount": 1,
+        "negativeTargetFpr": 0.5,
+        "negativeTargetViolationCount": 1,
+        "noisePerFile": 0.3333,
+        "rowMetadata": {
+          "matchingPolicy": "s4-oracle-matching-policy-v1",
+          "toolSetConfig": "full-current-six"
+        },
+        "rows": [
+          {
+            "caseId": "test-gcc-unique",
+            "countsAsFp": false,
+            "countsAsTargetTp": true,
+            "findingKey": "gcc-fanalyzer:gcc-fanalyzer:fixture:test-gcc-unique.c:30",
+            "matchClass": "exact-target-match",
+            "matchingPolicy": "s4-oracle-matching-policy-v1",
+            "reasonCodes": [],
+            "sliceKind": "s4-harness-fixture-positive",
+            "sourceArtifact": "s4-harness-fixture",
+            "sourcePath": "test-gcc-unique.c",
+            "split": "test",
+            "targetId": "test-gcc-unique-target",
+            "toolId": "gcc-fanalyzer",
+            "toolSetConfig": "full-current-six"
+          },
+          {
+            "caseId": "test-negative",
+            "countsAsFp": true,
+            "countsAsTargetTp": false,
+            "findingKey": "flawfinder:flawfinder:fixture:test-negative.c:80",
+            "matchClass": "negative-case-finding",
+            "matchingPolicy": "s4-oracle-matching-policy-v1",
+            "reasonCodes": [
+              "NEGATIVE_REGION_VIOLATION"
+            ],
+            "sliceKind": "s4-harness-fixture-negative",
+            "sourceArtifact": "s4-harness-fixture",
+            "sourcePath": "test-negative.c",
+            "split": "test",
+            "targetId": "test-negative-target",
+            "toolId": "flawfinder",
+            "toolSetConfig": "full-current-six"
+          }
+        ],
+        "targetFN": 0,
+        "targetRecall": 1.0,
+        "targetTP": 1,
+        "toolSetConfig": "full-current-six",
+        "weakRelatedCount": 0,
+        "wrongCweCount": 0
+      },
+      "leave-one-out:clang-tidy": {
+        "discrimination": 0.5,
+        "findingPrecision": 0.5,
+        "fpFindings": 1,
+        "matchedTpFindings": 1,
+        "negativeTargetCleanCount": 1,
+        "negativeTargetFpr": 0.5,
+        "negativeTargetViolationCount": 1,
+        "noisePerFile": 0.3333,
+        "rowMetadata": {
+          "matchingPolicy": "s4-oracle-matching-policy-v1",
+          "toolSetConfig": "leave-one-out:clang-tidy"
+        },
+        "rows": [
+          {
+            "caseId": "test-gcc-unique",
+            "countsAsFp": false,
+            "countsAsTargetTp": true,
+            "findingKey": "gcc-fanalyzer:gcc-fanalyzer:fixture:test-gcc-unique.c:30",
+            "matchClass": "exact-target-match",
+            "matchingPolicy": "s4-oracle-matching-policy-v1",
+            "reasonCodes": [],
+            "sliceKind": "s4-harness-fixture-positive",
+            "sourceArtifact": "s4-harness-fixture",
+            "sourcePath": "test-gcc-unique.c",
+            "split": "test",
+            "targetId": "test-gcc-unique-target",
+            "toolId": "gcc-fanalyzer",
+            "toolSetConfig": "leave-one-out:clang-tidy"
+          },
+          {
+            "caseId": "test-negative",
+            "countsAsFp": true,
+            "countsAsTargetTp": false,
+            "findingKey": "flawfinder:flawfinder:fixture:test-negative.c:80",
+            "matchClass": "negative-case-finding",
+            "matchingPolicy": "s4-oracle-matching-policy-v1",
+            "reasonCodes": [
+              "NEGATIVE_REGION_VIOLATION"
+            ],
+            "sliceKind": "s4-harness-fixture-negative",
+            "sourceArtifact": "s4-harness-fixture",
+            "sourcePath": "test-negative.c",
+            "split": "test",
+            "targetId": "test-negative-target",
+            "toolId": "flawfinder",
+            "toolSetConfig": "leave-one-out:clang-tidy"
+          }
+        ],
+        "targetFN": 0,
+        "targetRecall": 1.0,
+        "targetTP": 1,
+        "toolSetConfig": "leave-one-out:clang-tidy",
+        "weakRelatedCount": 0,
+        "wrongCweCount": 0
+      },
+      "leave-one-out:cppcheck": {
+        "discrimination": 0.5,
+        "findingPrecision": 0.5,
+        "fpFindings": 1,
+        "matchedTpFindings": 1,
+        "negativeTargetCleanCount": 1,
+        "negativeTargetFpr": 0.5,
+        "negativeTargetViolationCount": 1,
+        "noisePerFile": 0.3333,
+        "rowMetadata": {
+          "matchingPolicy": "s4-oracle-matching-policy-v1",
+          "toolSetConfig": "leave-one-out:cppcheck"
+        },
+        "rows": [
+          {
+            "caseId": "test-gcc-unique",
+            "countsAsFp": false,
+            "countsAsTargetTp": true,
+            "findingKey": "gcc-fanalyzer:gcc-fanalyzer:fixture:test-gcc-unique.c:30",
+            "matchClass": "exact-target-match",
+            "matchingPolicy": "s4-oracle-matching-policy-v1",
+            "reasonCodes": [],
+            "sliceKind": "s4-harness-fixture-positive",
+            "sourceArtifact": "s4-harness-fixture",
+            "sourcePath": "test-gcc-unique.c",
+            "split": "test",
+            "targetId": "test-gcc-unique-target",
+            "toolId": "gcc-fanalyzer",
+            "toolSetConfig": "leave-one-out:cppcheck"
+          },
+          {
+            "caseId": "test-negative",
+            "countsAsFp": true,
+            "countsAsTargetTp": false,
+            "findingKey": "flawfinder:flawfinder:fixture:test-negative.c:80",
+            "matchClass": "negative-case-finding",
+            "matchingPolicy": "s4-oracle-matching-policy-v1",
+            "reasonCodes": [
+              "NEGATIVE_REGION_VIOLATION"
+            ],
+            "sliceKind": "s4-harness-fixture-negative",
+            "sourceArtifact": "s4-harness-fixture",
+            "sourcePath": "test-negative.c",
+            "split": "test",
+            "targetId": "test-negative-target",
+            "toolId": "flawfinder",
+            "toolSetConfig": "leave-one-out:cppcheck"
+          }
+        ],
+        "targetFN": 0,
+        "targetRecall": 1.0,
+        "targetTP": 1,
+        "toolSetConfig": "leave-one-out:cppcheck",
+        "weakRelatedCount": 0,
+        "wrongCweCount": 0
+      },
+      "leave-one-out:flawfinder": {
+        "discrimination": 1.0,
+        "findingPrecision": 1.0,
+        "fpFindings": 0,
+        "matchedTpFindings": 1,
+        "negativeTargetCleanCount": 2,
+        "negativeTargetFpr": 0.0,
+        "negativeTargetViolationCount": 0,
+        "noisePerFile": 0.0,
+        "rowMetadata": {
+          "matchingPolicy": "s4-oracle-matching-policy-v1",
+          "toolSetConfig": "leave-one-out:flawfinder"
+        },
+        "rows": [
+          {
+            "caseId": "test-gcc-unique",
+            "countsAsFp": false,
+            "countsAsTargetTp": true,
+            "findingKey": "gcc-fanalyzer:gcc-fanalyzer:fixture:test-gcc-unique.c:30",
+            "matchClass": "exact-target-match",
+            "matchingPolicy": "s4-oracle-matching-policy-v1",
+            "reasonCodes": [],
+            "sliceKind": "s4-harness-fixture-positive",
+            "sourceArtifact": "s4-harness-fixture",
+            "sourcePath": "test-gcc-unique.c",
+            "split": "test",
+            "targetId": "test-gcc-unique-target",
+            "toolId": "gcc-fanalyzer",
+            "toolSetConfig": "leave-one-out:flawfinder"
+          }
+        ],
+        "targetFN": 0,
+        "targetRecall": 1.0,
+        "targetTP": 1,
+        "toolSetConfig": "leave-one-out:flawfinder",
+        "weakRelatedCount": 0,
+        "wrongCweCount": 0
+      },
+      "leave-one-out:gcc-fanalyzer": {
+        "discrimination": -0.5,
+        "findingPrecision": 0.0,
+        "fpFindings": 1,
+        "matchedTpFindings": 0,
+        "negativeTargetCleanCount": 1,
+        "negativeTargetFpr": 0.5,
+        "negativeTargetViolationCount": 1,
+        "noisePerFile": 0.3333,
+        "rowMetadata": {
+          "matchingPolicy": "s4-oracle-matching-policy-v1",
+          "toolSetConfig": "leave-one-out:gcc-fanalyzer"
+        },
+        "rows": [
+          {
+            "caseId": "test-gcc-unique",
+            "countsAsFp": false,
+            "countsAsTargetTp": false,
+            "findingKey": null,
+            "matchClass": "missed-target",
+            "matchingPolicy": "s4-oracle-matching-policy-v1",
+            "reasonCodes": [
+              "NO_MATCHING_FINDING"
+            ],
+            "sliceKind": "s4-harness-fixture-positive",
+            "sourceArtifact": "s4-harness-fixture",
+            "sourcePath": "test-gcc-unique.c",
+            "split": "test",
+            "targetId": "test-gcc-unique-target",
+            "toolId": null,
+            "toolSetConfig": "leave-one-out:gcc-fanalyzer"
+          },
+          {
+            "caseId": "test-gcc-unique",
+            "countsAsFp": true,
+            "countsAsTargetTp": false,
+            "findingKey": "flawfinder:flawfinder:fixture:test-negative.c:80",
+            "matchClass": "off-target-finding",
+            "matchingPolicy": "s4-oracle-matching-policy-v1",
+            "reasonCodes": [
+              "OFF_TARGET"
+            ],
+            "sliceKind": "s4-harness-fixture-positive",
+            "sourceArtifact": "s4-harness-fixture",
+            "sourcePath": "test-gcc-unique.c",
+            "split": "test",
+            "targetId": "test-gcc-unique-target",
+            "toolId": "flawfinder",
+            "toolSetConfig": "leave-one-out:gcc-fanalyzer"
+          },
+          {
+            "caseId": "test-negative",
+            "countsAsFp": true,
+            "countsAsTargetTp": false,
+            "findingKey": "flawfinder:flawfinder:fixture:test-negative.c:80",
+            "matchClass": "negative-case-finding",
+            "matchingPolicy": "s4-oracle-matching-policy-v1",
+            "reasonCodes": [
+              "NEGATIVE_REGION_VIOLATION"
+            ],
+            "sliceKind": "s4-harness-fixture-negative",
+            "sourceArtifact": "s4-harness-fixture",
+            "sourcePath": "test-negative.c",
+            "split": "test",
+            "targetId": "test-negative-target",
+            "toolId": "flawfinder",
+            "toolSetConfig": "leave-one-out:gcc-fanalyzer"
+          }
+        ],
+        "targetFN": 1,
+        "targetRecall": 0.0,
+        "targetTP": 0,
+        "toolSetConfig": "leave-one-out:gcc-fanalyzer",
+        "weakRelatedCount": 0,
+        "wrongCweCount": 0
+      },
+      "leave-one-out:scan-build": {
+        "discrimination": 0.5,
+        "findingPrecision": 0.5,
+        "fpFindings": 1,
+        "matchedTpFindings": 1,
+        "negativeTargetCleanCount": 1,
+        "negativeTargetFpr": 0.5,
+        "negativeTargetViolationCount": 1,
+        "noisePerFile": 0.3333,
+        "rowMetadata": {
+          "matchingPolicy": "s4-oracle-matching-policy-v1",
+          "toolSetConfig": "leave-one-out:scan-build"
+        },
+        "rows": [
+          {
+            "caseId": "test-gcc-unique",
+            "countsAsFp": false,
+            "countsAsTargetTp": true,
+            "findingKey": "gcc-fanalyzer:gcc-fanalyzer:fixture:test-gcc-unique.c:30",
+            "matchClass": "exact-target-match",
+            "matchingPolicy": "s4-oracle-matching-policy-v1",
+            "reasonCodes": [],
+            "sliceKind": "s4-harness-fixture-positive",
+            "sourceArtifact": "s4-harness-fixture",
+            "sourcePath": "test-gcc-unique.c",
+            "split": "test",
+            "targetId": "test-gcc-unique-target",
+            "toolId": "gcc-fanalyzer",
+            "toolSetConfig": "leave-one-out:scan-build"
+          },
+          {
+            "caseId": "test-negative",
+            "countsAsFp": true,
+            "countsAsTargetTp": false,
+            "findingKey": "flawfinder:flawfinder:fixture:test-negative.c:80",
+            "matchClass": "negative-case-finding",
+            "matchingPolicy": "s4-oracle-matching-policy-v1",
+            "reasonCodes": [
+              "NEGATIVE_REGION_VIOLATION"
+            ],
+            "sliceKind": "s4-harness-fixture-negative",
+            "sourceArtifact": "s4-harness-fixture",
+            "sourcePath": "test-negative.c",
+            "split": "test",
+            "targetId": "test-negative-target",
+            "toolId": "flawfinder",
+            "toolSetConfig": "leave-one-out:scan-build"
+          }
+        ],
+        "targetFN": 0,
+        "targetRecall": 1.0,
+        "targetTP": 1,
+        "toolSetConfig": "leave-one-out:scan-build",
+        "weakRelatedCount": 0,
+        "wrongCweCount": 0
+      },
+      "leave-one-out:semgrep": {
+        "discrimination": 0.5,
+        "findingPrecision": 0.5,
+        "fpFindings": 1,
+        "matchedTpFindings": 1,
+        "negativeTargetCleanCount": 1,
+        "negativeTargetFpr": 0.5,
+        "negativeTargetViolationCount": 1,
+        "noisePerFile": 0.3333,
+        "rowMetadata": {
+          "matchingPolicy": "s4-oracle-matching-policy-v1",
+          "toolSetConfig": "leave-one-out:semgrep"
+        },
+        "rows": [
+          {
+            "caseId": "test-gcc-unique",
+            "countsAsFp": false,
+            "countsAsTargetTp": true,
+            "findingKey": "gcc-fanalyzer:gcc-fanalyzer:fixture:test-gcc-unique.c:30",
+            "matchClass": "exact-target-match",
+            "matchingPolicy": "s4-oracle-matching-policy-v1",
+            "reasonCodes": [],
+            "sliceKind": "s4-harness-fixture-positive",
+            "sourceArtifact": "s4-harness-fixture",
+            "sourcePath": "test-gcc-unique.c",
+            "split": "test",
+            "targetId": "test-gcc-unique-target",
+            "toolId": "gcc-fanalyzer",
+            "toolSetConfig": "leave-one-out:semgrep"
+          },
+          {
+            "caseId": "test-negative",
+            "countsAsFp": true,
+            "countsAsTargetTp": false,
+            "findingKey": "flawfinder:flawfinder:fixture:test-negative.c:80",
+            "matchClass": "negative-case-finding",
+            "matchingPolicy": "s4-oracle-matching-policy-v1",
+            "reasonCodes": [
+              "NEGATIVE_REGION_VIOLATION"
+            ],
+            "sliceKind": "s4-harness-fixture-negative",
+            "sourceArtifact": "s4-harness-fixture",
+            "sourcePath": "test-negative.c",
+            "split": "test",
+            "targetId": "test-negative-target",
+            "toolId": "flawfinder",
+            "toolSetConfig": "leave-one-out:semgrep"
+          }
+        ],
+        "targetFN": 0,
+        "targetRecall": 1.0,
+        "targetTP": 1,
+        "toolSetConfig": "leave-one-out:semgrep",
+        "weakRelatedCount": 0,
+        "wrongCweCount": 0
+      },
+      "parser-only-current-six": {
+        "discrimination": 0.0,
+        "findingPrecision": null,
+        "fpFindings": 0,
+        "matchedTpFindings": 0,
+        "negativeTargetCleanCount": 2,
+        "negativeTargetFpr": 0.0,
+        "negativeTargetViolationCount": 0,
+        "noisePerFile": 0.0,
+        "rowMetadata": {
+          "matchingPolicy": "s4-oracle-matching-policy-v1",
+          "toolSetConfig": "parser-only-current-six"
+        },
+        "rows": [
+          {
+            "caseId": "test-gcc-unique",
+            "countsAsFp": false,
+            "countsAsTargetTp": false,
+            "findingKey": null,
+            "matchClass": "missed-target",
+            "matchingPolicy": "s4-oracle-matching-policy-v1",
+            "reasonCodes": [
+              "NO_MATCHING_FINDING"
+            ],
+            "sliceKind": "s4-harness-fixture-positive",
+            "sourceArtifact": "s4-harness-fixture",
+            "sourcePath": "test-gcc-unique.c",
+            "split": "test",
+            "targetId": "test-gcc-unique-target",
+            "toolId": null,
+            "toolSetConfig": "parser-only-current-six"
+          }
+        ],
+        "targetFN": 1,
+        "targetRecall": 0.0,
+        "targetTP": 0,
+        "toolSetConfig": "parser-only-current-six",
+        "weakRelatedCount": 0,
+        "wrongCweCount": 0
+      },
+      "single-tool:clang-tidy": {
+        "discrimination": 0.0,
+        "findingPrecision": null,
+        "fpFindings": 0,
+        "matchedTpFindings": 0,
+        "negativeTargetCleanCount": 2,
+        "negativeTargetFpr": 0.0,
+        "negativeTargetViolationCount": 0,
+        "noisePerFile": 0.0,
+        "rowMetadata": {
+          "matchingPolicy": "s4-oracle-matching-policy-v1",
+          "toolSetConfig": "single-tool:clang-tidy"
+        },
+        "rows": [
+          {
+            "caseId": "test-gcc-unique",
+            "countsAsFp": false,
+            "countsAsTargetTp": false,
+            "findingKey": null,
+            "matchClass": "missed-target",
+            "matchingPolicy": "s4-oracle-matching-policy-v1",
+            "reasonCodes": [
+              "NO_MATCHING_FINDING"
+            ],
+            "sliceKind": "s4-harness-fixture-positive",
+            "sourceArtifact": "s4-harness-fixture",
+            "sourcePath": "test-gcc-unique.c",
+            "split": "test",
+            "targetId": "test-gcc-unique-target",
+            "toolId": null,
+            "toolSetConfig": "single-tool:clang-tidy"
+          }
+        ],
+        "targetFN": 1,
+        "targetRecall": 0.0,
+        "targetTP": 0,
+        "toolSetConfig": "single-tool:clang-tidy",
+        "weakRelatedCount": 0,
+        "wrongCweCount": 0
+      },
+      "single-tool:cppcheck": {
+        "discrimination": 0.0,
+        "findingPrecision": null,
+        "fpFindings": 0,
+        "matchedTpFindings": 0,
+        "negativeTargetCleanCount": 2,
+        "negativeTargetFpr": 0.0,
+        "negativeTargetViolationCount": 0,
+        "noisePerFile": 0.0,
+        "rowMetadata": {
+          "matchingPolicy": "s4-oracle-matching-policy-v1",
+          "toolSetConfig": "single-tool:cppcheck"
+        },
+        "rows": [
+          {
+            "caseId": "test-gcc-unique",
+            "countsAsFp": false,
+            "countsAsTargetTp": false,
+            "findingKey": null,
+            "matchClass": "missed-target",
+            "matchingPolicy": "s4-oracle-matching-policy-v1",
+            "reasonCodes": [
+              "NO_MATCHING_FINDING"
+            ],
+            "sliceKind": "s4-harness-fixture-positive",
+            "sourceArtifact": "s4-harness-fixture",
+            "sourcePath": "test-gcc-unique.c",
+            "split": "test",
+            "targetId": "test-gcc-unique-target",
+            "toolId": null,
+            "toolSetConfig": "single-tool:cppcheck"
+          }
+        ],
+        "targetFN": 1,
+        "targetRecall": 0.0,
+        "targetTP": 0,
+        "toolSetConfig": "single-tool:cppcheck",
+        "weakRelatedCount": 0,
+        "wrongCweCount": 0
+      },
+      "single-tool:flawfinder": {
+        "discrimination": -0.5,
+        "findingPrecision": 0.0,
+        "fpFindings": 1,
+        "matchedTpFindings": 0,
+        "negativeTargetCleanCount": 1,
+        "negativeTargetFpr": 0.5,
+        "negativeTargetViolationCount": 1,
+        "noisePerFile": 0.3333,
+        "rowMetadata": {
+          "matchingPolicy": "s4-oracle-matching-policy-v1",
+          "toolSetConfig": "single-tool:flawfinder"
+        },
+        "rows": [
+          {
+            "caseId": "test-gcc-unique",
+            "countsAsFp": false,
+            "countsAsTargetTp": false,
+            "findingKey": null,
+            "matchClass": "missed-target",
+            "matchingPolicy": "s4-oracle-matching-policy-v1",
+            "reasonCodes": [
+              "NO_MATCHING_FINDING"
+            ],
+            "sliceKind": "s4-harness-fixture-positive",
+            "sourceArtifact": "s4-harness-fixture",
+            "sourcePath": "test-gcc-unique.c",
+            "split": "test",
+            "targetId": "test-gcc-unique-target",
+            "toolId": null,
+            "toolSetConfig": "single-tool:flawfinder"
+          },
+          {
+            "caseId": "test-gcc-unique",
+            "countsAsFp": true,
+            "countsAsTargetTp": false,
+            "findingKey": "flawfinder:flawfinder:fixture:test-negative.c:80",
+            "matchClass": "off-target-finding",
+            "matchingPolicy": "s4-oracle-matching-policy-v1",
+            "reasonCodes": [
+              "OFF_TARGET"
+            ],
+            "sliceKind": "s4-harness-fixture-positive",
+            "sourceArtifact": "s4-harness-fixture",
+            "sourcePath": "test-gcc-unique.c",
+            "split": "test",
+            "targetId": "test-gcc-unique-target",
+            "toolId": "flawfinder",
+            "toolSetConfig": "single-tool:flawfinder"
+          },
+          {
+            "caseId": "test-negative",
+            "countsAsFp": true,
+            "countsAsTargetTp": false,
+            "findingKey": "flawfinder:flawfinder:fixture:test-negative.c:80",
+            "matchClass": "negative-case-finding",
+            "matchingPolicy": "s4-oracle-matching-policy-v1",
+            "reasonCodes": [
+              "NEGATIVE_REGION_VIOLATION"
+            ],
+            "sliceKind": "s4-harness-fixture-negative",
+            "sourceArtifact": "s4-harness-fixture",
+            "sourcePath": "test-negative.c",
+            "split": "test",
+            "targetId": "test-negative-target",
+            "toolId": "flawfinder",
+            "toolSetConfig": "single-tool:flawfinder"
+          }
+        ],
+        "targetFN": 1,
+        "targetRecall": 0.0,
+        "targetTP": 0,
+        "toolSetConfig": "single-tool:flawfinder",
+        "weakRelatedCount": 0,
+        "wrongCweCount": 0
+      },
+      "single-tool:gcc-fanalyzer": {
+        "discrimination": 1.0,
+        "findingPrecision": 1.0,
+        "fpFindings": 0,
+        "matchedTpFindings": 1,
+        "negativeTargetCleanCount": 2,
+        "negativeTargetFpr": 0.0,
+        "negativeTargetViolationCount": 0,
+        "noisePerFile": 0.0,
+        "rowMetadata": {
+          "matchingPolicy": "s4-oracle-matching-policy-v1",
+          "toolSetConfig": "single-tool:gcc-fanalyzer"
+        },
+        "rows": [
+          {
+            "caseId": "test-gcc-unique",
+            "countsAsFp": false,
+            "countsAsTargetTp": true,
+            "findingKey": "gcc-fanalyzer:gcc-fanalyzer:fixture:test-gcc-unique.c:30",
+            "matchClass": "exact-target-match",
+            "matchingPolicy": "s4-oracle-matching-policy-v1",
+            "reasonCodes": [],
+            "sliceKind": "s4-harness-fixture-positive",
+            "sourceArtifact": "s4-harness-fixture",
+            "sourcePath": "test-gcc-unique.c",
+            "split": "test",
+            "targetId": "test-gcc-unique-target",
+            "toolId": "gcc-fanalyzer",
+            "toolSetConfig": "single-tool:gcc-fanalyzer"
+          }
+        ],
+        "targetFN": 0,
+        "targetRecall": 1.0,
+        "targetTP": 1,
+        "toolSetConfig": "single-tool:gcc-fanalyzer",
+        "weakRelatedCount": 0,
+        "wrongCweCount": 0
+      },
+      "single-tool:scan-build": {
+        "discrimination": 0.0,
+        "findingPrecision": null,
+        "fpFindings": 0,
+        "matchedTpFindings": 0,
+        "negativeTargetCleanCount": 2,
+        "negativeTargetFpr": 0.0,
+        "negativeTargetViolationCount": 0,
+        "noisePerFile": 0.0,
+        "rowMetadata": {
+          "matchingPolicy": "s4-oracle-matching-policy-v1",
+          "toolSetConfig": "single-tool:scan-build"
+        },
+        "rows": [
+          {
+            "caseId": "test-gcc-unique",
+            "countsAsFp": false,
+            "countsAsTargetTp": false,
+            "findingKey": null,
+            "matchClass": "missed-target",
+            "matchingPolicy": "s4-oracle-matching-policy-v1",
+            "reasonCodes": [
+              "NO_MATCHING_FINDING"
+            ],
+            "sliceKind": "s4-harness-fixture-positive",
+            "sourceArtifact": "s4-harness-fixture",
+            "sourcePath": "test-gcc-unique.c",
+            "split": "test",
+            "targetId": "test-gcc-unique-target",
+            "toolId": null,
+            "toolSetConfig": "single-tool:scan-build"
+          }
+        ],
+        "targetFN": 1,
+        "targetRecall": 0.0,
+        "targetTP": 0,
+        "toolSetConfig": "single-tool:scan-build",
+        "weakRelatedCount": 0,
+        "wrongCweCount": 0
+      },
+      "single-tool:semgrep": {
+        "discrimination": 0.0,
+        "findingPrecision": null,
+        "fpFindings": 0,
+        "matchedTpFindings": 0,
+        "negativeTargetCleanCount": 2,
+        "negativeTargetFpr": 0.0,
+        "negativeTargetViolationCount": 0,
+        "noisePerFile": 0.0,
+        "rowMetadata": {
+          "matchingPolicy": "s4-oracle-matching-policy-v1",
+          "toolSetConfig": "single-tool:semgrep"
+        },
+        "rows": [
+          {
+            "caseId": "test-gcc-unique",
+            "countsAsFp": false,
+            "countsAsTargetTp": false,
+            "findingKey": null,
+            "matchClass": "missed-target",
+            "matchingPolicy": "s4-oracle-matching-policy-v1",
+            "reasonCodes": [
+              "NO_MATCHING_FINDING"
+            ],
+            "sliceKind": "s4-harness-fixture-positive",
+            "sourceArtifact": "s4-harness-fixture",
+            "sourcePath": "test-gcc-unique.c",
+            "split": "test",
+            "targetId": "test-gcc-unique-target",
+            "toolId": null,
+            "toolSetConfig": "single-tool:semgrep"
+          }
+        ],
+        "targetFN": 1,
+        "targetRecall": 0.0,
+        "targetTP": 0,
+        "toolSetConfig": "single-tool:semgrep",
+        "weakRelatedCount": 0,
+        "wrongCweCount": 0
+      }
+    },
+    "split": "test",
+    "status": "pass"
+  },
+  "toolSetConfigs": [
+    "full-current-six",
+    "single-tool:semgrep",
+    "single-tool:cppcheck",
+    "single-tool:flawfinder",
+    "single-tool:clang-tidy",
+    "single-tool:scan-build",
+    "single-tool:gcc-fanalyzer",
+    "leave-one-out:semgrep",
+    "leave-one-out:cppcheck",
+    "leave-one-out:flawfinder",
+    "leave-one-out:clang-tidy",
+    "leave-one-out:scan-build",
+    "leave-one-out:gcc-fanalyzer",
+    "parser-only-current-six",
+    "contract-canary-current-six"
+  ],
+  "validationMetrics": {
+    "byConfig": {
+      "contract-canary-current-six": {
+        "discrimination": 0.0,
+        "findingPrecision": null,
+        "fpFindings": 0,
+        "matchedTpFindings": 0,
+        "negativeTargetCleanCount": 0,
+        "negativeTargetFpr": null,
+        "negativeTargetViolationCount": 0,
+        "noisePerFile": 0.0,
+        "rowMetadata": {
+          "matchingPolicy": "s4-oracle-matching-policy-v1",
+          "toolSetConfig": "contract-canary-current-six"
+        },
+        "rows": [
+          {
+            "caseId": "validation-semgrep-unique",
+            "countsAsFp": false,
+            "countsAsTargetTp": false,
+            "findingKey": null,
+            "matchClass": "missed-target",
+            "matchingPolicy": "s4-oracle-matching-policy-v1",
+            "reasonCodes": [
+              "NO_MATCHING_FINDING"
+            ],
+            "sliceKind": "s4-harness-fixture-positive",
+            "sourceArtifact": "s4-harness-fixture",
+            "sourcePath": "validation-semgrep-unique.c",
+            "split": "validation",
+            "targetId": "validation-semgrep-unique-target",
+            "toolId": null,
+            "toolSetConfig": "contract-canary-current-six"
+          },
+          {
+            "caseId": "validation-overlap",
+            "countsAsFp": false,
+            "countsAsTargetTp": false,
+            "findingKey": null,
+            "matchClass": "missed-target",
+            "matchingPolicy": "s4-oracle-matching-policy-v1",
+            "reasonCodes": [
+              "NO_MATCHING_FINDING"
+            ],
+            "sliceKind": "s4-harness-fixture-positive",
+            "sourceArtifact": "s4-harness-fixture",
+            "sourcePath": "validation-overlap.c",
+            "split": "validation",
+            "targetId": "validation-overlap-target",
+            "toolId": null,
+            "toolSetConfig": "contract-canary-current-six"
+          },
+          {
+            "caseId": "validation-dataflow-strong",
+            "countsAsFp": false,
+            "countsAsTargetTp": false,
+            "findingKey": null,
+            "matchClass": "missed-target",
+            "matchingPolicy": "s4-oracle-matching-policy-v1",
+            "reasonCodes": [
+              "NO_MATCHING_FINDING"
+            ],
+            "sliceKind": "s4-harness-fixture-positive",
+            "sourceArtifact": "s4-harness-fixture",
+            "sourcePath": "validation-dataflow-strong.c",
+            "split": "validation",
+            "targetId": "validation-dataflow-strong-target",
+            "toolId": null,
+            "toolSetConfig": "contract-canary-current-six"
+          }
+        ],
+        "targetFN": 3,
+        "targetRecall": 0.0,
+        "targetTP": 0,
+        "toolSetConfig": "contract-canary-current-six",
+        "weakRelatedCount": 0,
+        "wrongCweCount": 0
+      },
+      "full-current-six": {
+        "discrimination": 1.0,
+        "findingPrecision": 0.5,
+        "fpFindings": 3,
+        "matchedTpFindings": 3,
+        "negativeTargetCleanCount": 0,
+        "negativeTargetFpr": null,
+        "negativeTargetViolationCount": 0,
+        "noisePerFile": 1.0,
+        "rowMetadata": {
+          "matchingPolicy": "s4-oracle-matching-policy-v1",
+          "toolSetConfig": "full-current-six"
+        },
+        "rows": [
+          {
+            "caseId": "validation-semgrep-unique",
+            "countsAsFp": false,
+            "countsAsTargetTp": true,
+            "findingKey": "semgrep:semgrep:fixture:validation-semgrep-unique.c:40",
+            "matchClass": "exact-target-match",
+            "matchingPolicy": "s4-oracle-matching-policy-v1",
+            "reasonCodes": [],
+            "sliceKind": "s4-harness-fixture-positive",
+            "sourceArtifact": "s4-harness-fixture",
+            "sourcePath": "validation-semgrep-unique.c",
+            "split": "validation",
+            "targetId": "validation-semgrep-unique-target",
+            "toolId": "semgrep",
+            "toolSetConfig": "full-current-six"
+          },
+          {
+            "caseId": "validation-overlap",
+            "countsAsFp": false,
+            "countsAsTargetTp": true,
+            "findingKey": "semgrep:semgrep:fixture:validation-overlap.c:20",
+            "matchClass": "exact-target-match",
+            "matchingPolicy": "s4-oracle-matching-policy-v1",
+            "reasonCodes": [],
+            "sliceKind": "s4-harness-fixture-positive",
+            "sourceArtifact": "s4-harness-fixture",
+            "sourcePath": "validation-overlap.c",
+            "split": "validation",
+            "targetId": "validation-overlap-target",
+            "toolId": "semgrep",
+            "toolSetConfig": "full-current-six"
+          },
+          {
+            "caseId": "validation-dataflow-strong",
+            "countsAsFp": false,
+            "countsAsTargetTp": true,
+            "findingKey": "scan-build:scan-build:fixture:validation-dataflow-strong.c:120",
+            "matchClass": "strong-related-match",
+            "matchingPolicy": "s4-oracle-matching-policy-v1",
+            "reasonCodes": [],
+            "sliceKind": "s4-harness-fixture-positive",
+            "sourceArtifact": "s4-harness-fixture",
+            "sourcePath": "validation-dataflow-strong.c",
+            "split": "validation",
+            "targetId": "validation-dataflow-strong-target",
+            "toolId": "scan-build",
+            "toolSetConfig": "full-current-six"
+          }
+        ],
+        "targetFN": 0,
+        "targetRecall": 1.0,
+        "targetTP": 3,
+        "toolSetConfig": "full-current-six",
+        "weakRelatedCount": 1,
+        "wrongCweCount": 1
+      },
+      "leave-one-out:clang-tidy": {
+        "discrimination": 1.0,
+        "findingPrecision": 0.5,
+        "fpFindings": 3,
+        "matchedTpFindings": 3,
+        "negativeTargetCleanCount": 0,
+        "negativeTargetFpr": null,
+        "negativeTargetViolationCount": 0,
+        "noisePerFile": 1.0,
+        "rowMetadata": {
+          "matchingPolicy": "s4-oracle-matching-policy-v1",
+          "toolSetConfig": "leave-one-out:clang-tidy"
+        },
+        "rows": [
+          {
+            "caseId": "validation-semgrep-unique",
+            "countsAsFp": false,
+            "countsAsTargetTp": true,
+            "findingKey": "semgrep:semgrep:fixture:validation-semgrep-unique.c:40",
+            "matchClass": "exact-target-match",
+            "matchingPolicy": "s4-oracle-matching-policy-v1",
+            "reasonCodes": [],
+            "sliceKind": "s4-harness-fixture-positive",
+            "sourceArtifact": "s4-harness-fixture",
+            "sourcePath": "validation-semgrep-unique.c",
+            "split": "validation",
+            "targetId": "validation-semgrep-unique-target",
+            "toolId": "semgrep",
+            "toolSetConfig": "leave-one-out:clang-tidy"
+          },
+          {
+            "caseId": "validation-overlap",
+            "countsAsFp": false,
+            "countsAsTargetTp": true,
+            "findingKey": "semgrep:semgrep:fixture:validation-overlap.c:20",
+            "matchClass": "exact-target-match",
+            "matchingPolicy": "s4-oracle-matching-policy-v1",
+            "reasonCodes": [],
+            "sliceKind": "s4-harness-fixture-positive",
+            "sourceArtifact": "s4-harness-fixture",
+            "sourcePath": "validation-overlap.c",
+            "split": "validation",
+            "targetId": "validation-overlap-target",
+            "toolId": "semgrep",
+            "toolSetConfig": "leave-one-out:clang-tidy"
+          },
+          {
+            "caseId": "validation-dataflow-strong",
+            "countsAsFp": false,
+            "countsAsTargetTp": true,
+            "findingKey": "scan-build:scan-build:fixture:validation-dataflow-strong.c:120",
+            "matchClass": "strong-related-match",
+            "matchingPolicy": "s4-oracle-matching-policy-v1",
+            "reasonCodes": [],
+            "sliceKind": "s4-harness-fixture-positive",
+            "sourceArtifact": "s4-harness-fixture",
+            "sourcePath": "validation-dataflow-strong.c",
+            "split": "validation",
+            "targetId": "validation-dataflow-strong-target",
+            "toolId": "scan-build",
+            "toolSetConfig": "leave-one-out:clang-tidy"
+          }
+        ],
+        "targetFN": 0,
+        "targetRecall": 1.0,
+        "targetTP": 3,
+        "toolSetConfig": "leave-one-out:clang-tidy",
+        "weakRelatedCount": 1,
+        "wrongCweCount": 1
+      },
+      "leave-one-out:cppcheck": {
+        "discrimination": 1.0,
+        "findingPrecision": 0.75,
+        "fpFindings": 1,
+        "matchedTpFindings": 3,
+        "negativeTargetCleanCount": 0,
+        "negativeTargetFpr": null,
+        "negativeTargetViolationCount": 0,
+        "noisePerFile": 0.3333,
+        "rowMetadata": {
+          "matchingPolicy": "s4-oracle-matching-policy-v1",
+          "toolSetConfig": "leave-one-out:cppcheck"
+        },
+        "rows": [
+          {
+            "caseId": "validation-semgrep-unique",
+            "countsAsFp": false,
+            "countsAsTargetTp": true,
+            "findingKey": "semgrep:semgrep:fixture:validation-semgrep-unique.c:40",
+            "matchClass": "exact-target-match",
+            "matchingPolicy": "s4-oracle-matching-policy-v1",
+            "reasonCodes": [],
+            "sliceKind": "s4-harness-fixture-positive",
+            "sourceArtifact": "s4-harness-fixture",
+            "sourcePath": "validation-semgrep-unique.c",
+            "split": "validation",
+            "targetId": "validation-semgrep-unique-target",
+            "toolId": "semgrep",
+            "toolSetConfig": "leave-one-out:cppcheck"
+          },
+          {
+            "caseId": "validation-overlap",
+            "countsAsFp": false,
+            "countsAsTargetTp": true,
+            "findingKey": "semgrep:semgrep:fixture:validation-overlap.c:20",
+            "matchClass": "exact-target-match",
+            "matchingPolicy": "s4-oracle-matching-policy-v1",
+            "reasonCodes": [],
+            "sliceKind": "s4-harness-fixture-positive",
+            "sourceArtifact": "s4-harness-fixture",
+            "sourcePath": "validation-overlap.c",
+            "split": "validation",
+            "targetId": "validation-overlap-target",
+            "toolId": "semgrep",
+            "toolSetConfig": "leave-one-out:cppcheck"
+          },
+          {
+            "caseId": "validation-dataflow-strong",
+            "countsAsFp": false,
+            "countsAsTargetTp": true,
+            "findingKey": "scan-build:scan-build:fixture:validation-dataflow-strong.c:120",
+            "matchClass": "strong-related-match",
+            "matchingPolicy": "s4-oracle-matching-policy-v1",
+            "reasonCodes": [],
+            "sliceKind": "s4-harness-fixture-positive",
+            "sourceArtifact": "s4-harness-fixture",
+            "sourcePath": "validation-dataflow-strong.c",
+            "split": "validation",
+            "targetId": "validation-dataflow-strong-target",
+            "toolId": "scan-build",
+            "toolSetConfig": "leave-one-out:cppcheck"
+          }
+        ],
+        "targetFN": 0,
+        "targetRecall": 1.0,
+        "targetTP": 3,
+        "toolSetConfig": "leave-one-out:cppcheck",
+        "weakRelatedCount": 0,
+        "wrongCweCount": 1
+      },
+      "leave-one-out:flawfinder": {
+        "discrimination": 1.0,
+        "findingPrecision": 0.6,
+        "fpFindings": 2,
+        "matchedTpFindings": 3,
+        "negativeTargetCleanCount": 0,
+        "negativeTargetFpr": null,
+        "negativeTargetViolationCount": 0,
+        "noisePerFile": 0.6667,
+        "rowMetadata": {
+          "matchingPolicy": "s4-oracle-matching-policy-v1",
+          "toolSetConfig": "leave-one-out:flawfinder"
+        },
+        "rows": [
+          {
+            "caseId": "validation-semgrep-unique",
+            "countsAsFp": false,
+            "countsAsTargetTp": true,
+            "findingKey": "semgrep:semgrep:fixture:validation-semgrep-unique.c:40",
+            "matchClass": "exact-target-match",
+            "matchingPolicy": "s4-oracle-matching-policy-v1",
+            "reasonCodes": [],
+            "sliceKind": "s4-harness-fixture-positive",
+            "sourceArtifact": "s4-harness-fixture",
+            "sourcePath": "validation-semgrep-unique.c",
+            "split": "validation",
+            "targetId": "validation-semgrep-unique-target",
+            "toolId": "semgrep",
+            "toolSetConfig": "leave-one-out:flawfinder"
+          },
+          {
+            "caseId": "validation-overlap",
+            "countsAsFp": false,
+            "countsAsTargetTp": true,
+            "findingKey": "semgrep:semgrep:fixture:validation-overlap.c:20",
+            "matchClass": "exact-target-match",
+            "matchingPolicy": "s4-oracle-matching-policy-v1",
+            "reasonCodes": [],
+            "sliceKind": "s4-harness-fixture-positive",
+            "sourceArtifact": "s4-harness-fixture",
+            "sourcePath": "validation-overlap.c",
+            "split": "validation",
+            "targetId": "validation-overlap-target",
+            "toolId": "semgrep",
+            "toolSetConfig": "leave-one-out:flawfinder"
+          },
+          {
+            "caseId": "validation-dataflow-strong",
+            "countsAsFp": false,
+            "countsAsTargetTp": true,
+            "findingKey": "scan-build:scan-build:fixture:validation-dataflow-strong.c:120",
+            "matchClass": "strong-related-match",
+            "matchingPolicy": "s4-oracle-matching-policy-v1",
+            "reasonCodes": [],
+            "sliceKind": "s4-harness-fixture-positive",
+            "sourceArtifact": "s4-harness-fixture",
+            "sourcePath": "validation-dataflow-strong.c",
+            "split": "validation",
+            "targetId": "validation-dataflow-strong-target",
+            "toolId": "scan-build",
+            "toolSetConfig": "leave-one-out:flawfinder"
+          }
+        ],
+        "targetFN": 0,
+        "targetRecall": 1.0,
+        "targetTP": 3,
+        "toolSetConfig": "leave-one-out:flawfinder",
+        "weakRelatedCount": 1,
+        "wrongCweCount": 0
+      },
+      "leave-one-out:gcc-fanalyzer": {
+        "discrimination": 1.0,
+        "findingPrecision": 0.5,
+        "fpFindings": 3,
+        "matchedTpFindings": 3,
+        "negativeTargetCleanCount": 0,
+        "negativeTargetFpr": null,
+        "negativeTargetViolationCount": 0,
+        "noisePerFile": 1.0,
+        "rowMetadata": {
+          "matchingPolicy": "s4-oracle-matching-policy-v1",
+          "toolSetConfig": "leave-one-out:gcc-fanalyzer"
+        },
+        "rows": [
+          {
+            "caseId": "validation-semgrep-unique",
+            "countsAsFp": false,
+            "countsAsTargetTp": true,
+            "findingKey": "semgrep:semgrep:fixture:validation-semgrep-unique.c:40",
+            "matchClass": "exact-target-match",
+            "matchingPolicy": "s4-oracle-matching-policy-v1",
+            "reasonCodes": [],
+            "sliceKind": "s4-harness-fixture-positive",
+            "sourceArtifact": "s4-harness-fixture",
+            "sourcePath": "validation-semgrep-unique.c",
+            "split": "validation",
+            "targetId": "validation-semgrep-unique-target",
+            "toolId": "semgrep",
+            "toolSetConfig": "leave-one-out:gcc-fanalyzer"
+          },
+          {
+            "caseId": "validation-overlap",
+            "countsAsFp": false,
+            "countsAsTargetTp": true,
+            "findingKey": "semgrep:semgrep:fixture:validation-overlap.c:20",
+            "matchClass": "exact-target-match",
+            "matchingPolicy": "s4-oracle-matching-policy-v1",
+            "reasonCodes": [],
+            "sliceKind": "s4-harness-fixture-positive",
+            "sourceArtifact": "s4-harness-fixture",
+            "sourcePath": "validation-overlap.c",
+            "split": "validation",
+            "targetId": "validation-overlap-target",
+            "toolId": "semgrep",
+            "toolSetConfig": "leave-one-out:gcc-fanalyzer"
+          },
+          {
+            "caseId": "validation-dataflow-strong",
+            "countsAsFp": false,
+            "countsAsTargetTp": true,
+            "findingKey": "scan-build:scan-build:fixture:validation-dataflow-strong.c:120",
+            "matchClass": "strong-related-match",
+            "matchingPolicy": "s4-oracle-matching-policy-v1",
+            "reasonCodes": [],
+            "sliceKind": "s4-harness-fixture-positive",
+            "sourceArtifact": "s4-harness-fixture",
+            "sourcePath": "validation-dataflow-strong.c",
+            "split": "validation",
+            "targetId": "validation-dataflow-strong-target",
+            "toolId": "scan-build",
+            "toolSetConfig": "leave-one-out:gcc-fanalyzer"
+          }
+        ],
+        "targetFN": 0,
+        "targetRecall": 1.0,
+        "targetTP": 3,
+        "toolSetConfig": "leave-one-out:gcc-fanalyzer",
+        "weakRelatedCount": 1,
+        "wrongCweCount": 1
+      },
+      "leave-one-out:scan-build": {
+        "discrimination": 0.6667,
+        "findingPrecision": 0.4,
+        "fpFindings": 3,
+        "matchedTpFindings": 2,
+        "negativeTargetCleanCount": 0,
+        "negativeTargetFpr": null,
+        "negativeTargetViolationCount": 0,
+        "noisePerFile": 1.0,
+        "rowMetadata": {
+          "matchingPolicy": "s4-oracle-matching-policy-v1",
+          "toolSetConfig": "leave-one-out:scan-build"
+        },
+        "rows": [
+          {
+            "caseId": "validation-semgrep-unique",
+            "countsAsFp": false,
+            "countsAsTargetTp": true,
+            "findingKey": "semgrep:semgrep:fixture:validation-semgrep-unique.c:40",
+            "matchClass": "exact-target-match",
+            "matchingPolicy": "s4-oracle-matching-policy-v1",
+            "reasonCodes": [],
+            "sliceKind": "s4-harness-fixture-positive",
+            "sourceArtifact": "s4-harness-fixture",
+            "sourcePath": "validation-semgrep-unique.c",
+            "split": "validation",
+            "targetId": "validation-semgrep-unique-target",
+            "toolId": "semgrep",
+            "toolSetConfig": "leave-one-out:scan-build"
+          },
+          {
+            "caseId": "validation-overlap",
+            "countsAsFp": false,
+            "countsAsTargetTp": true,
+            "findingKey": "semgrep:semgrep:fixture:validation-overlap.c:20",
+            "matchClass": "exact-target-match",
+            "matchingPolicy": "s4-oracle-matching-policy-v1",
+            "reasonCodes": [],
+            "sliceKind": "s4-harness-fixture-positive",
+            "sourceArtifact": "s4-harness-fixture",
+            "sourcePath": "validation-overlap.c",
+            "split": "validation",
+            "targetId": "validation-overlap-target",
+            "toolId": "semgrep",
+            "toolSetConfig": "leave-one-out:scan-build"
+          },
+          {
+            "caseId": "validation-dataflow-strong",
+            "countsAsFp": false,
+            "countsAsTargetTp": false,
+            "findingKey": null,
+            "matchClass": "missed-target",
+            "matchingPolicy": "s4-oracle-matching-policy-v1",
+            "reasonCodes": [
+              "NO_MATCHING_FINDING"
+            ],
+            "sliceKind": "s4-harness-fixture-positive",
+            "sourceArtifact": "s4-harness-fixture",
+            "sourcePath": "validation-dataflow-strong.c",
+            "split": "validation",
+            "targetId": "validation-dataflow-strong-target",
+            "toolId": null,
+            "toolSetConfig": "leave-one-out:scan-build"
+          },
+          {
+            "caseId": "validation-dataflow-strong",
+            "countsAsFp": true,
+            "countsAsTargetTp": false,
+            "findingKey": "semgrep:semgrep:fixture:validation-semgrep-unique.c:40",
+            "matchClass": "off-target-finding",
+            "matchingPolicy": "s4-oracle-matching-policy-v1",
+            "reasonCodes": [
+              "OFF_TARGET"
+            ],
+            "sliceKind": "s4-harness-fixture-positive",
+            "sourceArtifact": "s4-harness-fixture",
+            "sourcePath": "validation-dataflow-strong.c",
+            "split": "validation",
+            "targetId": "validation-dataflow-strong-target",
+            "toolId": "semgrep",
+            "toolSetConfig": "leave-one-out:scan-build"
+          }
+        ],
+        "targetFN": 1,
+        "targetRecall": 0.6667,
+        "targetTP": 2,
+        "toolSetConfig": "leave-one-out:scan-build",
+        "weakRelatedCount": 1,
+        "wrongCweCount": 1
+      },
+      "leave-one-out:semgrep": {
+        "discrimination": 0.6667,
+        "findingPrecision": 0.5,
+        "fpFindings": 2,
+        "matchedTpFindings": 2,
+        "negativeTargetCleanCount": 0,
+        "negativeTargetFpr": null,
+        "negativeTargetViolationCount": 0,
+        "noisePerFile": 0.6667,
+        "rowMetadata": {
+          "matchingPolicy": "s4-oracle-matching-policy-v1",
+          "toolSetConfig": "leave-one-out:semgrep"
+        },
+        "rows": [
+          {
+            "caseId": "validation-semgrep-unique",
+            "countsAsFp": false,
+            "countsAsTargetTp": false,
+            "findingKey": null,
+            "matchClass": "missed-target",
+            "matchingPolicy": "s4-oracle-matching-policy-v1",
+            "reasonCodes": [
+              "NO_MATCHING_FINDING"
+            ],
+            "sliceKind": "s4-harness-fixture-positive",
+            "sourceArtifact": "s4-harness-fixture",
+            "sourcePath": "validation-semgrep-unique.c",
+            "split": "validation",
+            "targetId": "validation-semgrep-unique-target",
+            "toolId": null,
+            "toolSetConfig": "leave-one-out:semgrep"
+          },
+          {
+            "caseId": "validation-semgrep-unique",
+            "countsAsFp": true,
+            "countsAsTargetTp": false,
+            "findingKey": "flawfinder:flawfinder:fixture:validation-semgrep-unique.c:41",
+            "matchClass": "wrong-cwe-target-location",
+            "matchingPolicy": "s4-oracle-matching-policy-v1",
+            "reasonCodes": [
+              "WRONG_CWE"
+            ],
+            "sliceKind": "s4-harness-fixture-positive",
+            "sourceArtifact": "s4-harness-fixture",
+            "sourcePath": "validation-semgrep-unique.c",
+            "split": "validation",
+            "targetId": "validation-semgrep-unique-target",
+            "toolId": "flawfinder",
+            "toolSetConfig": "leave-one-out:semgrep"
+          },
+          {
+            "caseId": "validation-overlap",
+            "countsAsFp": false,
+            "countsAsTargetTp": true,
+            "findingKey": "cppcheck:cppcheck:fixture:validation-overlap.c:20",
+            "matchClass": "exact-target-match",
+            "matchingPolicy": "s4-oracle-matching-policy-v1",
+            "reasonCodes": [],
+            "sliceKind": "s4-harness-fixture-positive",
+            "sourceArtifact": "s4-harness-fixture",
+            "sourcePath": "validation-overlap.c",
+            "split": "validation",
+            "targetId": "validation-overlap-target",
+            "toolId": "cppcheck",
+            "toolSetConfig": "leave-one-out:semgrep"
+          },
+          {
+            "caseId": "validation-dataflow-strong",
+            "countsAsFp": false,
+            "countsAsTargetTp": true,
+            "findingKey": "scan-build:scan-build:fixture:validation-dataflow-strong.c:120",
+            "matchClass": "strong-related-match",
+            "matchingPolicy": "s4-oracle-matching-policy-v1",
+            "reasonCodes": [],
+            "sliceKind": "s4-harness-fixture-positive",
+            "sourceArtifact": "s4-harness-fixture",
+            "sourcePath": "validation-dataflow-strong.c",
+            "split": "validation",
+            "targetId": "validation-dataflow-strong-target",
+            "toolId": "scan-build",
+            "toolSetConfig": "leave-one-out:semgrep"
+          }
+        ],
+        "targetFN": 1,
+        "targetRecall": 0.6667,
+        "targetTP": 2,
+        "toolSetConfig": "leave-one-out:semgrep",
+        "weakRelatedCount": 1,
+        "wrongCweCount": 1
+      },
+      "parser-only-current-six": {
+        "discrimination": 0.0,
+        "findingPrecision": null,
+        "fpFindings": 0,
+        "matchedTpFindings": 0,
+        "negativeTargetCleanCount": 0,
+        "negativeTargetFpr": null,
+        "negativeTargetViolationCount": 0,
+        "noisePerFile": 0.0,
+        "rowMetadata": {
+          "matchingPolicy": "s4-oracle-matching-policy-v1",
+          "toolSetConfig": "parser-only-current-six"
+        },
+        "rows": [
+          {
+            "caseId": "validation-semgrep-unique",
+            "countsAsFp": false,
+            "countsAsTargetTp": false,
+            "findingKey": null,
+            "matchClass": "missed-target",
+            "matchingPolicy": "s4-oracle-matching-policy-v1",
+            "reasonCodes": [
+              "NO_MATCHING_FINDING"
+            ],
+            "sliceKind": "s4-harness-fixture-positive",
+            "sourceArtifact": "s4-harness-fixture",
+            "sourcePath": "validation-semgrep-unique.c",
+            "split": "validation",
+            "targetId": "validation-semgrep-unique-target",
+            "toolId": null,
+            "toolSetConfig": "parser-only-current-six"
+          },
+          {
+            "caseId": "validation-overlap",
+            "countsAsFp": false,
+            "countsAsTargetTp": false,
+            "findingKey": null,
+            "matchClass": "missed-target",
+            "matchingPolicy": "s4-oracle-matching-policy-v1",
+            "reasonCodes": [
+              "NO_MATCHING_FINDING"
+            ],
+            "sliceKind": "s4-harness-fixture-positive",
+            "sourceArtifact": "s4-harness-fixture",
+            "sourcePath": "validation-overlap.c",
+            "split": "validation",
+            "targetId": "validation-overlap-target",
+            "toolId": null,
+            "toolSetConfig": "parser-only-current-six"
+          },
+          {
+            "caseId": "validation-dataflow-strong",
+            "countsAsFp": false,
+            "countsAsTargetTp": false,
+            "findingKey": null,
+            "matchClass": "missed-target",
+            "matchingPolicy": "s4-oracle-matching-policy-v1",
+            "reasonCodes": [
+              "NO_MATCHING_FINDING"
+            ],
+            "sliceKind": "s4-harness-fixture-positive",
+            "sourceArtifact": "s4-harness-fixture",
+            "sourcePath": "validation-dataflow-strong.c",
+            "split": "validation",
+            "targetId": "validation-dataflow-strong-target",
+            "toolId": null,
+            "toolSetConfig": "parser-only-current-six"
+          }
+        ],
+        "targetFN": 3,
+        "targetRecall": 0.0,
+        "targetTP": 0,
+        "toolSetConfig": "parser-only-current-six",
+        "weakRelatedCount": 0,
+        "wrongCweCount": 0
+      },
+      "single-tool:clang-tidy": {
+        "discrimination": 0.0,
+        "findingPrecision": null,
+        "fpFindings": 0,
+        "matchedTpFindings": 0,
+        "negativeTargetCleanCount": 0,
+        "negativeTargetFpr": null,
+        "negativeTargetViolationCount": 0,
+        "noisePerFile": 0.0,
+        "rowMetadata": {
+          "matchingPolicy": "s4-oracle-matching-policy-v1",
+          "toolSetConfig": "single-tool:clang-tidy"
+        },
+        "rows": [
+          {
+            "caseId": "validation-semgrep-unique",
+            "countsAsFp": false,
+            "countsAsTargetTp": false,
+            "findingKey": null,
+            "matchClass": "missed-target",
+            "matchingPolicy": "s4-oracle-matching-policy-v1",
+            "reasonCodes": [
+              "NO_MATCHING_FINDING"
+            ],
+            "sliceKind": "s4-harness-fixture-positive",
+            "sourceArtifact": "s4-harness-fixture",
+            "sourcePath": "validation-semgrep-unique.c",
+            "split": "validation",
+            "targetId": "validation-semgrep-unique-target",
+            "toolId": null,
+            "toolSetConfig": "single-tool:clang-tidy"
+          },
+          {
+            "caseId": "validation-overlap",
+            "countsAsFp": false,
+            "countsAsTargetTp": false,
+            "findingKey": null,
+            "matchClass": "missed-target",
+            "matchingPolicy": "s4-oracle-matching-policy-v1",
+            "reasonCodes": [
+              "NO_MATCHING_FINDING"
+            ],
+            "sliceKind": "s4-harness-fixture-positive",
+            "sourceArtifact": "s4-harness-fixture",
+            "sourcePath": "validation-overlap.c",
+            "split": "validation",
+            "targetId": "validation-overlap-target",
+            "toolId": null,
+            "toolSetConfig": "single-tool:clang-tidy"
+          },
+          {
+            "caseId": "validation-dataflow-strong",
+            "countsAsFp": false,
+            "countsAsTargetTp": false,
+            "findingKey": null,
+            "matchClass": "missed-target",
+            "matchingPolicy": "s4-oracle-matching-policy-v1",
+            "reasonCodes": [
+              "NO_MATCHING_FINDING"
+            ],
+            "sliceKind": "s4-harness-fixture-positive",
+            "sourceArtifact": "s4-harness-fixture",
+            "sourcePath": "validation-dataflow-strong.c",
+            "split": "validation",
+            "targetId": "validation-dataflow-strong-target",
+            "toolId": null,
+            "toolSetConfig": "single-tool:clang-tidy"
+          }
+        ],
+        "targetFN": 3,
+        "targetRecall": 0.0,
+        "targetTP": 0,
+        "toolSetConfig": "single-tool:clang-tidy",
+        "weakRelatedCount": 0,
+        "wrongCweCount": 0
+      },
+      "single-tool:cppcheck": {
+        "discrimination": 0.3333,
+        "findingPrecision": 0.5,
+        "fpFindings": 1,
+        "matchedTpFindings": 1,
+        "negativeTargetCleanCount": 0,
+        "negativeTargetFpr": null,
+        "negativeTargetViolationCount": 0,
+        "noisePerFile": 0.3333,
+        "rowMetadata": {
+          "matchingPolicy": "s4-oracle-matching-policy-v1",
+          "toolSetConfig": "single-tool:cppcheck"
+        },
+        "rows": [
+          {
+            "caseId": "validation-semgrep-unique",
+            "countsAsFp": false,
+            "countsAsTargetTp": false,
+            "findingKey": null,
+            "matchClass": "missed-target",
+            "matchingPolicy": "s4-oracle-matching-policy-v1",
+            "reasonCodes": [
+              "NO_MATCHING_FINDING"
+            ],
+            "sliceKind": "s4-harness-fixture-positive",
+            "sourceArtifact": "s4-harness-fixture",
+            "sourcePath": "validation-semgrep-unique.c",
+            "split": "validation",
+            "targetId": "validation-semgrep-unique-target",
+            "toolId": null,
+            "toolSetConfig": "single-tool:cppcheck"
+          },
+          {
+            "caseId": "validation-semgrep-unique",
+            "countsAsFp": true,
+            "countsAsTargetTp": false,
+            "findingKey": "cppcheck:cppcheck:fixture:validation-overlap.c:20",
+            "matchClass": "off-target-finding",
+            "matchingPolicy": "s4-oracle-matching-policy-v1",
+            "reasonCodes": [
+              "OFF_TARGET"
+            ],
+            "sliceKind": "s4-harness-fixture-positive",
+            "sourceArtifact": "s4-harness-fixture",
+            "sourcePath": "validation-semgrep-unique.c",
+            "split": "validation",
+            "targetId": "validation-semgrep-unique-target",
+            "toolId": "cppcheck",
+            "toolSetConfig": "single-tool:cppcheck"
+          },
+          {
+            "caseId": "validation-overlap",
+            "countsAsFp": false,
+            "countsAsTargetTp": true,
+            "findingKey": "cppcheck:cppcheck:fixture:validation-overlap.c:20",
+            "matchClass": "exact-target-match",
+            "matchingPolicy": "s4-oracle-matching-policy-v1",
+            "reasonCodes": [],
+            "sliceKind": "s4-harness-fixture-positive",
+            "sourceArtifact": "s4-harness-fixture",
+            "sourcePath": "validation-overlap.c",
+            "split": "validation",
+            "targetId": "validation-overlap-target",
+            "toolId": "cppcheck",
+            "toolSetConfig": "single-tool:cppcheck"
+          },
+          {
+            "caseId": "validation-dataflow-strong",
+            "countsAsFp": false,
+            "countsAsTargetTp": false,
+            "findingKey": null,
+            "matchClass": "missed-target",
+            "matchingPolicy": "s4-oracle-matching-policy-v1",
+            "reasonCodes": [
+              "NO_MATCHING_FINDING"
+            ],
+            "sliceKind": "s4-harness-fixture-positive",
+            "sourceArtifact": "s4-harness-fixture",
+            "sourcePath": "validation-dataflow-strong.c",
+            "split": "validation",
+            "targetId": "validation-dataflow-strong-target",
+            "toolId": null,
+            "toolSetConfig": "single-tool:cppcheck"
+          },
+          {
+            "caseId": "validation-dataflow-strong",
+            "countsAsFp": true,
+            "countsAsTargetTp": false,
+            "findingKey": "cppcheck:cppcheck:fixture:validation-overlap.c:20",
+            "matchClass": "off-target-finding",
+            "matchingPolicy": "s4-oracle-matching-policy-v1",
+            "reasonCodes": [
+              "OFF_TARGET"
+            ],
+            "sliceKind": "s4-harness-fixture-positive",
+            "sourceArtifact": "s4-harness-fixture",
+            "sourcePath": "validation-dataflow-strong.c",
+            "split": "validation",
+            "targetId": "validation-dataflow-strong-target",
+            "toolId": "cppcheck",
+            "toolSetConfig": "single-tool:cppcheck"
+          }
+        ],
+        "targetFN": 2,
+        "targetRecall": 0.3333,
+        "targetTP": 1,
+        "toolSetConfig": "single-tool:cppcheck",
+        "weakRelatedCount": 1,
+        "wrongCweCount": 0
+      },
+      "single-tool:flawfinder": {
+        "discrimination": 0.0,
+        "findingPrecision": 0.0,
+        "fpFindings": 1,
+        "matchedTpFindings": 0,
+        "negativeTargetCleanCount": 0,
+        "negativeTargetFpr": null,
+        "negativeTargetViolationCount": 0,
+        "noisePerFile": 0.3333,
+        "rowMetadata": {
+          "matchingPolicy": "s4-oracle-matching-policy-v1",
+          "toolSetConfig": "single-tool:flawfinder"
+        },
+        "rows": [
+          {
+            "caseId": "validation-semgrep-unique",
+            "countsAsFp": false,
+            "countsAsTargetTp": false,
+            "findingKey": null,
+            "matchClass": "missed-target",
+            "matchingPolicy": "s4-oracle-matching-policy-v1",
+            "reasonCodes": [
+              "NO_MATCHING_FINDING"
+            ],
+            "sliceKind": "s4-harness-fixture-positive",
+            "sourceArtifact": "s4-harness-fixture",
+            "sourcePath": "validation-semgrep-unique.c",
+            "split": "validation",
+            "targetId": "validation-semgrep-unique-target",
+            "toolId": null,
+            "toolSetConfig": "single-tool:flawfinder"
+          },
+          {
+            "caseId": "validation-semgrep-unique",
+            "countsAsFp": true,
+            "countsAsTargetTp": false,
+            "findingKey": "flawfinder:flawfinder:fixture:validation-semgrep-unique.c:41",
+            "matchClass": "wrong-cwe-target-location",
+            "matchingPolicy": "s4-oracle-matching-policy-v1",
+            "reasonCodes": [
+              "WRONG_CWE"
+            ],
+            "sliceKind": "s4-harness-fixture-positive",
+            "sourceArtifact": "s4-harness-fixture",
+            "sourcePath": "validation-semgrep-unique.c",
+            "split": "validation",
+            "targetId": "validation-semgrep-unique-target",
+            "toolId": "flawfinder",
+            "toolSetConfig": "single-tool:flawfinder"
+          },
+          {
+            "caseId": "validation-overlap",
+            "countsAsFp": false,
+            "countsAsTargetTp": false,
+            "findingKey": null,
+            "matchClass": "missed-target",
+            "matchingPolicy": "s4-oracle-matching-policy-v1",
+            "reasonCodes": [
+              "NO_MATCHING_FINDING"
+            ],
+            "sliceKind": "s4-harness-fixture-positive",
+            "sourceArtifact": "s4-harness-fixture",
+            "sourcePath": "validation-overlap.c",
+            "split": "validation",
+            "targetId": "validation-overlap-target",
+            "toolId": null,
+            "toolSetConfig": "single-tool:flawfinder"
+          },
+          {
+            "caseId": "validation-overlap",
+            "countsAsFp": true,
+            "countsAsTargetTp": false,
+            "findingKey": "flawfinder:flawfinder:fixture:validation-semgrep-unique.c:41",
+            "matchClass": "off-target-finding",
+            "matchingPolicy": "s4-oracle-matching-policy-v1",
+            "reasonCodes": [
+              "OFF_TARGET"
+            ],
+            "sliceKind": "s4-harness-fixture-positive",
+            "sourceArtifact": "s4-harness-fixture",
+            "sourcePath": "validation-overlap.c",
+            "split": "validation",
+            "targetId": "validation-overlap-target",
+            "toolId": "flawfinder",
+            "toolSetConfig": "single-tool:flawfinder"
+          },
+          {
+            "caseId": "validation-dataflow-strong",
+            "countsAsFp": false,
+            "countsAsTargetTp": false,
+            "findingKey": null,
+            "matchClass": "missed-target",
+            "matchingPolicy": "s4-oracle-matching-policy-v1",
+            "reasonCodes": [
+              "NO_MATCHING_FINDING"
+            ],
+            "sliceKind": "s4-harness-fixture-positive",
+            "sourceArtifact": "s4-harness-fixture",
+            "sourcePath": "validation-dataflow-strong.c",
+            "split": "validation",
+            "targetId": "validation-dataflow-strong-target",
+            "toolId": null,
+            "toolSetConfig": "single-tool:flawfinder"
+          },
+          {
+            "caseId": "validation-dataflow-strong",
+            "countsAsFp": true,
+            "countsAsTargetTp": false,
+            "findingKey": "flawfinder:flawfinder:fixture:validation-semgrep-unique.c:41",
+            "matchClass": "off-target-finding",
+            "matchingPolicy": "s4-oracle-matching-policy-v1",
+            "reasonCodes": [
+              "OFF_TARGET"
+            ],
+            "sliceKind": "s4-harness-fixture-positive",
+            "sourceArtifact": "s4-harness-fixture",
+            "sourcePath": "validation-dataflow-strong.c",
+            "split": "validation",
+            "targetId": "validation-dataflow-strong-target",
+            "toolId": "flawfinder",
+            "toolSetConfig": "single-tool:flawfinder"
+          }
+        ],
+        "targetFN": 3,
+        "targetRecall": 0.0,
+        "targetTP": 0,
+        "toolSetConfig": "single-tool:flawfinder",
+        "weakRelatedCount": 0,
+        "wrongCweCount": 1
+      },
+      "single-tool:gcc-fanalyzer": {
+        "discrimination": 0.0,
+        "findingPrecision": null,
+        "fpFindings": 0,
+        "matchedTpFindings": 0,
+        "negativeTargetCleanCount": 0,
+        "negativeTargetFpr": null,
+        "negativeTargetViolationCount": 0,
+        "noisePerFile": 0.0,
+        "rowMetadata": {
+          "matchingPolicy": "s4-oracle-matching-policy-v1",
+          "toolSetConfig": "single-tool:gcc-fanalyzer"
+        },
+        "rows": [
+          {
+            "caseId": "validation-semgrep-unique",
+            "countsAsFp": false,
+            "countsAsTargetTp": false,
+            "findingKey": null,
+            "matchClass": "missed-target",
+            "matchingPolicy": "s4-oracle-matching-policy-v1",
+            "reasonCodes": [
+              "NO_MATCHING_FINDING"
+            ],
+            "sliceKind": "s4-harness-fixture-positive",
+            "sourceArtifact": "s4-harness-fixture",
+            "sourcePath": "validation-semgrep-unique.c",
+            "split": "validation",
+            "targetId": "validation-semgrep-unique-target",
+            "toolId": null,
+            "toolSetConfig": "single-tool:gcc-fanalyzer"
+          },
+          {
+            "caseId": "validation-overlap",
+            "countsAsFp": false,
+            "countsAsTargetTp": false,
+            "findingKey": null,
+            "matchClass": "missed-target",
+            "matchingPolicy": "s4-oracle-matching-policy-v1",
+            "reasonCodes": [
+              "NO_MATCHING_FINDING"
+            ],
+            "sliceKind": "s4-harness-fixture-positive",
+            "sourceArtifact": "s4-harness-fixture",
+            "sourcePath": "validation-overlap.c",
+            "split": "validation",
+            "targetId": "validation-overlap-target",
+            "toolId": null,
+            "toolSetConfig": "single-tool:gcc-fanalyzer"
+          },
+          {
+            "caseId": "validation-dataflow-strong",
+            "countsAsFp": false,
+            "countsAsTargetTp": false,
+            "findingKey": null,
+            "matchClass": "missed-target",
+            "matchingPolicy": "s4-oracle-matching-policy-v1",
+            "reasonCodes": [
+              "NO_MATCHING_FINDING"
+            ],
+            "sliceKind": "s4-harness-fixture-positive",
+            "sourceArtifact": "s4-harness-fixture",
+            "sourcePath": "validation-dataflow-strong.c",
+            "split": "validation",
+            "targetId": "validation-dataflow-strong-target",
+            "toolId": null,
+            "toolSetConfig": "single-tool:gcc-fanalyzer"
+          }
+        ],
+        "targetFN": 3,
+        "targetRecall": 0.0,
+        "targetTP": 0,
+        "toolSetConfig": "single-tool:gcc-fanalyzer",
+        "weakRelatedCount": 0,
+        "wrongCweCount": 0
+      },
+      "single-tool:scan-build": {
+        "discrimination": 0.3333,
+        "findingPrecision": 1.0,
+        "fpFindings": 0,
+        "matchedTpFindings": 1,
+        "negativeTargetCleanCount": 0,
+        "negativeTargetFpr": null,
+        "negativeTargetViolationCount": 0,
+        "noisePerFile": 0.0,
+        "rowMetadata": {
+          "matchingPolicy": "s4-oracle-matching-policy-v1",
+          "toolSetConfig": "single-tool:scan-build"
+        },
+        "rows": [
+          {
+            "caseId": "validation-semgrep-unique",
+            "countsAsFp": false,
+            "countsAsTargetTp": false,
+            "findingKey": null,
+            "matchClass": "missed-target",
+            "matchingPolicy": "s4-oracle-matching-policy-v1",
+            "reasonCodes": [
+              "NO_MATCHING_FINDING"
+            ],
+            "sliceKind": "s4-harness-fixture-positive",
+            "sourceArtifact": "s4-harness-fixture",
+            "sourcePath": "validation-semgrep-unique.c",
+            "split": "validation",
+            "targetId": "validation-semgrep-unique-target",
+            "toolId": null,
+            "toolSetConfig": "single-tool:scan-build"
+          },
+          {
+            "caseId": "validation-semgrep-unique",
+            "countsAsFp": true,
+            "countsAsTargetTp": false,
+            "findingKey": "scan-build:scan-build:fixture:validation-dataflow-strong.c:120",
+            "matchClass": "off-target-finding",
+            "matchingPolicy": "s4-oracle-matching-policy-v1",
+            "reasonCodes": [
+              "OFF_TARGET"
+            ],
+            "sliceKind": "s4-harness-fixture-positive",
+            "sourceArtifact": "s4-harness-fixture",
+            "sourcePath": "validation-semgrep-unique.c",
+            "split": "validation",
+            "targetId": "validation-semgrep-unique-target",
+            "toolId": "scan-build",
+            "toolSetConfig": "single-tool:scan-build"
+          },
+          {
+            "caseId": "validation-overlap",
+            "countsAsFp": false,
+            "countsAsTargetTp": false,
+            "findingKey": null,
+            "matchClass": "missed-target",
+            "matchingPolicy": "s4-oracle-matching-policy-v1",
+            "reasonCodes": [
+              "NO_MATCHING_FINDING"
+            ],
+            "sliceKind": "s4-harness-fixture-positive",
+            "sourceArtifact": "s4-harness-fixture",
+            "sourcePath": "validation-overlap.c",
+            "split": "validation",
+            "targetId": "validation-overlap-target",
+            "toolId": null,
+            "toolSetConfig": "single-tool:scan-build"
+          },
+          {
+            "caseId": "validation-overlap",
+            "countsAsFp": true,
+            "countsAsTargetTp": false,
+            "findingKey": "scan-build:scan-build:fixture:validation-dataflow-strong.c:120",
+            "matchClass": "off-target-finding",
+            "matchingPolicy": "s4-oracle-matching-policy-v1",
+            "reasonCodes": [
+              "OFF_TARGET"
+            ],
+            "sliceKind": "s4-harness-fixture-positive",
+            "sourceArtifact": "s4-harness-fixture",
+            "sourcePath": "validation-overlap.c",
+            "split": "validation",
+            "targetId": "validation-overlap-target",
+            "toolId": "scan-build",
+            "toolSetConfig": "single-tool:scan-build"
+          },
+          {
+            "caseId": "validation-dataflow-strong",
+            "countsAsFp": false,
+            "countsAsTargetTp": true,
+            "findingKey": "scan-build:scan-build:fixture:validation-dataflow-strong.c:120",
+            "matchClass": "strong-related-match",
+            "matchingPolicy": "s4-oracle-matching-policy-v1",
+            "reasonCodes": [],
+            "sliceKind": "s4-harness-fixture-positive",
+            "sourceArtifact": "s4-harness-fixture",
+            "sourcePath": "validation-dataflow-strong.c",
+            "split": "validation",
+            "targetId": "validation-dataflow-strong-target",
+            "toolId": "scan-build",
+            "toolSetConfig": "single-tool:scan-build"
+          }
+        ],
+        "targetFN": 2,
+        "targetRecall": 0.3333,
+        "targetTP": 1,
+        "toolSetConfig": "single-tool:scan-build",
+        "weakRelatedCount": 0,
+        "wrongCweCount": 0
+      },
+      "single-tool:semgrep": {
+        "discrimination": 0.6667,
+        "findingPrecision": 1.0,
+        "fpFindings": 0,
+        "matchedTpFindings": 2,
+        "negativeTargetCleanCount": 0,
+        "negativeTargetFpr": null,
+        "negativeTargetViolationCount": 0,
+        "noisePerFile": 0.0,
+        "rowMetadata": {
+          "matchingPolicy": "s4-oracle-matching-policy-v1",
+          "toolSetConfig": "single-tool:semgrep"
+        },
+        "rows": [
+          {
+            "caseId": "validation-semgrep-unique",
+            "countsAsFp": false,
+            "countsAsTargetTp": true,
+            "findingKey": "semgrep:semgrep:fixture:validation-semgrep-unique.c:40",
+            "matchClass": "exact-target-match",
+            "matchingPolicy": "s4-oracle-matching-policy-v1",
+            "reasonCodes": [],
+            "sliceKind": "s4-harness-fixture-positive",
+            "sourceArtifact": "s4-harness-fixture",
+            "sourcePath": "validation-semgrep-unique.c",
+            "split": "validation",
+            "targetId": "validation-semgrep-unique-target",
+            "toolId": "semgrep",
+            "toolSetConfig": "single-tool:semgrep"
+          },
+          {
+            "caseId": "validation-overlap",
+            "countsAsFp": false,
+            "countsAsTargetTp": true,
+            "findingKey": "semgrep:semgrep:fixture:validation-overlap.c:20",
+            "matchClass": "exact-target-match",
+            "matchingPolicy": "s4-oracle-matching-policy-v1",
+            "reasonCodes": [],
+            "sliceKind": "s4-harness-fixture-positive",
+            "sourceArtifact": "s4-harness-fixture",
+            "sourcePath": "validation-overlap.c",
+            "split": "validation",
+            "targetId": "validation-overlap-target",
+            "toolId": "semgrep",
+            "toolSetConfig": "single-tool:semgrep"
+          },
+          {
+            "caseId": "validation-dataflow-strong",
+            "countsAsFp": false,
+            "countsAsTargetTp": false,
+            "findingKey": null,
+            "matchClass": "missed-target",
+            "matchingPolicy": "s4-oracle-matching-policy-v1",
+            "reasonCodes": [
+              "NO_MATCHING_FINDING"
+            ],
+            "sliceKind": "s4-harness-fixture-positive",
+            "sourceArtifact": "s4-harness-fixture",
+            "sourcePath": "validation-dataflow-strong.c",
+            "split": "validation",
+            "targetId": "validation-dataflow-strong-target",
+            "toolId": null,
+            "toolSetConfig": "single-tool:semgrep"
+          },
+          {
+            "caseId": "validation-dataflow-strong",
+            "countsAsFp": true,
+            "countsAsTargetTp": false,
+            "findingKey": "semgrep:semgrep:fixture:validation-semgrep-unique.c:40",
+            "matchClass": "off-target-finding",
+            "matchingPolicy": "s4-oracle-matching-policy-v1",
+            "reasonCodes": [
+              "OFF_TARGET"
+            ],
+            "sliceKind": "s4-harness-fixture-positive",
+            "sourceArtifact": "s4-harness-fixture",
+            "sourcePath": "validation-dataflow-strong.c",
+            "split": "validation",
+            "targetId": "validation-dataflow-strong-target",
+            "toolId": "semgrep",
+            "toolSetConfig": "single-tool:semgrep"
+          }
+        ],
+        "targetFN": 1,
+        "targetRecall": 0.6667,
+        "targetTP": 2,
+        "toolSetConfig": "single-tool:semgrep",
+        "weakRelatedCount": 0,
+        "wrongCweCount": 0
+      }
+    },
+    "split": "validation",
+    "status": "pass"
+  }
+}

@@ -1,0 +1,1676 @@
+{
+  "findingsByConfig": {
+    "contract-canary-current-six": [
+      {
+        "location": {
+          "column": 1,
+          "file": "canary-buffer-copy.c",
+          "line": 12
+        },
+        "message": "fixture finding",
+        "metadata": {
+          "cwe": [
+            "CWE-120"
+          ],
+          "cweId": "CWE-120",
+          "evidenceResolution": {
+            "cwe": {
+              "id": "CWE-120",
+              "source": "metadata.cweId",
+              "status": "known"
+            }
+          }
+        },
+        "ruleId": "semgrep:fixture",
+        "severity": "warning",
+        "toolId": "semgrep"
+      }
+    ],
+    "full-current-six": [
+      {
+        "location": {
+          "column": 1,
+          "file": "validation-semgrep-unique.c",
+          "line": 40
+        },
+        "message": "fixture finding",
+        "metadata": {
+          "cwe": [
+            "CWE-121"
+          ],
+          "cweId": "CWE-121",
+          "evidenceResolution": {
+            "cwe": {
+              "id": "CWE-121",
+              "source": "metadata.cweId",
+              "status": "known"
+            }
+          }
+        },
+        "ruleId": "semgrep:fixture",
+        "severity": "warning",
+        "toolId": "semgrep"
+      },
+      {
+        "location": {
+          "column": 1,
+          "file": "validation-overlap.c",
+          "line": 20
+        },
+        "message": "fixture finding",
+        "metadata": {
+          "cwe": [
+            "CWE-190"
+          ],
+          "cweId": "CWE-190",
+          "evidenceResolution": {
+            "cwe": {
+              "id": "CWE-190",
+              "source": "metadata.cweId",
+              "status": "known"
+            }
+          }
+        },
+        "ruleId": "semgrep:fixture",
+        "severity": "warning",
+        "toolId": "semgrep"
+      },
+      {
+        "location": {
+          "column": 1,
+          "file": "validation-overlap.c",
+          "line": 20
+        },
+        "message": "fixture finding",
+        "metadata": {
+          "cwe": [
+            "CWE-190"
+          ],
+          "cweId": "CWE-190",
+          "evidenceResolution": {
+            "cwe": {
+              "id": "CWE-190",
+              "source": "metadata.cweId",
+              "status": "known"
+            }
+          }
+        },
+        "ruleId": "cppcheck:fixture",
+        "severity": "warning",
+        "toolId": "cppcheck"
+      },
+      {
+        "dataFlow": [
+          {
+            "content": "fixture flow",
+            "file": "validation-dataflow-strong.c",
+            "line": 59
+          },
+          {
+            "content": "fixture flow",
+            "file": "validation-dataflow-strong.c",
+            "line": 60
+          },
+          {
+            "content": "fixture flow",
+            "file": "validation-dataflow-strong.c",
+            "line": 120
+          }
+        ],
+        "location": {
+          "column": 1,
+          "file": "validation-dataflow-strong.c",
+          "line": 120
+        },
+        "message": "fixture finding",
+        "metadata": {
+          "cwe": [
+            "CWE-476"
+          ],
+          "cweId": "CWE-476",
+          "evidenceResolution": {
+            "cwe": {
+              "id": "CWE-476",
+              "source": "metadata.cweId",
+              "status": "known"
+            }
+          }
+        },
+        "ruleId": "scan-build:fixture",
+        "severity": "warning",
+        "toolId": "scan-build"
+      },
+      {
+        "location": {
+          "column": 1,
+          "file": "test-gcc-unique.c",
+          "line": 30
+        },
+        "message": "fixture finding",
+        "metadata": {
+          "cwe": [
+            "CWE-416"
+          ],
+          "cweId": "CWE-416",
+          "evidenceResolution": {
+            "cwe": {
+              "id": "CWE-416",
+              "source": "metadata.cweId",
+              "status": "known"
+            }
+          }
+        },
+        "ruleId": "gcc-fanalyzer:fixture",
+        "severity": "warning",
+        "toolId": "gcc-fanalyzer"
+      },
+      {
+        "location": {
+          "column": 1,
+          "file": "test-negative.c",
+          "line": 80
+        },
+        "message": "fixture finding",
+        "metadata": {
+          "cwe": [
+            "CWE-121"
+          ],
+          "cweId": "CWE-121",
+          "evidenceResolution": {
+            "cwe": {
+              "id": "CWE-121",
+              "source": "metadata.cweId",
+              "status": "known"
+            }
+          }
+        },
+        "ruleId": "flawfinder:fixture",
+        "severity": "warning",
+        "toolId": "flawfinder"
+      },
+      {
+        "location": {
+          "column": 1,
+          "file": "canary-buffer-copy.c",
+          "line": 12
+        },
+        "message": "fixture finding",
+        "metadata": {
+          "cwe": [
+            "CWE-120"
+          ],
+          "cweId": "CWE-120",
+          "evidenceResolution": {
+            "cwe": {
+              "id": "CWE-120",
+              "source": "metadata.cweId",
+              "status": "known"
+            }
+          }
+        },
+        "ruleId": "semgrep:fixture",
+        "severity": "warning",
+        "toolId": "semgrep"
+      },
+      {
+        "location": {
+          "column": 1,
+          "file": "validation-semgrep-unique.c",
+          "line": 41
+        },
+        "message": "fixture finding",
+        "metadata": {
+          "cwe": [
+            "CWE-190"
+          ],
+          "cweId": "CWE-190",
+          "evidenceResolution": {
+            "cwe": {
+              "id": "CWE-190",
+              "source": "metadata.cweId",
+              "status": "known"
+            }
+          }
+        },
+        "ruleId": "flawfinder:fixture",
+        "severity": "warning",
+        "toolId": "flawfinder"
+      },
+      {
+        "location": {
+          "column": 1,
+          "file": "validation-overlap.c",
+          "line": 18
+        },
+        "message": "fixture finding",
+        "metadata": {
+          "evidenceResolution": {
+            "cwe": {
+              "id": null,
+              "source": null,
+              "status": "unknown"
+            }
+          }
+        },
+        "ruleId": "cppcheck:fixture",
+        "severity": "warning",
+        "toolId": "cppcheck"
+      }
+    ],
+    "leave-one-out:clang-tidy": [
+      {
+        "location": {
+          "column": 1,
+          "file": "validation-semgrep-unique.c",
+          "line": 40
+        },
+        "message": "fixture finding",
+        "metadata": {
+          "cwe": [
+            "CWE-121"
+          ],
+          "cweId": "CWE-121",
+          "evidenceResolution": {
+            "cwe": {
+              "id": "CWE-121",
+              "source": "metadata.cweId",
+              "status": "known"
+            }
+          }
+        },
+        "ruleId": "semgrep:fixture",
+        "severity": "warning",
+        "toolId": "semgrep"
+      },
+      {
+        "location": {
+          "column": 1,
+          "file": "validation-overlap.c",
+          "line": 20
+        },
+        "message": "fixture finding",
+        "metadata": {
+          "cwe": [
+            "CWE-190"
+          ],
+          "cweId": "CWE-190",
+          "evidenceResolution": {
+            "cwe": {
+              "id": "CWE-190",
+              "source": "metadata.cweId",
+              "status": "known"
+            }
+          }
+        },
+        "ruleId": "semgrep:fixture",
+        "severity": "warning",
+        "toolId": "semgrep"
+      },
+      {
+        "location": {
+          "column": 1,
+          "file": "validation-overlap.c",
+          "line": 20
+        },
+        "message": "fixture finding",
+        "metadata": {
+          "cwe": [
+            "CWE-190"
+          ],
+          "cweId": "CWE-190",
+          "evidenceResolution": {
+            "cwe": {
+              "id": "CWE-190",
+              "source": "metadata.cweId",
+              "status": "known"
+            }
+          }
+        },
+        "ruleId": "cppcheck:fixture",
+        "severity": "warning",
+        "toolId": "cppcheck"
+      },
+      {
+        "dataFlow": [
+          {
+            "content": "fixture flow",
+            "file": "validation-dataflow-strong.c",
+            "line": 59
+          },
+          {
+            "content": "fixture flow",
+            "file": "validation-dataflow-strong.c",
+            "line": 60
+          },
+          {
+            "content": "fixture flow",
+            "file": "validation-dataflow-strong.c",
+            "line": 120
+          }
+        ],
+        "location": {
+          "column": 1,
+          "file": "validation-dataflow-strong.c",
+          "line": 120
+        },
+        "message": "fixture finding",
+        "metadata": {
+          "cwe": [
+            "CWE-476"
+          ],
+          "cweId": "CWE-476",
+          "evidenceResolution": {
+            "cwe": {
+              "id": "CWE-476",
+              "source": "metadata.cweId",
+              "status": "known"
+            }
+          }
+        },
+        "ruleId": "scan-build:fixture",
+        "severity": "warning",
+        "toolId": "scan-build"
+      },
+      {
+        "location": {
+          "column": 1,
+          "file": "test-gcc-unique.c",
+          "line": 30
+        },
+        "message": "fixture finding",
+        "metadata": {
+          "cwe": [
+            "CWE-416"
+          ],
+          "cweId": "CWE-416",
+          "evidenceResolution": {
+            "cwe": {
+              "id": "CWE-416",
+              "source": "metadata.cweId",
+              "status": "known"
+            }
+          }
+        },
+        "ruleId": "gcc-fanalyzer:fixture",
+        "severity": "warning",
+        "toolId": "gcc-fanalyzer"
+      },
+      {
+        "location": {
+          "column": 1,
+          "file": "test-negative.c",
+          "line": 80
+        },
+        "message": "fixture finding",
+        "metadata": {
+          "cwe": [
+            "CWE-121"
+          ],
+          "cweId": "CWE-121",
+          "evidenceResolution": {
+            "cwe": {
+              "id": "CWE-121",
+              "source": "metadata.cweId",
+              "status": "known"
+            }
+          }
+        },
+        "ruleId": "flawfinder:fixture",
+        "severity": "warning",
+        "toolId": "flawfinder"
+      },
+      {
+        "location": {
+          "column": 1,
+          "file": "canary-buffer-copy.c",
+          "line": 12
+        },
+        "message": "fixture finding",
+        "metadata": {
+          "cwe": [
+            "CWE-120"
+          ],
+          "cweId": "CWE-120",
+          "evidenceResolution": {
+            "cwe": {
+              "id": "CWE-120",
+              "source": "metadata.cweId",
+              "status": "known"
+            }
+          }
+        },
+        "ruleId": "semgrep:fixture",
+        "severity": "warning",
+        "toolId": "semgrep"
+      },
+      {
+        "location": {
+          "column": 1,
+          "file": "validation-semgrep-unique.c",
+          "line": 41
+        },
+        "message": "fixture finding",
+        "metadata": {
+          "cwe": [
+            "CWE-190"
+          ],
+          "cweId": "CWE-190",
+          "evidenceResolution": {
+            "cwe": {
+              "id": "CWE-190",
+              "source": "metadata.cweId",
+              "status": "known"
+            }
+          }
+        },
+        "ruleId": "flawfinder:fixture",
+        "severity": "warning",
+        "toolId": "flawfinder"
+      },
+      {
+        "location": {
+          "column": 1,
+          "file": "validation-overlap.c",
+          "line": 18
+        },
+        "message": "fixture finding",
+        "metadata": {
+          "evidenceResolution": {
+            "cwe": {
+              "id": null,
+              "source": null,
+              "status": "unknown"
+            }
+          }
+        },
+        "ruleId": "cppcheck:fixture",
+        "severity": "warning",
+        "toolId": "cppcheck"
+      }
+    ],
+    "leave-one-out:cppcheck": [
+      {
+        "location": {
+          "column": 1,
+          "file": "validation-semgrep-unique.c",
+          "line": 40
+        },
+        "message": "fixture finding",
+        "metadata": {
+          "cwe": [
+            "CWE-121"
+          ],
+          "cweId": "CWE-121",
+          "evidenceResolution": {
+            "cwe": {
+              "id": "CWE-121",
+              "source": "metadata.cweId",
+              "status": "known"
+            }
+          }
+        },
+        "ruleId": "semgrep:fixture",
+        "severity": "warning",
+        "toolId": "semgrep"
+      },
+      {
+        "location": {
+          "column": 1,
+          "file": "validation-overlap.c",
+          "line": 20
+        },
+        "message": "fixture finding",
+        "metadata": {
+          "cwe": [
+            "CWE-190"
+          ],
+          "cweId": "CWE-190",
+          "evidenceResolution": {
+            "cwe": {
+              "id": "CWE-190",
+              "source": "metadata.cweId",
+              "status": "known"
+            }
+          }
+        },
+        "ruleId": "semgrep:fixture",
+        "severity": "warning",
+        "toolId": "semgrep"
+      },
+      {
+        "dataFlow": [
+          {
+            "content": "fixture flow",
+            "file": "validation-dataflow-strong.c",
+            "line": 59
+          },
+          {
+            "content": "fixture flow",
+            "file": "validation-dataflow-strong.c",
+            "line": 60
+          },
+          {
+            "content": "fixture flow",
+            "file": "validation-dataflow-strong.c",
+            "line": 120
+          }
+        ],
+        "location": {
+          "column": 1,
+          "file": "validation-dataflow-strong.c",
+          "line": 120
+        },
+        "message": "fixture finding",
+        "metadata": {
+          "cwe": [
+            "CWE-476"
+          ],
+          "cweId": "CWE-476",
+          "evidenceResolution": {
+            "cwe": {
+              "id": "CWE-476",
+              "source": "metadata.cweId",
+              "status": "known"
+            }
+          }
+        },
+        "ruleId": "scan-build:fixture",
+        "severity": "warning",
+        "toolId": "scan-build"
+      },
+      {
+        "location": {
+          "column": 1,
+          "file": "test-gcc-unique.c",
+          "line": 30
+        },
+        "message": "fixture finding",
+        "metadata": {
+          "cwe": [
+            "CWE-416"
+          ],
+          "cweId": "CWE-416",
+          "evidenceResolution": {
+            "cwe": {
+              "id": "CWE-416",
+              "source": "metadata.cweId",
+              "status": "known"
+            }
+          }
+        },
+        "ruleId": "gcc-fanalyzer:fixture",
+        "severity": "warning",
+        "toolId": "gcc-fanalyzer"
+      },
+      {
+        "location": {
+          "column": 1,
+          "file": "test-negative.c",
+          "line": 80
+        },
+        "message": "fixture finding",
+        "metadata": {
+          "cwe": [
+            "CWE-121"
+          ],
+          "cweId": "CWE-121",
+          "evidenceResolution": {
+            "cwe": {
+              "id": "CWE-121",
+              "source": "metadata.cweId",
+              "status": "known"
+            }
+          }
+        },
+        "ruleId": "flawfinder:fixture",
+        "severity": "warning",
+        "toolId": "flawfinder"
+      },
+      {
+        "location": {
+          "column": 1,
+          "file": "canary-buffer-copy.c",
+          "line": 12
+        },
+        "message": "fixture finding",
+        "metadata": {
+          "cwe": [
+            "CWE-120"
+          ],
+          "cweId": "CWE-120",
+          "evidenceResolution": {
+            "cwe": {
+              "id": "CWE-120",
+              "source": "metadata.cweId",
+              "status": "known"
+            }
+          }
+        },
+        "ruleId": "semgrep:fixture",
+        "severity": "warning",
+        "toolId": "semgrep"
+      },
+      {
+        "location": {
+          "column": 1,
+          "file": "validation-semgrep-unique.c",
+          "line": 41
+        },
+        "message": "fixture finding",
+        "metadata": {
+          "cwe": [
+            "CWE-190"
+          ],
+          "cweId": "CWE-190",
+          "evidenceResolution": {
+            "cwe": {
+              "id": "CWE-190",
+              "source": "metadata.cweId",
+              "status": "known"
+            }
+          }
+        },
+        "ruleId": "flawfinder:fixture",
+        "severity": "warning",
+        "toolId": "flawfinder"
+      }
+    ],
+    "leave-one-out:flawfinder": [
+      {
+        "location": {
+          "column": 1,
+          "file": "validation-semgrep-unique.c",
+          "line": 40
+        },
+        "message": "fixture finding",
+        "metadata": {
+          "cwe": [
+            "CWE-121"
+          ],
+          "cweId": "CWE-121",
+          "evidenceResolution": {
+            "cwe": {
+              "id": "CWE-121",
+              "source": "metadata.cweId",
+              "status": "known"
+            }
+          }
+        },
+        "ruleId": "semgrep:fixture",
+        "severity": "warning",
+        "toolId": "semgrep"
+      },
+      {
+        "location": {
+          "column": 1,
+          "file": "validation-overlap.c",
+          "line": 20
+        },
+        "message": "fixture finding",
+        "metadata": {
+          "cwe": [
+            "CWE-190"
+          ],
+          "cweId": "CWE-190",
+          "evidenceResolution": {
+            "cwe": {
+              "id": "CWE-190",
+              "source": "metadata.cweId",
+              "status": "known"
+            }
+          }
+        },
+        "ruleId": "semgrep:fixture",
+        "severity": "warning",
+        "toolId": "semgrep"
+      },
+      {
+        "location": {
+          "column": 1,
+          "file": "validation-overlap.c",
+          "line": 20
+        },
+        "message": "fixture finding",
+        "metadata": {
+          "cwe": [
+            "CWE-190"
+          ],
+          "cweId": "CWE-190",
+          "evidenceResolution": {
+            "cwe": {
+              "id": "CWE-190",
+              "source": "metadata.cweId",
+              "status": "known"
+            }
+          }
+        },
+        "ruleId": "cppcheck:fixture",
+        "severity": "warning",
+        "toolId": "cppcheck"
+      },
+      {
+        "dataFlow": [
+          {
+            "content": "fixture flow",
+            "file": "validation-dataflow-strong.c",
+            "line": 59
+          },
+          {
+            "content": "fixture flow",
+            "file": "validation-dataflow-strong.c",
+            "line": 60
+          },
+          {
+            "content": "fixture flow",
+            "file": "validation-dataflow-strong.c",
+            "line": 120
+          }
+        ],
+        "location": {
+          "column": 1,
+          "file": "validation-dataflow-strong.c",
+          "line": 120
+        },
+        "message": "fixture finding",
+        "metadata": {
+          "cwe": [
+            "CWE-476"
+          ],
+          "cweId": "CWE-476",
+          "evidenceResolution": {
+            "cwe": {
+              "id": "CWE-476",
+              "source": "metadata.cweId",
+              "status": "known"
+            }
+          }
+        },
+        "ruleId": "scan-build:fixture",
+        "severity": "warning",
+        "toolId": "scan-build"
+      },
+      {
+        "location": {
+          "column": 1,
+          "file": "test-gcc-unique.c",
+          "line": 30
+        },
+        "message": "fixture finding",
+        "metadata": {
+          "cwe": [
+            "CWE-416"
+          ],
+          "cweId": "CWE-416",
+          "evidenceResolution": {
+            "cwe": {
+              "id": "CWE-416",
+              "source": "metadata.cweId",
+              "status": "known"
+            }
+          }
+        },
+        "ruleId": "gcc-fanalyzer:fixture",
+        "severity": "warning",
+        "toolId": "gcc-fanalyzer"
+      },
+      {
+        "location": {
+          "column": 1,
+          "file": "canary-buffer-copy.c",
+          "line": 12
+        },
+        "message": "fixture finding",
+        "metadata": {
+          "cwe": [
+            "CWE-120"
+          ],
+          "cweId": "CWE-120",
+          "evidenceResolution": {
+            "cwe": {
+              "id": "CWE-120",
+              "source": "metadata.cweId",
+              "status": "known"
+            }
+          }
+        },
+        "ruleId": "semgrep:fixture",
+        "severity": "warning",
+        "toolId": "semgrep"
+      },
+      {
+        "location": {
+          "column": 1,
+          "file": "validation-overlap.c",
+          "line": 18
+        },
+        "message": "fixture finding",
+        "metadata": {
+          "evidenceResolution": {
+            "cwe": {
+              "id": null,
+              "source": null,
+              "status": "unknown"
+            }
+          }
+        },
+        "ruleId": "cppcheck:fixture",
+        "severity": "warning",
+        "toolId": "cppcheck"
+      }
+    ],
+    "leave-one-out:gcc-fanalyzer": [
+      {
+        "location": {
+          "column": 1,
+          "file": "validation-semgrep-unique.c",
+          "line": 40
+        },
+        "message": "fixture finding",
+        "metadata": {
+          "cwe": [
+            "CWE-121"
+          ],
+          "cweId": "CWE-121",
+          "evidenceResolution": {
+            "cwe": {
+              "id": "CWE-121",
+              "source": "metadata.cweId",
+              "status": "known"
+            }
+          }
+        },
+        "ruleId": "semgrep:fixture",
+        "severity": "warning",
+        "toolId": "semgrep"
+      },
+      {
+        "location": {
+          "column": 1,
+          "file": "validation-overlap.c",
+          "line": 20
+        },
+        "message": "fixture finding",
+        "metadata": {
+          "cwe": [
+            "CWE-190"
+          ],
+          "cweId": "CWE-190",
+          "evidenceResolution": {
+            "cwe": {
+              "id": "CWE-190",
+              "source": "metadata.cweId",
+              "status": "known"
+            }
+          }
+        },
+        "ruleId": "semgrep:fixture",
+        "severity": "warning",
+        "toolId": "semgrep"
+      },
+      {
+        "location": {
+          "column": 1,
+          "file": "validation-overlap.c",
+          "line": 20
+        },
+        "message": "fixture finding",
+        "metadata": {
+          "cwe": [
+            "CWE-190"
+          ],
+          "cweId": "CWE-190",
+          "evidenceResolution": {
+            "cwe": {
+              "id": "CWE-190",
+              "source": "metadata.cweId",
+              "status": "known"
+            }
+          }
+        },
+        "ruleId": "cppcheck:fixture",
+        "severity": "warning",
+        "toolId": "cppcheck"
+      },
+      {
+        "dataFlow": [
+          {
+            "content": "fixture flow",
+            "file": "validation-dataflow-strong.c",
+            "line": 59
+          },
+          {
+            "content": "fixture flow",
+            "file": "validation-dataflow-strong.c",
+            "line": 60
+          },
+          {
+            "content": "fixture flow",
+            "file": "validation-dataflow-strong.c",
+            "line": 120
+          }
+        ],
+        "location": {
+          "column": 1,
+          "file": "validation-dataflow-strong.c",
+          "line": 120
+        },
+        "message": "fixture finding",
+        "metadata": {
+          "cwe": [
+            "CWE-476"
+          ],
+          "cweId": "CWE-476",
+          "evidenceResolution": {
+            "cwe": {
+              "id": "CWE-476",
+              "source": "metadata.cweId",
+              "status": "known"
+            }
+          }
+        },
+        "ruleId": "scan-build:fixture",
+        "severity": "warning",
+        "toolId": "scan-build"
+      },
+      {
+        "location": {
+          "column": 1,
+          "file": "test-negative.c",
+          "line": 80
+        },
+        "message": "fixture finding",
+        "metadata": {
+          "cwe": [
+            "CWE-121"
+          ],
+          "cweId": "CWE-121",
+          "evidenceResolution": {
+            "cwe": {
+              "id": "CWE-121",
+              "source": "metadata.cweId",
+              "status": "known"
+            }
+          }
+        },
+        "ruleId": "flawfinder:fixture",
+        "severity": "warning",
+        "toolId": "flawfinder"
+      },
+      {
+        "location": {
+          "column": 1,
+          "file": "canary-buffer-copy.c",
+          "line": 12
+        },
+        "message": "fixture finding",
+        "metadata": {
+          "cwe": [
+            "CWE-120"
+          ],
+          "cweId": "CWE-120",
+          "evidenceResolution": {
+            "cwe": {
+              "id": "CWE-120",
+              "source": "metadata.cweId",
+              "status": "known"
+            }
+          }
+        },
+        "ruleId": "semgrep:fixture",
+        "severity": "warning",
+        "toolId": "semgrep"
+      },
+      {
+        "location": {
+          "column": 1,
+          "file": "validation-semgrep-unique.c",
+          "line": 41
+        },
+        "message": "fixture finding",
+        "metadata": {
+          "cwe": [
+            "CWE-190"
+          ],
+          "cweId": "CWE-190",
+          "evidenceResolution": {
+            "cwe": {
+              "id": "CWE-190",
+              "source": "metadata.cweId",
+              "status": "known"
+            }
+          }
+        },
+        "ruleId": "flawfinder:fixture",
+        "severity": "warning",
+        "toolId": "flawfinder"
+      },
+      {
+        "location": {
+          "column": 1,
+          "file": "validation-overlap.c",
+          "line": 18
+        },
+        "message": "fixture finding",
+        "metadata": {
+          "evidenceResolution": {
+            "cwe": {
+              "id": null,
+              "source": null,
+              "status": "unknown"
+            }
+          }
+        },
+        "ruleId": "cppcheck:fixture",
+        "severity": "warning",
+        "toolId": "cppcheck"
+      }
+    ],
+    "leave-one-out:scan-build": [
+      {
+        "location": {
+          "column": 1,
+          "file": "validation-semgrep-unique.c",
+          "line": 40
+        },
+        "message": "fixture finding",
+        "metadata": {
+          "cwe": [
+            "CWE-121"
+          ],
+          "cweId": "CWE-121",
+          "evidenceResolution": {
+            "cwe": {
+              "id": "CWE-121",
+              "source": "metadata.cweId",
+              "status": "known"
+            }
+          }
+        },
+        "ruleId": "semgrep:fixture",
+        "severity": "warning",
+        "toolId": "semgrep"
+      },
+      {
+        "location": {
+          "column": 1,
+          "file": "validation-overlap.c",
+          "line": 20
+        },
+        "message": "fixture finding",
+        "metadata": {
+          "cwe": [
+            "CWE-190"
+          ],
+          "cweId": "CWE-190",
+          "evidenceResolution": {
+            "cwe": {
+              "id": "CWE-190",
+              "source": "metadata.cweId",
+              "status": "known"
+            }
+          }
+        },
+        "ruleId": "semgrep:fixture",
+        "severity": "warning",
+        "toolId": "semgrep"
+      },
+      {
+        "location": {
+          "column": 1,
+          "file": "validation-overlap.c",
+          "line": 20
+        },
+        "message": "fixture finding",
+        "metadata": {
+          "cwe": [
+            "CWE-190"
+          ],
+          "cweId": "CWE-190",
+          "evidenceResolution": {
+            "cwe": {
+              "id": "CWE-190",
+              "source": "metadata.cweId",
+              "status": "known"
+            }
+          }
+        },
+        "ruleId": "cppcheck:fixture",
+        "severity": "warning",
+        "toolId": "cppcheck"
+      },
+      {
+        "location": {
+          "column": 1,
+          "file": "test-gcc-unique.c",
+          "line": 30
+        },
+        "message": "fixture finding",
+        "metadata": {
+          "cwe": [
+            "CWE-416"
+          ],
+          "cweId": "CWE-416",
+          "evidenceResolution": {
+            "cwe": {
+              "id": "CWE-416",
+              "source": "metadata.cweId",
+              "status": "known"
+            }
+          }
+        },
+        "ruleId": "gcc-fanalyzer:fixture",
+        "severity": "warning",
+        "toolId": "gcc-fanalyzer"
+      },
+      {
+        "location": {
+          "column": 1,
+          "file": "test-negative.c",
+          "line": 80
+        },
+        "message": "fixture finding",
+        "metadata": {
+          "cwe": [
+            "CWE-121"
+          ],
+          "cweId": "CWE-121",
+          "evidenceResolution": {
+            "cwe": {
+              "id": "CWE-121",
+              "source": "metadata.cweId",
+              "status": "known"
+            }
+          }
+        },
+        "ruleId": "flawfinder:fixture",
+        "severity": "warning",
+        "toolId": "flawfinder"
+      },
+      {
+        "location": {
+          "column": 1,
+          "file": "canary-buffer-copy.c",
+          "line": 12
+        },
+        "message": "fixture finding",
+        "metadata": {
+          "cwe": [
+            "CWE-120"
+          ],
+          "cweId": "CWE-120",
+          "evidenceResolution": {
+            "cwe": {
+              "id": "CWE-120",
+              "source": "metadata.cweId",
+              "status": "known"
+            }
+          }
+        },
+        "ruleId": "semgrep:fixture",
+        "severity": "warning",
+        "toolId": "semgrep"
+      },
+      {
+        "location": {
+          "column": 1,
+          "file": "validation-semgrep-unique.c",
+          "line": 41
+        },
+        "message": "fixture finding",
+        "metadata": {
+          "cwe": [
+            "CWE-190"
+          ],
+          "cweId": "CWE-190",
+          "evidenceResolution": {
+            "cwe": {
+              "id": "CWE-190",
+              "source": "metadata.cweId",
+              "status": "known"
+            }
+          }
+        },
+        "ruleId": "flawfinder:fixture",
+        "severity": "warning",
+        "toolId": "flawfinder"
+      },
+      {
+        "location": {
+          "column": 1,
+          "file": "validation-overlap.c",
+          "line": 18
+        },
+        "message": "fixture finding",
+        "metadata": {
+          "evidenceResolution": {
+            "cwe": {
+              "id": null,
+              "source": null,
+              "status": "unknown"
+            }
+          }
+        },
+        "ruleId": "cppcheck:fixture",
+        "severity": "warning",
+        "toolId": "cppcheck"
+      }
+    ],
+    "leave-one-out:semgrep": [
+      {
+        "location": {
+          "column": 1,
+          "file": "validation-overlap.c",
+          "line": 20
+        },
+        "message": "fixture finding",
+        "metadata": {
+          "cwe": [
+            "CWE-190"
+          ],
+          "cweId": "CWE-190",
+          "evidenceResolution": {
+            "cwe": {
+              "id": "CWE-190",
+              "source": "metadata.cweId",
+              "status": "known"
+            }
+          }
+        },
+        "ruleId": "cppcheck:fixture",
+        "severity": "warning",
+        "toolId": "cppcheck"
+      },
+      {
+        "dataFlow": [
+          {
+            "content": "fixture flow",
+            "file": "validation-dataflow-strong.c",
+            "line": 59
+          },
+          {
+            "content": "fixture flow",
+            "file": "validation-dataflow-strong.c",
+            "line": 60
+          },
+          {
+            "content": "fixture flow",
+            "file": "validation-dataflow-strong.c",
+            "line": 120
+          }
+        ],
+        "location": {
+          "column": 1,
+          "file": "validation-dataflow-strong.c",
+          "line": 120
+        },
+        "message": "fixture finding",
+        "metadata": {
+          "cwe": [
+            "CWE-476"
+          ],
+          "cweId": "CWE-476",
+          "evidenceResolution": {
+            "cwe": {
+              "id": "CWE-476",
+              "source": "metadata.cweId",
+              "status": "known"
+            }
+          }
+        },
+        "ruleId": "scan-build:fixture",
+        "severity": "warning",
+        "toolId": "scan-build"
+      },
+      {
+        "location": {
+          "column": 1,
+          "file": "test-gcc-unique.c",
+          "line": 30
+        },
+        "message": "fixture finding",
+        "metadata": {
+          "cwe": [
+            "CWE-416"
+          ],
+          "cweId": "CWE-416",
+          "evidenceResolution": {
+            "cwe": {
+              "id": "CWE-416",
+              "source": "metadata.cweId",
+              "status": "known"
+            }
+          }
+        },
+        "ruleId": "gcc-fanalyzer:fixture",
+        "severity": "warning",
+        "toolId": "gcc-fanalyzer"
+      },
+      {
+        "location": {
+          "column": 1,
+          "file": "test-negative.c",
+          "line": 80
+        },
+        "message": "fixture finding",
+        "metadata": {
+          "cwe": [
+            "CWE-121"
+          ],
+          "cweId": "CWE-121",
+          "evidenceResolution": {
+            "cwe": {
+              "id": "CWE-121",
+              "source": "metadata.cweId",
+              "status": "known"
+            }
+          }
+        },
+        "ruleId": "flawfinder:fixture",
+        "severity": "warning",
+        "toolId": "flawfinder"
+      },
+      {
+        "location": {
+          "column": 1,
+          "file": "validation-semgrep-unique.c",
+          "line": 41
+        },
+        "message": "fixture finding",
+        "metadata": {
+          "cwe": [
+            "CWE-190"
+          ],
+          "cweId": "CWE-190",
+          "evidenceResolution": {
+            "cwe": {
+              "id": "CWE-190",
+              "source": "metadata.cweId",
+              "status": "known"
+            }
+          }
+        },
+        "ruleId": "flawfinder:fixture",
+        "severity": "warning",
+        "toolId": "flawfinder"
+      },
+      {
+        "location": {
+          "column": 1,
+          "file": "validation-overlap.c",
+          "line": 18
+        },
+        "message": "fixture finding",
+        "metadata": {
+          "evidenceResolution": {
+            "cwe": {
+              "id": null,
+              "source": null,
+              "status": "unknown"
+            }
+          }
+        },
+        "ruleId": "cppcheck:fixture",
+        "severity": "warning",
+        "toolId": "cppcheck"
+      }
+    ],
+    "parser-only-current-six": [],
+    "single-tool:clang-tidy": [],
+    "single-tool:cppcheck": [
+      {
+        "location": {
+          "column": 1,
+          "file": "validation-overlap.c",
+          "line": 20
+        },
+        "message": "fixture finding",
+        "metadata": {
+          "cwe": [
+            "CWE-190"
+          ],
+          "cweId": "CWE-190",
+          "evidenceResolution": {
+            "cwe": {
+              "id": "CWE-190",
+              "source": "metadata.cweId",
+              "status": "known"
+            }
+          }
+        },
+        "ruleId": "cppcheck:fixture",
+        "severity": "warning",
+        "toolId": "cppcheck"
+      },
+      {
+        "location": {
+          "column": 1,
+          "file": "validation-overlap.c",
+          "line": 18
+        },
+        "message": "fixture finding",
+        "metadata": {
+          "evidenceResolution": {
+            "cwe": {
+              "id": null,
+              "source": null,
+              "status": "unknown"
+            }
+          }
+        },
+        "ruleId": "cppcheck:fixture",
+        "severity": "warning",
+        "toolId": "cppcheck"
+      }
+    ],
+    "single-tool:flawfinder": [
+      {
+        "location": {
+          "column": 1,
+          "file": "test-negative.c",
+          "line": 80
+        },
+        "message": "fixture finding",
+        "metadata": {
+          "cwe": [
+            "CWE-121"
+          ],
+          "cweId": "CWE-121",
+          "evidenceResolution": {
+            "cwe": {
+              "id": "CWE-121",
+              "source": "metadata.cweId",
+              "status": "known"
+            }
+          }
+        },
+        "ruleId": "flawfinder:fixture",
+        "severity": "warning",
+        "toolId": "flawfinder"
+      },
+      {
+        "location": {
+          "column": 1,
+          "file": "validation-semgrep-unique.c",
+          "line": 41
+        },
+        "message": "fixture finding",
+        "metadata": {
+          "cwe": [
+            "CWE-190"
+          ],
+          "cweId": "CWE-190",
+          "evidenceResolution": {
+            "cwe": {
+              "id": "CWE-190",
+              "source": "metadata.cweId",
+              "status": "known"
+            }
+          }
+        },
+        "ruleId": "flawfinder:fixture",
+        "severity": "warning",
+        "toolId": "flawfinder"
+      }
+    ],
+    "single-tool:gcc-fanalyzer": [
+      {
+        "location": {
+          "column": 1,
+          "file": "test-gcc-unique.c",
+          "line": 30
+        },
+        "message": "fixture finding",
+        "metadata": {
+          "cwe": [
+            "CWE-416"
+          ],
+          "cweId": "CWE-416",
+          "evidenceResolution": {
+            "cwe": {
+              "id": "CWE-416",
+              "source": "metadata.cweId",
+              "status": "known"
+            }
+          }
+        },
+        "ruleId": "gcc-fanalyzer:fixture",
+        "severity": "warning",
+        "toolId": "gcc-fanalyzer"
+      }
+    ],
+    "single-tool:scan-build": [
+      {
+        "dataFlow": [
+          {
+            "content": "fixture flow",
+            "file": "validation-dataflow-strong.c",
+            "line": 59
+          },
+          {
+            "content": "fixture flow",
+            "file": "validation-dataflow-strong.c",
+            "line": 60
+          },
+          {
+            "content": "fixture flow",
+            "file": "validation-dataflow-strong.c",
+            "line": 120
+          }
+        ],
+        "location": {
+          "column": 1,
+          "file": "validation-dataflow-strong.c",
+          "line": 120
+        },
+        "message": "fixture finding",
+        "metadata": {
+          "cwe": [
+            "CWE-476"
+          ],
+          "cweId": "CWE-476",
+          "evidenceResolution": {
+            "cwe": {
+              "id": "CWE-476",
+              "source": "metadata.cweId",
+              "status": "known"
+            }
+          }
+        },
+        "ruleId": "scan-build:fixture",
+        "severity": "warning",
+        "toolId": "scan-build"
+      }
+    ],
+    "single-tool:semgrep": [
+      {
+        "location": {
+          "column": 1,
+          "file": "validation-semgrep-unique.c",
+          "line": 40
+        },
+        "message": "fixture finding",
+        "metadata": {
+          "cwe": [
+            "CWE-121"
+          ],
+          "cweId": "CWE-121",
+          "evidenceResolution": {
+            "cwe": {
+              "id": "CWE-121",
+              "source": "metadata.cweId",
+              "status": "known"
+            }
+          }
+        },
+        "ruleId": "semgrep:fixture",
+        "severity": "warning",
+        "toolId": "semgrep"
+      },
+      {
+        "location": {
+          "column": 1,
+          "file": "validation-overlap.c",
+          "line": 20
+        },
+        "message": "fixture finding",
+        "metadata": {
+          "cwe": [
+            "CWE-190"
+          ],
+          "cweId": "CWE-190",
+          "evidenceResolution": {
+            "cwe": {
+              "id": "CWE-190",
+              "source": "metadata.cweId",
+              "status": "known"
+            }
+          }
+        },
+        "ruleId": "semgrep:fixture",
+        "severity": "warning",
+        "toolId": "semgrep"
+      },
+      {
+        "location": {
+          "column": 1,
+          "file": "canary-buffer-copy.c",
+          "line": 12
+        },
+        "message": "fixture finding",
+        "metadata": {
+          "cwe": [
+            "CWE-120"
+          ],
+          "cweId": "CWE-120",
+          "evidenceResolution": {
+            "cwe": {
+              "id": "CWE-120",
+              "source": "metadata.cweId",
+              "status": "known"
+            }
+          }
+        },
+        "ruleId": "semgrep:fixture",
+        "severity": "warning",
+        "toolId": "semgrep"
+      }
+    ]
+  },
+  "matchingPolicy": {
+    "functionFallbackDefault": false,
+    "lineWindowDefault": 3,
+    "schemaVersion": "s4-oracle-matching-policy-v1"
+  },
+  "schemaVersion": "s4-tool-portfolio-harness-fixture-v1",
+  "thresholds": {
+    "maximumNegativeTargetFpr": 0.0,
+    "minimumFindingPrecision": 0.8,
+    "minimumTargetRecall": 0.8,
+    "primaryToolSetConfig": "full-current-six",
+    "requiredSplits": [
+      "validation",
+      "test",
+      "canary"
+    ]
+  }
+}

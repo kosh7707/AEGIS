@@ -8,7 +8,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from app.errors import ScanTimeoutError, SemgrepNotAvailableError
+from app.errors import ScanTimeoutError, SemgrepNotAvailableError, ToolOutputInvalidError
 from app.scanner.tool_probe import probe_command, service_toolchain_executable
 
 logger = logging.getLogger("aegis-sast-runner")
@@ -17,12 +17,18 @@ logger = logging.getLogger("aegis-sast-runner")
 class SemgrepRunner:
     """Semgrep CLI를 asyncio subprocess로 실행한다."""
 
+    def _semgrep_executable(self) -> str:
+        """Return S4's canonical Semgrep executable, falling back to PATH only if absent."""
+        executable = service_toolchain_executable("semgrep")
+        return str(executable) if executable else "semgrep"
+
     async def check_available(self) -> tuple[bool, str | None]:
         """Semgrep 바이너리 가용 여부와 버전을 반환."""
+        expected_executable = service_toolchain_executable("semgrep")
         probe = await probe_command(
-            ["semgrep", "--version"],
+            [str(expected_executable) if expected_executable else "semgrep", "--version"],
             version_parser=lambda output: output.strip(),
-            expected_executable_path=service_toolchain_executable("semgrep"),
+            expected_executable_path=expected_executable,
         )
         self._last_probe = probe
         return bool(probe["available"]), probe["version"] if isinstance(probe["version"], str) else None
@@ -85,7 +91,7 @@ class SemgrepRunner:
             # JSON이 아닌 출력 (에러 메시지 등)
             err_msg = stderr.decode().strip()
             logger.error("Semgrep non-JSON output: %s, stderr: %s", raw[:500], err_msg)
-            return {"runs": [{"tool": {"driver": {"rules": []}}, "results": []}]}
+            raise ToolOutputInvalidError("Semgrep produced non-JSON SARIF output")
 
     def _build_command(
         self,
@@ -96,7 +102,7 @@ class SemgrepRunner:
         """Semgrep CLI 명령 조립."""
         from app.config import settings
 
-        cmd = ["semgrep", "scan"]
+        cmd = [self._semgrep_executable(), "scan"]
 
         for ruleset in rulesets:
             cmd.extend(["--config", ruleset])
