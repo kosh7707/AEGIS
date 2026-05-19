@@ -13,6 +13,137 @@ from typing import Any
 SCHEMA_VERSION = "s5-analyst-brief-v1"
 SUPPORTED_AUDIENCES = {"s3"}
 SUPPORTED_LANGUAGES = {"ko", "en"}
+ACQUISITION_DIAGNOSTIC_CODE_MAX_CHARS = 128
+ACQUISITION_DIAGNOSTIC_CODE_ECHO_LIMIT = 64
+ACQUISITION_DIAGNOSTIC_WARNING_PREVIEW_LIMIT = 8
+ACQUISITION_DIAGNOSTIC_CODE_REDACTION_WARNING = "acquisition_diagnostic_code_value_redacted"
+ACQUISITION_DIAGNOSTIC_CODE_TRUNCATION_WARNING = "acquisition_diagnostic_codes_truncated"
+ACQUISITION_DIAGNOSTIC_CODE_OVERSIZED_REDACTION_TEMPLATE = (
+    "<redacted-acquisition-diagnostic-code:{length}>"
+)
+ACQUISITION_REQUIRED_INPUT_MAX_CHARS = 128
+ACQUISITION_REQUIRED_INPUT_ECHO_LIMIT = 16
+ACQUISITION_REQUIRED_INPUT_REDACTION_WARNING = "acquisition_required_input_value_redacted"
+ACQUISITION_REQUIRED_INPUT_TRUNCATION_WARNING = "acquisition_required_inputs_truncated"
+ACQUISITION_REQUIRED_INPUT_OVERSIZED_REDACTION_TEMPLATE = (
+    "<redacted-acquisition-required-input:{length}>"
+)
+ACQUISITION_EVIDENCE_REF_VALUE_MAX_CHARS = 512
+ACQUISITION_EVIDENCE_REF_ECHO_LIMIT = 64
+ACQUISITION_EVIDENCE_REF_VALUE_REDACTION_WARNING = "acquisition_evidence_ref_value_redacted"
+ACQUISITION_SOURCE_EVIDENCE_REF_TRUNCATION_WARNING = "acquisition_source_evidence_refs_truncated"
+ACQUISITION_DERIVED_EVIDENCE_REF_TRUNCATION_WARNING = "acquisition_derived_evidence_refs_truncated"
+ACQUISITION_EVIDENCE_REF_OVERSIZED_REDACTION_TEMPLATE = (
+    "<redacted-acquisition-evidence-ref:{length}>"
+)
+ACQUISITION_IDENTITY_MAX_CHARS = 128
+ACQUISITION_IDENTITY_REDACTION_WARNING = "acquisition_identity_value_redacted"
+ACQUISITION_IDENTITY_OVERSIZED_REDACTION_TEMPLATE = "<redacted-acquisition-identity:{length}>"
+ACQUISITION_IDENTITY_ECHO_FIELDS = (
+    "surface",
+    "targetKnowledgeId",
+    "acquisitionStatus",
+    "acquisitionQualityGate",
+    "consumerPolicy",
+)
+ACQUISITION_STATE_MAX_CHARS = 128
+ACQUISITION_STATE_REDACTION_WARNING = "acquisition_state_value_redacted"
+ACQUISITION_STATE_OVERSIZED_REDACTION_TEMPLATE = "<redacted-acquisition-state:{length}>"
+ACQUISITION_STATE_ECHO_FIELDS = (
+    "providerState.state",
+    "projectionState.state",
+)
+ACQUISITION_METHOD_MAX_CHARS = 128
+ACQUISITION_METHOD_ECHO_LIMIT = 32
+ACQUISITION_METHOD_REDACTION_WARNING = "acquisition_method_value_redacted"
+ACQUISITION_METHOD_TRUNCATION_WARNING = "acquisition_methods_truncated"
+ACQUISITION_METHOD_OVERSIZED_REDACTION_TEMPLATE = "<redacted-acquisition-method:{length}>"
+ACQUISITION_METHOD_ECHO_FIELDS = (
+    "methodsSucceeded",
+    "methodsRequiredForNoHit",
+)
+ACQUISITION_SCOPE_FORBIDDEN_INFERENCE_MAX_CHARS = 128
+ACQUISITION_SCOPE_FORBIDDEN_INFERENCE_ECHO_LIMIT = 32
+ACQUISITION_SCOPE_FORBIDDEN_INFERENCE_REDACTION_WARNING = (
+    "acquisition_scope_forbidden_inference_value_redacted"
+)
+ACQUISITION_SCOPE_FORBIDDEN_INFERENCE_TRUNCATION_WARNING = (
+    "acquisition_scope_forbidden_inferences_truncated"
+)
+ACQUISITION_SCOPE_FORBIDDEN_INFERENCE_OVERSIZED_REDACTION_TEMPLATE = (
+    "<redacted-acquisition-scope-forbidden-inference:{length}>"
+)
+ACQUISITION_SCOPE_FORBIDDEN_INFERENCE_FIELD = "scope.forbiddenInferences"
+JUDGE_ANSWER_CONSUMER_POLICY = "judge_verdict_context_only"
+JUDGE_ANSWER_REQUIRED_VERDICT_AUTHORITY = "s5_evidence_grounded_knowledge_verdict_not_s3_final_security_verdict"
+JUDGE_ANSWER_BOUNDARY_WARNING = "judge_final_verdict_boundary_missing"
+JUDGE_ANSWER_SOURCE_ARTIFACT_REF_FIELDS = (
+    "sourceRepositoryArtifactId",
+    "sourceArtifactId",
+    "artifactId",
+)
+JUDGE_ANSWER_SOURCE_REF_ECHO_LIMIT = 64
+JUDGE_ANSWER_SOURCE_REF_VALUE_MAX_CHARS = 512
+JUDGE_ANSWER_SOURCE_REF_TRUNCATION_WARNING = "source_evidence_refs_truncated"
+JUDGE_ANSWER_SOURCE_REF_VALUE_REDACTION_WARNING = "source_evidence_ref_value_redacted"
+JUDGE_ANSWER_SOURCE_REF_OVERSIZED_REDACTION_TEMPLATE = "<redacted-source-ref:{length}>"
+JUDGE_ANSWER_DIAGNOSTIC_CODE_MAX_CHARS = 128
+JUDGE_ANSWER_DIAGNOSTIC_CODE_ECHO_LIMIT = 64
+JUDGE_ANSWER_DIAGNOSTIC_WARNING_PREVIEW_LIMIT = 8
+JUDGE_ANSWER_DIAGNOSTIC_CODE_REDACTION_WARNING = "diagnostic_code_value_redacted"
+JUDGE_ANSWER_DIAGNOSTIC_CODE_TRUNCATION_WARNING = "diagnostic_codes_truncated"
+JUDGE_ANSWER_DIAGNOSTIC_CODE_OVERSIZED_REDACTION_TEMPLATE = "<redacted-diagnostic-code:{length}>"
+JUDGE_ANSWER_REQUIRED_INPUT_MAX_CHARS = 128
+JUDGE_ANSWER_REQUIRED_INPUT_ECHO_LIMIT = 16
+JUDGE_ANSWER_REQUIRED_INPUT_REDACTION_WARNING = "required_input_value_redacted"
+JUDGE_ANSWER_REQUIRED_INPUT_TRUNCATION_WARNING = "required_inputs_truncated"
+JUDGE_ANSWER_REQUIRED_INPUT_OVERSIZED_REDACTION_TEMPLATE = "<redacted-required-input:{length}>"
+JUDGE_ANSWER_SCALAR_MAX_CHARS = 128
+JUDGE_ANSWER_SCALAR_REDACTION_WARNING = "judge_answer_scalar_value_redacted"
+JUDGE_ANSWER_SCALAR_OVERSIZED_REDACTION_TEMPLATE = "<redacted-judge-answer-scalar:{length}>"
+JUDGE_ANSWER_SCALAR_ECHO_FIELDS = (
+    "verdict",
+    "status",
+    "qualityGate.gate",
+)
+JUDGE_ANSWER_ALLOWED_STATUSES = (
+    "complete",
+    "degraded_quality",
+    "requires_requery",
+    "insufficient_input",
+    "unknown",
+)
+JUDGE_ANSWER_ALLOWED_QUALITY_GATES = (
+    "accepted",
+    "accepted_with_caveats",
+    "rejected",
+    "unknown",
+)
+JUDGE_ANSWER_FOLLOW_UP_RAW_FIELDS_ECHOED = False
+JUDGE_ANSWER_FOLLOW_UP_PRESENCE_ONLY = True
+JUDGE_ANSWER_FOLLOW_UP_ACTION_TYPE = "follow_judge_affordance"
+JUDGE_ANSWER_FOLLOW_UP_QUALITY_WARNING = (
+    "Judge follow-up affordances are present and should be routed before promotion."
+)
+JUDGE_ANSWER_CONFLICT_RAW_FIELDS_ECHOED = False
+JUDGE_ANSWER_CONFLICT_PRESENCE_ONLY = True
+JUDGE_ANSWER_CONFLICT_QUALITY_WARNING = (
+    "Judge uncertainty conflicts are present; do not collapse them into a single claim."
+)
+JUDGE_ANSWER_DIAGNOSTIC_TRIGGERS = (
+    "verdict_unknown",
+    "verdict_unsupported",
+    "status_unknown",
+    "status_unsupported",
+    "status_requires_requery",
+    "status_degraded_quality",
+    "quality_gate_rejected",
+    "quality_gate_accepted_with_caveats",
+    "quality_gate_unsupported",
+    "uncertainty_required_inputs_present",
+    "uncertainty_conflicts_present",
+    "follow_up_affordances_present",
+)
 
 BASELINE_FORBIDDEN_INFERENCES = [
     "s5_final_security_verdict",
@@ -78,12 +209,69 @@ def build_analyst_brief(
     if not isinstance(artifact, dict) or not artifact:
         return _malformed_brief(audience=audience, language=language)
 
+    if artifact.get("schemaVersion") == "s5-judge-answer-v1":
+        return _judge_answer_brief(artifact, audience=audience, language=language)
+
     view = _ArtifactView(artifact)
     stance = _classify_stance(view)
     role = _recommended_role(stance, view.consumer_policy)
-    diagnostic_codes = _diagnostic_codes(artifact)
-    missing_inputs = _missing_inputs(artifact)
-    quality_warnings = _quality_warnings(view, diagnostic_codes, missing_inputs)
+    raw_diagnostic_codes = _diagnostic_code_values(artifact)
+    diagnostic_codes = [
+        _sanitize_acquisition_diagnostic_code(value)
+        for value in raw_diagnostic_codes[:ACQUISITION_DIAGNOSTIC_CODE_ECHO_LIMIT]
+    ]
+    diagnostic_code_total_count = len(raw_diagnostic_codes)
+    diagnostic_codes_truncated = diagnostic_code_total_count > ACQUISITION_DIAGNOSTIC_CODE_ECHO_LIMIT
+    diagnostic_code_redacted = any(
+        code.startswith("<redacted-acquisition-diagnostic-code:")
+        for code in diagnostic_codes
+    )
+    raw_missing_inputs = _missing_input_values(artifact)
+    missing_inputs = [
+        _sanitize_acquisition_required_input(value)
+        for value in raw_missing_inputs[:ACQUISITION_REQUIRED_INPUT_ECHO_LIMIT]
+    ]
+    missing_input_total_count = len(raw_missing_inputs)
+    missing_inputs_truncated = missing_input_total_count > ACQUISITION_REQUIRED_INPUT_ECHO_LIMIT
+    missing_input_redacted = any(
+        value.startswith("<redacted-acquisition-required-input:")
+        for value in missing_inputs
+    )
+    source_refs = _unique(_string_list(artifact.get("sourceEvidenceRefs")))
+    derived_refs = _unique(_string_list(artifact.get("derivedFromEvidenceRefs")))
+    echoed_source_refs = [
+        _sanitize_acquisition_evidence_ref(value)
+        for value in source_refs[:ACQUISITION_EVIDENCE_REF_ECHO_LIMIT]
+    ]
+    echoed_derived_refs = [
+        _sanitize_acquisition_evidence_ref(value)
+        for value in derived_refs[:ACQUISITION_EVIDENCE_REF_ECHO_LIMIT]
+    ]
+    source_refs_truncated = len(source_refs) > ACQUISITION_EVIDENCE_REF_ECHO_LIMIT
+    derived_refs_truncated = len(derived_refs) > ACQUISITION_EVIDENCE_REF_ECHO_LIMIT
+    evidence_ref_redacted = any(
+        len(value) > ACQUISITION_EVIDENCE_REF_VALUE_MAX_CHARS
+        for value in source_refs[:ACQUISITION_EVIDENCE_REF_ECHO_LIMIT] + derived_refs[:ACQUISITION_EVIDENCE_REF_ECHO_LIMIT]
+    )
+    identity_redacted = view.identity_redacted or _acquisition_identity_redacted(artifact.get("targetKnowledgeId"))
+    quality_warnings = _quality_warnings(
+        view,
+        diagnostic_codes,
+        missing_inputs,
+        diagnostic_code_redacted=diagnostic_code_redacted,
+        diagnostic_codes_truncated=diagnostic_codes_truncated,
+        missing_input_redacted=missing_input_redacted,
+        missing_inputs_truncated=missing_inputs_truncated,
+        evidence_ref_redacted=evidence_ref_redacted,
+        source_refs_truncated=source_refs_truncated,
+        derived_refs_truncated=derived_refs_truncated,
+        identity_redacted=identity_redacted,
+        state_redacted=view.state_redacted,
+        method_redacted=view.method_redacted,
+        methods_truncated=view.methods_truncated,
+        scope_forbidden_inference_redacted=view.scope_forbidden_inference_redacted,
+        scope_forbidden_inferences_truncated=view.scope_forbidden_inferences_truncated,
+    )
 
     forbidden = _unique(BASELINE_FORBIDDEN_INFERENCES + _stance_forbidden_inferences(stance, view))
     allowed = _allowed_uses(stance, view)
@@ -111,9 +299,21 @@ def build_analyst_brief(
             "consumerPolicy": view.consumer_policy,
             "acquisitionStatus": view.status,
             "acquisitionQualityGate": view.quality_gate,
-            "sourceEvidenceRefs": _string_list(artifact.get("sourceEvidenceRefs")),
-            "derivedFromEvidenceRefs": _string_list(artifact.get("derivedFromEvidenceRefs")),
+            "sourceEvidenceRefs": echoed_source_refs,
+            "sourceEvidenceRefTotalCount": len(source_refs),
+            "sourceEvidenceRefReturnedCount": len(echoed_source_refs),
+            "sourceEvidenceRefsTruncated": source_refs_truncated,
+            "derivedFromEvidenceRefs": echoed_derived_refs,
+            "derivedFromEvidenceRefTotalCount": len(derived_refs),
+            "derivedFromEvidenceRefReturnedCount": len(echoed_derived_refs),
+            "derivedFromEvidenceRefsTruncated": derived_refs_truncated,
             "diagnosticCodes": diagnostic_codes,
+            "diagnosticCodeTotalCount": diagnostic_code_total_count,
+            "diagnosticCodeReturnedCount": len(diagnostic_codes),
+            "diagnosticCodesTruncated": diagnostic_codes_truncated,
+            "requiredInputTotalCount": missing_input_total_count,
+            "requiredInputReturnedCount": len(missing_inputs),
+            "requiredInputsTruncated": missing_inputs_truncated,
         },
         "contractRefs": [
             "acquisition-envelope-v1",
@@ -127,30 +327,91 @@ class _ArtifactView:
     def __init__(self, artifact: dict[str, Any]) -> None:
         self.artifact = artifact
         self.schema_version = str(artifact.get("schemaVersion") or "")
-        self.surface = str(artifact.get("surface") or "unknown")
-        self.status = str(artifact.get("acquisitionStatus") or "unknown")
-        self.quality_gate = str(artifact.get("acquisitionQualityGate") or "unknown")
-        self.consumer_policy = str(artifact.get("consumerPolicy") or "unknown")
+        raw_surface = str(artifact.get("surface") or "unknown")
+        raw_status = str(artifact.get("acquisitionStatus") or "unknown")
+        raw_quality_gate = str(artifact.get("acquisitionQualityGate") or "unknown")
+        raw_consumer_policy = str(artifact.get("consumerPolicy") or "unknown")
+        self.identity_redacted = any(
+            _acquisition_identity_redacted(value)
+            for value in (raw_surface, raw_status, raw_quality_gate, raw_consumer_policy)
+        )
+        self.surface = _sanitize_acquisition_identity(raw_surface)
+        self.status = _sanitize_acquisition_identity(raw_status)
+        self.quality_gate = _sanitize_acquisition_identity(raw_quality_gate)
+        self.consumer_policy = _sanitize_acquisition_identity(raw_consumer_policy)
         self.scope = _as_dict(artifact.get("scope"))
         self.readiness = _as_dict(artifact.get("readiness"))
         self.results = _as_dict(artifact.get("results"))
-        self.provider_state = _state_name(
+        raw_provider_state = _state_name(
             artifact.get("providerState")
             or self.readiness.get("providerState")
             or self.scope.get("providerState")
         )
-        self.projection_state = _state_name(
+        raw_projection_state = _state_name(
             artifact.get("projectionState")
             or self.readiness.get("projectionState")
             or self.scope.get("projectionState")
         )
-        self.methods_required = _string_list(
+        self.state_redacted = any(
+            _acquisition_state_redacted(value)
+            for value in (raw_provider_state, raw_projection_state)
+        )
+        self.provider_state = _sanitize_acquisition_state(raw_provider_state)
+        self.projection_state = _sanitize_acquisition_state(raw_projection_state)
+        raw_methods_attempted = _string_list(
+            artifact.get("methodsAttempted")
+            or self.readiness.get("methodsAttempted")
+            or self.scope.get("methodsAttempted")
+        )
+        raw_methods_required = _string_list(
             self.readiness.get("methodsRequiredForNoHit")
             or self.scope.get("methodsRequiredForNoHit")
         )
-        self.methods_succeeded = _string_list(
+        raw_methods_succeeded = _string_list(
             artifact.get("methodsSucceeded")
             or self.readiness.get("methodsSucceeded")
+        )
+        self.raw_methods_attempted = raw_methods_attempted
+        self.raw_methods_required = raw_methods_required
+        self.raw_methods_succeeded = raw_methods_succeeded
+        raw_scope_forbidden_inferences = _string_list(
+            self.scope.get("forbiddenInferences")
+        )
+        self.scope_forbidden_inferences = [
+            _sanitize_acquisition_scope_forbidden_inference(value)
+            for value in raw_scope_forbidden_inferences[
+                :ACQUISITION_SCOPE_FORBIDDEN_INFERENCE_ECHO_LIMIT
+            ]
+        ]
+        self.scope_forbidden_inference_redacted = any(
+            _acquisition_scope_forbidden_inference_redacted(value)
+            for value in raw_scope_forbidden_inferences[
+                :ACQUISITION_SCOPE_FORBIDDEN_INFERENCE_ECHO_LIMIT
+            ]
+        )
+        self.scope_forbidden_inferences_truncated = (
+            len(raw_scope_forbidden_inferences)
+            > ACQUISITION_SCOPE_FORBIDDEN_INFERENCE_ECHO_LIMIT
+        )
+        self.methods_required = [
+            _sanitize_acquisition_method(value)
+            for value in raw_methods_required[:ACQUISITION_METHOD_ECHO_LIMIT]
+        ]
+        self.methods_succeeded = [
+            _sanitize_acquisition_method(value)
+            for value in raw_methods_succeeded[:ACQUISITION_METHOD_ECHO_LIMIT]
+        ]
+        echoed_method_values = (
+            raw_methods_required[:ACQUISITION_METHOD_ECHO_LIMIT]
+            + raw_methods_succeeded[:ACQUISITION_METHOD_ECHO_LIMIT]
+        )
+        self.method_redacted = any(
+            _acquisition_method_redacted(value)
+            for value in echoed_method_values
+        )
+        self.methods_truncated = (
+            len(raw_methods_required) > ACQUISITION_METHOD_ECHO_LIMIT
+            or len(raw_methods_succeeded) > ACQUISITION_METHOD_ECHO_LIMIT
         )
         self.no_hit_basis = str(self.scope.get("noHitBasis") or "")
         self.item_acquisitions = _as_list(artifact.get("itemAcquisitions"))
@@ -191,6 +452,421 @@ def _malformed_brief(*, audience: str, language: str) -> dict[str, Any]:
     return build_analyst_brief(artifact, audience=audience, language=language)
 
 
+def _judge_answer_brief(
+    answer: dict[str, Any],
+    *,
+    audience: str,
+    language: str,
+) -> dict[str, Any]:
+    """Build a S3-safe brief for a Judge answer packet.
+
+    Judge answers are S5 evidence-grounded knowledge verdicts, not S3 final
+    vulnerability/security decisions. This branch preserves the Analyst Brief
+    shape while making the Judge authority boundary explicit.
+    """
+
+    raw_verdict = str(answer.get("verdict") or "unknown")
+    raw_status = str(answer.get("status") or "unknown")
+    raw_quality_gate = str(_as_dict(answer.get("qualityGate")).get("gate") or "unknown")
+    scalar_redacted = any(
+        _judge_answer_scalar_redacted(value)
+        for value in (raw_verdict, raw_status, raw_quality_gate)
+    )
+    verdict = _sanitize_judge_answer_scalar(raw_verdict)
+    status = _sanitize_judge_answer_scalar(raw_status)
+    quality_gate = _sanitize_judge_answer_scalar(raw_quality_gate)
+    uncertainty = _as_dict(answer.get("uncertainty"))
+    raw_required_inputs = _unique(_string_list(uncertainty.get("requiredInputs")))
+    required_inputs = [
+        _sanitize_required_input(value)
+        for value in raw_required_inputs[:JUDGE_ANSWER_REQUIRED_INPUT_ECHO_LIMIT]
+    ]
+    required_input_total_count = len(raw_required_inputs)
+    required_inputs_truncated = required_input_total_count > JUDGE_ANSWER_REQUIRED_INPUT_ECHO_LIMIT
+    required_input_redacted = any(
+        value.startswith("<redacted-required-input:")
+        for value in required_inputs
+    )
+    conflicts = _as_list(uncertainty.get("conflicts"))
+    followups = _as_list(answer.get("followUpAffordances"))
+    raw_diagnostic_codes = _judge_answer_diagnostic_code_values(answer)
+    diagnostic_codes = [
+        _sanitize_diagnostic_code(value)
+        for value in raw_diagnostic_codes[:JUDGE_ANSWER_DIAGNOSTIC_CODE_ECHO_LIMIT]
+    ]
+    diagnostic_code_total_count = len(raw_diagnostic_codes)
+    diagnostic_codes_truncated = diagnostic_code_total_count > JUDGE_ANSWER_DIAGNOSTIC_CODE_ECHO_LIMIT
+    diagnostic_code_redacted = any(
+        code.startswith("<redacted-diagnostic-code:")
+        for code in diagnostic_codes
+    )
+    boundary_ok = (
+        answer.get("notFinalSecurityVerdict") is True
+        and str(answer.get("verdictAuthority") or "") == JUDGE_ANSWER_REQUIRED_VERDICT_AUTHORITY
+    )
+    source_refs = _judge_answer_source_refs(answer)
+    source_refs_value_redacted = any(
+        len(ref) > JUDGE_ANSWER_SOURCE_REF_VALUE_MAX_CHARS
+        for ref in source_refs
+    )
+    source_refs_truncated = len(source_refs) > JUDGE_ANSWER_SOURCE_REF_ECHO_LIMIT
+    echoed_source_refs = [
+        _sanitize_source_ref(ref)
+        for ref in source_refs[:JUDGE_ANSWER_SOURCE_REF_ECHO_LIMIT]
+    ]
+    has_source_refs = bool(source_refs)
+
+    supported_verdict = verdict in {"affected", "not_affected", "unknown"}
+    supported_status = status in JUDGE_ANSWER_ALLOWED_STATUSES
+    supported_quality_gate = quality_gate in JUDGE_ANSWER_ALLOWED_QUALITY_GATES
+
+    if not boundary_ok:
+        stance = "blocked"
+    elif status == "insufficient_input":
+        stance = "blocked"
+    elif (
+        verdict == "unknown"
+        or not supported_verdict
+        or not supported_status
+        or status in {"unknown", "requires_requery", "degraded_quality"}
+        or not supported_quality_gate
+        or quality_gate in {"rejected", "accepted_with_caveats"}
+        or required_inputs
+        or conflicts
+        or followups
+    ):
+        stance = "diagnostic"
+    else:
+        stance = "contextual"
+
+    role = "knowledge_context" if stance == "contextual" else "operational_diagnostic"
+    if stance == "blocked":
+        role = "do_not_use"
+
+    forbidden = _unique(
+        BASELINE_FORBIDDEN_INFERENCES
+        + [
+            "claim_support_without_s3_validation",
+            "treat_judge_verdict_as_s3_final_verdict",
+            "accepted_claim",
+            "derived_local_support",
+        ]
+        + (["absence_of_vulnerability", "negative_absence_claim"] if verdict == "unknown" else [])
+        + (
+            ["target_safe", "library_safe", "clean_pass"]
+            if verdict == "not_affected" and supported_status and supported_quality_gate
+            else []
+        )
+    )
+    allowed = ["use_as_knowledge_context", "use_for_follow_up_planning"]
+    if stance == "diagnostic":
+        allowed = ["use_for_retry_planning", "use_as_operational_diagnostic"]
+    elif stance == "blocked":
+        allowed = ["use_to_fix_input_contract", "do_not_attach_to_evidence_catalog"]
+
+    next_actions = _judge_answer_next_actions(
+        stance=stance,
+        required_inputs=required_inputs,
+        followups=followups,
+        has_source_refs=has_source_refs,
+        boundary_ok=boundary_ok,
+    )
+    quality_warnings = _judge_answer_quality_warnings(
+        verdict=verdict,
+        status=status,
+        quality_gate=quality_gate,
+        required_inputs=required_inputs,
+        conflicts=conflicts,
+        followups=followups,
+        diagnostic_codes=diagnostic_codes,
+        diagnostic_code_redacted=diagnostic_code_redacted,
+        diagnostic_codes_truncated=diagnostic_codes_truncated,
+        required_input_redacted=required_input_redacted,
+        required_inputs_truncated=required_inputs_truncated,
+        boundary_ok=boundary_ok,
+        source_refs_truncated=source_refs_truncated,
+        source_refs_value_redacted=source_refs_value_redacted,
+        scalar_redacted=scalar_redacted,
+        supported_status=supported_status,
+        supported_quality_gate=supported_quality_gate,
+    )
+
+    return {
+        "schemaVersion": SCHEMA_VERSION,
+        "audience": audience,
+        "language": language,
+        "stance": stance,
+        "headline": _headline(stance, language),
+        "plainLanguageSummary": _judge_answer_summary(verdict, status, quality_gate, stance, language),
+        "readinessNarrative": (
+            f"judgeStatus={status}; judgeVerdict={verdict}; qualityGate={quality_gate}; "
+            f"consumerPolicy={JUDGE_ANSWER_CONSUMER_POLICY}"
+        ),
+        "whatS5Knows": [
+            f"S5 Judge returned verdict `{verdict}` with status `{status}`.",
+            f"Judge quality gate is `{quality_gate}`.",
+            "The Judge verdict authority is S5 evidence-grounded knowledge, not S3 final security verdict authority.",
+        ],
+        "whatS5DoesNotKnow": _unique([
+            "S5 does not decide S3 accepted claims, clean pass, exploitability, or final vulnerability verdict.",
+            "S5 does not validate local source-code evidence refs on S3's behalf.",
+            *([f"S5 is missing required input(s): {', '.join(required_inputs)}."] if required_inputs else []),
+        ]),
+        "whyThisMattersForS3": _judge_answer_s3_guidance(stance, verdict),
+        "allowedUses": allowed,
+        "forbiddenInferences": forbidden,
+        "nextActions": next_actions,
+        "qualityWarnings": quality_warnings,
+        "humanQuestions": _judge_answer_human_questions(stance, required_inputs, has_source_refs),
+        "evidencePlacement": {
+            "recommendedRole": role,
+            "consumerPolicy": JUDGE_ANSWER_CONSUMER_POLICY,
+            "acquisitionStatus": status,
+            "acquisitionQualityGate": quality_gate,
+            "sourceEvidenceRefs": echoed_source_refs,
+            "sourceEvidenceRefTotalCount": len(source_refs),
+            "sourceEvidenceRefReturnedCount": len(echoed_source_refs),
+            "sourceEvidenceRefsTruncated": source_refs_truncated,
+            "derivedFromEvidenceRefs": [],
+            "diagnosticCodes": diagnostic_codes,
+            "diagnosticCodeTotalCount": diagnostic_code_total_count,
+            "diagnosticCodeReturnedCount": len(diagnostic_codes),
+            "diagnosticCodesTruncated": diagnostic_codes_truncated,
+            "requiredInputTotalCount": required_input_total_count,
+            "requiredInputReturnedCount": len(required_inputs),
+            "requiredInputsTruncated": required_inputs_truncated,
+        },
+        "contractRefs": [
+            "s5-judge-answer-v1",
+            "s5-judge-contract-v1",
+            "knowledge-coverage-v1",
+        ],
+    }
+
+
+def _judge_answer_summary(verdict: str, status: str, quality_gate: str, stance: str, language: str) -> str:
+    if language == "en":
+        return (
+            f"Judge verdict={verdict}, status={status}, qualityGate={quality_gate}. "
+            f"Use this as stance={stance}; S3 remains responsible for final evidence promotion."
+        )
+    return (
+        f"Judge verdict={verdict}, status={status}, qualityGate={quality_gate}입니다. "
+        f"이 결과는 stance={stance}로만 소비해야 하며, 최종 증거 승격은 S3 책임입니다."
+    )
+
+
+def _judge_answer_s3_guidance(stance: str, verdict: str) -> list[str]:
+    if stance == "contextual":
+        guidance = [
+            "S3 may use the Judge answer as evidence-grounded knowledge context.",
+            "S3 must keep Judge verdicts separate from final claim adjudication.",
+        ]
+        if verdict == "not_affected":
+            guidance.append("A not_affected Judge verdict is not a clean pass or target-safety proof.")
+        return guidance
+    if stance == "blocked":
+        return [
+            "S3 must not consume this Judge answer because the final-verdict authority boundary is missing or input is insufficient.",
+            "S3 should request a valid Judge answer packet before attaching evidence.",
+        ]
+    return [
+        "S3 should treat this Judge answer as requery or operational diagnostic guidance.",
+        "Unknown/degraded/requery Judge states must not become negative evidence or absence claims.",
+    ]
+
+
+def _judge_answer_next_actions(
+    *,
+    stance: str,
+    required_inputs: list[str],
+    followups: list[Any],
+    has_source_refs: bool,
+    boundary_ok: bool,
+) -> list[dict[str, Any]]:
+    actions: list[dict[str, Any]] = []
+    if not boundary_ok:
+        actions.append({
+            "priority": "high",
+            "actionType": "send_valid_judge_answer",
+            "surface": "judge-query",
+            "reason": "Judge answer must explicitly preserve the S5/S3 final-verdict authority boundary.",
+            "requiredInputs": ["notFinalSecurityVerdict", "verdictAuthority"],
+        })
+    if required_inputs:
+        actions.append({
+            "priority": "high",
+            "actionType": "provide_missing_inputs",
+            "surface": "judge-query",
+            "reason": "Judge answer requires deterministic follow-up input before safe conclusion.",
+            "requiredInputs": required_inputs,
+        })
+        actions.append({
+            "priority": "high",
+            "actionType": "rerun_judge_with_required_inputs",
+            "surface": "judge-query",
+            "reason": "Re-run Judge after the required inputs are supplied.",
+            "requiredInputs": required_inputs,
+        })
+    if followups:
+        actions.append({
+            "priority": "medium",
+            "actionType": JUDGE_ANSWER_FOLLOW_UP_ACTION_TYPE,
+            "surface": "judge-query",
+            "reason": "Judge exposed follow-up affordances that S3/S4 should route before promotion.",
+            "requiredInputs": [],
+        })
+    if has_source_refs:
+        actions.append({
+            "priority": "high",
+            "actionType": "validate_source_evidence_refs",
+            "surface": "judge-query",
+            "reason": "S3 must validate local/source refs before promoting any local support.",
+            "requiredInputs": ["sourceCodeKg.sourceArtifacts_or_graphNodes_or_evidenceSnippets"],
+        })
+    if stance == "contextual":
+        actions.append({
+            "priority": "medium",
+            "actionType": "attach_as_context_only",
+            "surface": "judge-query",
+            "reason": "Judge output is knowledge context, not S3 final claim support.",
+            "requiredInputs": [],
+        })
+    elif stance == "diagnostic" and not actions:
+        actions.append({
+            "priority": "high",
+            "actionType": "rerun_judge_with_complete_context",
+            "surface": "judge-query",
+            "reason": "Current Judge state is diagnostic and cannot support safe S3 consumption.",
+            "requiredInputs": [],
+        })
+    return _unique_actions(actions)
+
+
+def _judge_answer_quality_warnings(
+    *,
+    verdict: str,
+    status: str,
+    quality_gate: str,
+    required_inputs: list[str],
+    conflicts: list[Any],
+    followups: list[Any],
+    diagnostic_codes: list[str],
+    diagnostic_code_redacted: bool,
+    diagnostic_codes_truncated: bool,
+    required_input_redacted: bool,
+    required_inputs_truncated: bool,
+    boundary_ok: bool,
+    source_refs_truncated: bool,
+    source_refs_value_redacted: bool,
+    scalar_redacted: bool,
+    supported_status: bool,
+    supported_quality_gate: bool,
+) -> list[str]:
+    warnings: list[str] = []
+    if not boundary_ok:
+        warnings.append(JUDGE_ANSWER_BOUNDARY_WARNING)
+    if verdict not in {"affected", "not_affected", "unknown"}:
+        warnings.append("unsupported_judge_verdict")
+    if not supported_status:
+        warnings.append("unsupported_judge_status")
+    if not supported_quality_gate:
+        warnings.append("unsupported_judge_quality_gate")
+    if quality_gate in {"accepted_with_caveats", "rejected", "unknown"} or not supported_quality_gate:
+        warnings.append(f"Judge quality gate is `{quality_gate}`.")
+    if (
+        status in {"degraded_quality", "requires_requery", "insufficient_input", "unknown"}
+        or not supported_status
+    ):
+        warnings.append(f"Judge status is `{status}`.")
+    if required_inputs:
+        warnings.append("Judge required inputs are missing; do not synthesize a fallback answer.")
+    if conflicts:
+        warnings.append(JUDGE_ANSWER_CONFLICT_QUALITY_WARNING)
+    if followups:
+        warnings.append(JUDGE_ANSWER_FOLLOW_UP_QUALITY_WARNING)
+    if diagnostic_codes:
+        warnings.append(_diagnostic_codes_warning(diagnostic_codes))
+    if diagnostic_code_redacted:
+        warnings.append(JUDGE_ANSWER_DIAGNOSTIC_CODE_REDACTION_WARNING)
+    if diagnostic_codes_truncated:
+        warnings.append(JUDGE_ANSWER_DIAGNOSTIC_CODE_TRUNCATION_WARNING)
+    if required_input_redacted:
+        warnings.append(JUDGE_ANSWER_REQUIRED_INPUT_REDACTION_WARNING)
+    if required_inputs_truncated:
+        warnings.append(JUDGE_ANSWER_REQUIRED_INPUT_TRUNCATION_WARNING)
+    if source_refs_truncated:
+        warnings.append(JUDGE_ANSWER_SOURCE_REF_TRUNCATION_WARNING)
+    if source_refs_value_redacted:
+        warnings.append(JUDGE_ANSWER_SOURCE_REF_VALUE_REDACTION_WARNING)
+    if scalar_redacted:
+        warnings.append(JUDGE_ANSWER_SCALAR_REDACTION_WARNING)
+    return _unique(warnings)
+
+
+def _diagnostic_codes_warning(
+    diagnostic_codes: list[str],
+    *,
+    preview_limit: int = JUDGE_ANSWER_DIAGNOSTIC_WARNING_PREVIEW_LIMIT,
+) -> str:
+    preview = diagnostic_codes[:preview_limit]
+    remaining = len(diagnostic_codes) - len(preview)
+    suffix = f" (+{remaining} more returned codes)" if remaining > 0 else ""
+    return f"Diagnostics present: {', '.join(preview)}{suffix}."
+
+
+def _judge_answer_human_questions(stance: str, required_inputs: list[str], has_source_refs: bool) -> list[str]:
+    questions: list[str] = []
+    if required_inputs:
+        questions.append(f"Can S3/S4 provide Judge required input(s): {', '.join(required_inputs)}?")
+    if has_source_refs:
+        questions.append("Which Source KG refs can S3 validate before promoting any local support candidate?")
+    if stance == "diagnostic":
+        questions.append("Should S3 retry Judge after Source KG/Threat KB context is complete?")
+    if stance == "blocked":
+        questions.append("Can S5 resend a Judge answer with the final-verdict authority boundary intact?")
+    return questions
+
+
+def _judge_answer_diagnostic_code_values(answer: dict[str, Any]) -> list[str]:
+    codes: list[str] = []
+    quality_gate = _as_dict(answer.get("qualityGate"))
+    for diag in _as_list(quality_gate.get("diagnostics")):
+        code = _as_dict(diag).get("code")
+        if code:
+            codes.append(str(code))
+    for trace in _as_list(answer.get("fallbackTrace")):
+        trace_dict = _as_dict(trace)
+        for diag in _as_list(trace_dict.get("diagnostics")):
+            code = _as_dict(diag).get("code")
+            if code:
+                codes.append(str(code))
+        for rejected in _as_list(trace_dict.get("rejected")):
+            code = _as_dict(rejected).get("code")
+            if code:
+                codes.append(str(code))
+    return _unique(codes)
+
+
+def _judge_answer_source_refs(answer: dict[str, Any]) -> list[str]:
+    source_kg = _as_dict(_as_dict(answer.get("evidence")).get("sourceCodeKg"))
+    refs: list[str] = []
+    for item in _as_list(source_kg.get("sourceArtifacts")):
+        item_dict = _as_dict(item)
+        refs.extend(_string_list(_first_present(item_dict, JUDGE_ANSWER_SOURCE_ARTIFACT_REF_FIELDS)))
+    for item in _as_list(source_kg.get("graphNodes")):
+        item_dict = _as_dict(item)
+        refs.extend(_string_list(item_dict.get("sourceGraphNodeId") or item_dict.get("graphNodeId") or item_dict.get("stableId")))
+    for item in _as_list(source_kg.get("evidenceSnippets")):
+        item_dict = _as_dict(item)
+        refs.extend(_string_list(item_dict.get("evidenceSnippetId") or item_dict.get("snippetId")))
+    return _unique(refs)
+
+
+def _judge_answer_has_source_refs(answer: dict[str, Any]) -> bool:
+    return bool(_judge_answer_source_refs(answer))
+
+
 def _classify_stance(view: _ArtifactView) -> str:
     if view.malformed:
         return "blocked"
@@ -223,9 +899,11 @@ def _safe_scoped_no_hit(view: _ArtifactView) -> bool:
         return False
     if view.provider_problem or view.projection_problem:
         return False
-    if not view.methods_required:
+    if not view.raw_methods_required:
         return False
-    if not set(view.methods_required).issubset(set(view.methods_succeeded)):
+    if not set(view.raw_methods_required).issubset(set(view.raw_methods_attempted)):
+        return False
+    if not set(view.raw_methods_required).issubset(set(view.raw_methods_succeeded)):
         return False
     if view.no_hit_basis in UNSAFE_NO_HIT_BASIS:
         return False
@@ -297,7 +975,10 @@ def _what_s5_knows(view: _ArtifactView) -> list[str]:
         f"S5 assigned consumerPolicy `{view.consumer_policy}` and acquisitionQualityGate `{view.quality_gate}`.",
     ]
     if view.artifact.get("targetKnowledgeId"):
-        knows.append(f"Target context is linked by targetKnowledgeId `{view.artifact.get('targetKnowledgeId')}`.")
+        knows.append(
+            "Target context is linked by targetKnowledgeId "
+            f"`{_sanitize_acquisition_identity(str(view.artifact.get('targetKnowledgeId')))}`."
+        )
     total = _candidate_count(view)
     if total is not None:
         knows.append(f"The artifact reports candidate/result count `{total}` for this acquisition result.")
@@ -374,8 +1055,7 @@ def _stance_forbidden_inferences(stance: str, view: _ArtifactView) -> list[str]:
     else:
         forbidden.extend(["absence_of_vulnerability", "no_caller_or_path", "negative_absence_claim"])
 
-    scope_forbidden = _string_list(view.scope.get("forbiddenInferences"))
-    return forbidden + scope_forbidden
+    return forbidden + view.scope_forbidden_inferences
 
 
 def _next_actions(
@@ -495,6 +1175,20 @@ def _quality_warnings(
     view: _ArtifactView,
     diagnostic_codes: list[str],
     missing_inputs: list[str],
+    *,
+    diagnostic_code_redacted: bool,
+    diagnostic_codes_truncated: bool,
+    missing_input_redacted: bool,
+    missing_inputs_truncated: bool,
+    evidence_ref_redacted: bool,
+    source_refs_truncated: bool,
+    derived_refs_truncated: bool,
+    identity_redacted: bool,
+    state_redacted: bool,
+    method_redacted: bool,
+    methods_truncated: bool,
+    scope_forbidden_inference_redacted: bool,
+    scope_forbidden_inferences_truncated: bool,
 ) -> list[str]:
     warnings: list[str] = []
     if view.quality_gate in {"accepted_with_caveats", "inconclusive", "rejected"}:
@@ -514,11 +1208,42 @@ def _quality_warnings(
     if view.item_acquisitions:
         warnings.append("Item acquisitions are present; S3 must consume them item-by-item.")
     if diagnostic_codes:
-        warnings.append(f"Diagnostics present: {', '.join(diagnostic_codes)}.")
+        warnings.append(
+            _diagnostic_codes_warning(
+                diagnostic_codes,
+                preview_limit=ACQUISITION_DIAGNOSTIC_WARNING_PREVIEW_LIMIT,
+            )
+        )
+    if diagnostic_code_redacted:
+        warnings.append(ACQUISITION_DIAGNOSTIC_CODE_REDACTION_WARNING)
+    if diagnostic_codes_truncated:
+        warnings.append(ACQUISITION_DIAGNOSTIC_CODE_TRUNCATION_WARNING)
+    if missing_input_redacted:
+        warnings.append(ACQUISITION_REQUIRED_INPUT_REDACTION_WARNING)
+    if missing_inputs_truncated:
+        warnings.append(ACQUISITION_REQUIRED_INPUT_TRUNCATION_WARNING)
+    if evidence_ref_redacted:
+        warnings.append(ACQUISITION_EVIDENCE_REF_VALUE_REDACTION_WARNING)
+    if source_refs_truncated:
+        warnings.append(ACQUISITION_SOURCE_EVIDENCE_REF_TRUNCATION_WARNING)
+    if derived_refs_truncated:
+        warnings.append(ACQUISITION_DERIVED_EVIDENCE_REF_TRUNCATION_WARNING)
+    if identity_redacted:
+        warnings.append(ACQUISITION_IDENTITY_REDACTION_WARNING)
+    if state_redacted:
+        warnings.append(ACQUISITION_STATE_REDACTION_WARNING)
+    if method_redacted:
+        warnings.append(ACQUISITION_METHOD_REDACTION_WARNING)
+    if methods_truncated:
+        warnings.append(ACQUISITION_METHOD_TRUNCATION_WARNING)
+    if scope_forbidden_inference_redacted:
+        warnings.append(ACQUISITION_SCOPE_FORBIDDEN_INFERENCE_REDACTION_WARNING)
+    if scope_forbidden_inferences_truncated:
+        warnings.append(ACQUISITION_SCOPE_FORBIDDEN_INFERENCE_TRUNCATION_WARNING)
     return _unique(warnings)
 
 
-def _diagnostic_codes(artifact: dict[str, Any]) -> list[str]:
+def _diagnostic_code_values(artifact: dict[str, Any]) -> list[str]:
     codes: list[str] = []
     for diag in _as_list(artifact.get("diagnostics")):
         code = _as_dict(diag).get("code")
@@ -533,7 +1258,7 @@ def _diagnostic_codes(artifact: dict[str, Any]) -> list[str]:
     return _unique(codes)
 
 
-def _missing_inputs(artifact: dict[str, Any]) -> list[str]:
+def _missing_input_values(artifact: dict[str, Any]) -> list[str]:
     readiness = _as_dict(artifact.get("readiness"))
     results = _as_dict(artifact.get("results"))
     missing = _string_list(readiness.get("missingInputs"))
@@ -569,12 +1294,108 @@ def _string_list(value: Any) -> list[str]:
     return [str(value)]
 
 
+def _sanitize_source_ref(value: str) -> str:
+    if len(value) <= JUDGE_ANSWER_SOURCE_REF_VALUE_MAX_CHARS:
+        return value
+    return JUDGE_ANSWER_SOURCE_REF_OVERSIZED_REDACTION_TEMPLATE.format(length=len(value))
+
+
+def _sanitize_judge_answer_scalar(value: str) -> str:
+    if len(value) <= JUDGE_ANSWER_SCALAR_MAX_CHARS:
+        return value
+    return JUDGE_ANSWER_SCALAR_OVERSIZED_REDACTION_TEMPLATE.format(length=len(value))
+
+
+def _judge_answer_scalar_redacted(value: Any) -> bool:
+    return len(str(value or "")) > JUDGE_ANSWER_SCALAR_MAX_CHARS
+
+
+def _sanitize_acquisition_diagnostic_code(value: str) -> str:
+    if len(value) <= ACQUISITION_DIAGNOSTIC_CODE_MAX_CHARS:
+        return value
+    return ACQUISITION_DIAGNOSTIC_CODE_OVERSIZED_REDACTION_TEMPLATE.format(length=len(value))
+
+
+def _sanitize_acquisition_required_input(value: str) -> str:
+    if len(value) <= ACQUISITION_REQUIRED_INPUT_MAX_CHARS:
+        return value
+    return ACQUISITION_REQUIRED_INPUT_OVERSIZED_REDACTION_TEMPLATE.format(length=len(value))
+
+
+def _sanitize_acquisition_evidence_ref(value: str) -> str:
+    if len(value) <= ACQUISITION_EVIDENCE_REF_VALUE_MAX_CHARS:
+        return value
+    return ACQUISITION_EVIDENCE_REF_OVERSIZED_REDACTION_TEMPLATE.format(length=len(value))
+
+
+def _sanitize_acquisition_identity(value: str) -> str:
+    if len(value) <= ACQUISITION_IDENTITY_MAX_CHARS:
+        return value
+    return ACQUISITION_IDENTITY_OVERSIZED_REDACTION_TEMPLATE.format(length=len(value))
+
+
+def _acquisition_identity_redacted(value: Any) -> bool:
+    return len(str(value or "")) > ACQUISITION_IDENTITY_MAX_CHARS
+
+
+def _sanitize_acquisition_state(value: str) -> str:
+    if len(value) <= ACQUISITION_STATE_MAX_CHARS:
+        return value
+    return ACQUISITION_STATE_OVERSIZED_REDACTION_TEMPLATE.format(length=len(value))
+
+
+def _acquisition_state_redacted(value: Any) -> bool:
+    return len(str(value or "")) > ACQUISITION_STATE_MAX_CHARS
+
+
+def _sanitize_acquisition_method(value: str) -> str:
+    if len(value) <= ACQUISITION_METHOD_MAX_CHARS:
+        return value
+    return ACQUISITION_METHOD_OVERSIZED_REDACTION_TEMPLATE.format(length=len(value))
+
+
+def _acquisition_method_redacted(value: Any) -> bool:
+    return len(str(value or "")) > ACQUISITION_METHOD_MAX_CHARS
+
+
+def _sanitize_acquisition_scope_forbidden_inference(value: str) -> str:
+    if len(value) <= ACQUISITION_SCOPE_FORBIDDEN_INFERENCE_MAX_CHARS:
+        return value
+    return ACQUISITION_SCOPE_FORBIDDEN_INFERENCE_OVERSIZED_REDACTION_TEMPLATE.format(
+        length=len(value)
+    )
+
+
+def _acquisition_scope_forbidden_inference_redacted(value: Any) -> bool:
+    return len(str(value or "")) > ACQUISITION_SCOPE_FORBIDDEN_INFERENCE_MAX_CHARS
+
+
+def _sanitize_diagnostic_code(value: str) -> str:
+    if len(value) <= JUDGE_ANSWER_DIAGNOSTIC_CODE_MAX_CHARS:
+        return value
+    return JUDGE_ANSWER_DIAGNOSTIC_CODE_OVERSIZED_REDACTION_TEMPLATE.format(length=len(value))
+
+
+def _sanitize_required_input(value: str) -> str:
+    if len(value) <= JUDGE_ANSWER_REQUIRED_INPUT_MAX_CHARS:
+        return value
+    return JUDGE_ANSWER_REQUIRED_INPUT_OVERSIZED_REDACTION_TEMPLATE.format(length=len(value))
+
+
 def _state_name(value: Any) -> str:
     if isinstance(value, dict):
         return str(value.get("state") or "not_applicable")
     if value in (None, ""):
         return "not_applicable"
     return str(value)
+
+
+def _first_present(mapping: dict[str, Any], keys: tuple[str, ...]) -> Any:
+    for key in keys:
+        value = mapping.get(key)
+        if value not in (None, ""):
+            return value
+    return None
 
 
 def _unique(values: list[str]) -> list[str]:

@@ -27,6 +27,11 @@ REQUIRED_FAMILIES = {
     "embedded_ics_profile",
 }
 
+REQUIRED_JUDGE_POLICY_CASES = {
+    "rq-judge-affectedness-first-topk",
+    "rq-judge-multisource-alias-fusion",
+}
+
 REQUIRED_CASE_FIELDS = {
     "caseId",
     "family",
@@ -124,6 +129,167 @@ def validate_retrieval_quality_lab(manifest: dict[str, Any]) -> list[str]:
     missing_families = REQUIRED_FAMILIES - families
     if missing_families:
         issues.append(f"missing retrieval lab families: {sorted(missing_families)}")
+    missing_judge_policy_cases = REQUIRED_JUDGE_POLICY_CASES - seen
+    if missing_judge_policy_cases:
+        issues.append(f"missing judge retrieval policy cases: {sorted(missing_judge_policy_cases)}")
+    return issues
+
+
+def _unique_strings(values: Iterable[Any]) -> list[str]:
+    out: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        if value is None:
+            continue
+        item = str(value)
+        if not item or item in seen:
+            continue
+        seen.add(item)
+        out.append(item)
+    return out
+
+
+def judge_retrieval_observation_from_answer(answer: dict[str, Any]) -> dict[str, Any]:
+    """Extract live Judge Threat KB retrieval observations for lab golden cases.
+
+    The fixture manifest remains offline-only, but these observations let tests
+    and local evaluators prove that Judge policy cases are still backed by the
+    current S5 retrieval/reranker implementation instead of drifting into static
+    documentation.
+    """
+
+    threat = ((answer.get("evidence") or {}).get("threatRetrieval") or {})
+    trace = threat.get("retrievalTrace") or {}
+    candidates = [item for item in _as_list(threat.get("candidateEvidence")) if isinstance(item, dict)]
+    first = candidates[0] if candidates else {}
+    first_methods = [str(item) for item in _as_list(first.get("retrievalMethods"))]
+    equivalent_advisories = [item for item in _as_list(first.get("equivalentAdvisories")) if isinstance(item, dict)]
+    candidate_ids = _unique_strings(item.get("externalId") for item in candidates)
+    equivalent_candidate_ids = _unique_strings(
+        [
+            *candidate_ids,
+            *(item.get("externalId") for item in equivalent_advisories),
+        ]
+    )
+    reranker_policy = trace.get("rerankerPolicy") if isinstance(trace.get("rerankerPolicy"), dict) else {}
+    method_weights = reranker_policy.get("methodWeights") if isinstance(reranker_policy.get("methodWeights"), dict) else {}
+    runtime_observation: dict[str, Any] = {
+        "acquisitionStatus": "completed_hit" if candidates else "completed_miss",
+        "candidateReturned": bool(candidates),
+        "topK": trace.get("topK"),
+        "negativeEvidenceAllowed": threat.get("negativeEvidenceAllowed"),
+    }
+    if first:
+        runtime_observation.update(
+            {
+                "firstCandidateId": first.get("externalId"),
+                "firstCandidateUsedForAffectedness": bool(first.get("usedForAffectedness")),
+                "firstCandidateRetrievalMethods": first_methods,
+                "verdictLinkedEvidenceOutranksRiskOnlyContext": bool(
+                    first.get("usedForAffectedness") and first_methods[:1] == ["affectedness_evidence"]
+                ),
+                "equivalenceKey": first.get("equivalenceKey"),
+                "equivalentSourceKinds": _as_list(first.get("equivalentSourceKinds")),
+                "equivalentAdvisoryCount": first.get("equivalentAdvisoryCount"),
+                "equivalentAdvisoriesVisible": bool(equivalent_advisories),
+            }
+        )
+        if first.get("usedForAffectedness") and first_methods:
+            runtime_observation["verdictLinkedEvidenceTier"] = first_methods[0]
+        if "package_identity_context" in method_weights:
+            runtime_observation["contextualPackageTier"] = "package_identity_context"
+    return {
+        "schemaVersion": "s5-retrieval-quality-lab-live-judge-observation-v1",
+        "surface": "evidenceGroundedJudge",
+        "queryIntent": trace.get("queryIntent"),
+        "methodsAttempted": _as_list(trace.get("methodsAttempted")),
+        "methodsUsed": _as_list(threat.get("methodsUsed")),
+        "runtimeObservation": runtime_observation,
+        "observedCandidateIds": candidate_ids,
+        "observedEquivalentCandidateIds": equivalent_candidate_ids,
+        "topKPolicy": trace.get("topKPolicy") or {},
+        "candidatePoolPolicy": trace.get("candidatePoolPolicy") or {},
+    }
+
+
+def validate_judge_policy_case_observation(case: dict[str, Any], observation: dict[str, Any]) -> list[str]:
+    """Validate a retrieval-quality Judge golden case against live observations."""
+
+    case_id = str(case.get("caseId") or "<unknown-case>")
+    issues: list[str] = []
+    if observation.get("schemaVersion") != "s5-retrieval-quality-lab-live-judge-observation-v1":
+        issues.append(f"{case_id}.liveObservation schemaVersion mismatch")
+    for field in ("surface", "queryIntent"):
+        expected = case.get(field)
+        actual = observation.get(field)
+        if expected != actual:
+            issues.append(f"{case_id}.{field} expected {expected!r}, observed {actual!r}")
+
+    expected_runtime = case.get("runtimeObservation") if isinstance(case.get("runtimeObservation"), dict) else {}
+    observed_runtime = (
+        observation.get("runtimeObservation") if isinstance(observation.get("runtimeObservation"), dict) else {}
+    )
+    exact_runtime_fields = (
+        "acquisitionStatus",
+        "candidateReturned",
+        "topK",
+        "verdictLinkedEvidenceTier",
+        "contextualPackageTier",
+        "verdictLinkedEvidenceOutranksRiskOnlyContext",
+        "negativeEvidenceAllowed",
+        "equivalenceKey",
+        "equivalentAdvisoriesVisible",
+    )
+    for field in exact_runtime_fields:
+        if field not in expected_runtime:
+            continue
+        if observed_runtime.get(field) != expected_runtime[field]:
+            issues.append(
+                f"{case_id}.runtimeObservation.{field} expected {expected_runtime[field]!r}, "
+                f"observed {observed_runtime.get(field)!r}"
+            )
+
+    expected_source_kinds = set(str(item) for item in _as_list(expected_runtime.get("equivalentSourceKinds")))
+    observed_source_kinds = set(str(item) for item in _as_list(observed_runtime.get("equivalentSourceKinds")))
+    if expected_source_kinds and not expected_source_kinds <= observed_source_kinds:
+        issues.append(
+            f"{case_id}.runtimeObservation.equivalentSourceKinds missing "
+            f"{sorted(expected_source_kinds - observed_source_kinds)}"
+        )
+    if "equivalentAdvisoryCount" in expected_runtime:
+        try:
+            observed_count = int(observed_runtime.get("equivalentAdvisoryCount") or 0)
+            expected_count = int(expected_runtime["equivalentAdvisoryCount"])
+        except (TypeError, ValueError):
+            issues.append(f"{case_id}.runtimeObservation.equivalentAdvisoryCount must be numeric")
+        else:
+            if observed_count < expected_count:
+                issues.append(
+                    f"{case_id}.runtimeObservation.equivalentAdvisoryCount expected >= {expected_count}, "
+                    f"observed {observed_count}"
+                )
+
+    expected_ids = _unique_strings(case.get("expectedCandidateIds") or [])
+    observed_ids = _unique_strings(observation.get("observedCandidateIds") or [])
+    observed_equivalent_ids = set(_unique_strings(observation.get("observedEquivalentCandidateIds") or []))
+    if expected_ids:
+        if not observed_ids:
+            issues.append(f"{case_id}.observedCandidateIds must not be empty")
+        elif observed_ids[0] != expected_ids[0]:
+            issues.append(f"{case_id}.topCandidate expected {expected_ids[0]!r}, observed {observed_ids[0]!r}")
+        missing_expected = set(expected_ids) - observed_equivalent_ids
+        if missing_expected:
+            issues.append(f"{case_id}.observedEquivalentCandidateIds missing {sorted(missing_expected)}")
+
+    top_k_policy = observation.get("topKPolicy") if isinstance(observation.get("topKPolicy"), dict) else {}
+    expected_top_k = (case.get("topKPolicy") or {}).get("finalTopK")
+    if isinstance(expected_top_k, int) and top_k_policy.get("finalTopK") != expected_top_k:
+        issues.append(f"{case_id}.topKPolicy.finalTopK expected {expected_top_k}, observed {top_k_policy.get('finalTopK')}")
+    candidate_policy = observation.get("candidatePoolPolicy") if isinstance(observation.get("candidatePoolPolicy"), dict) else {}
+    candidate_pool_k = candidate_policy.get("candidatePoolK")
+    final_top_k = top_k_policy.get("finalTopK")
+    if isinstance(candidate_pool_k, int) and isinstance(final_top_k, int) and candidate_pool_k < final_top_k:
+        issues.append(f"{case_id}.candidatePoolPolicy.candidatePoolK must be >= finalTopK")
     return issues
 
 

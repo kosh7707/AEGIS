@@ -11,15 +11,44 @@
       "queryIntent": "weakness_context",
       "corpusPartition": "weakness_taxonomy",
       "profiles": [],
-      "methodsAttempted": ["keyword_match", "constrained_embedding_rerank", "graph_expansion"],
-      "methodsUsed": ["keyword_match", "constrained_embedding_rerank"],
-      "runtimeObservation": {"acquisitionStatus": "completed_hit", "candidateReturned": true, "negativeEvidenceAllowed": false},
+      "methodsAttempted": [
+        "keyword_match",
+        "constrained_embedding_rerank",
+        "graph_expansion"
+      ],
+      "methodsUsed": [
+        "keyword_match",
+        "constrained_embedding_rerank"
+      ],
+      "runtimeObservation": {
+        "acquisitionStatus": "completed_hit",
+        "candidateReturned": true,
+        "negativeEvidenceAllowed": false
+      },
       "consumerPolicy": "contextual_only",
-      "expectedCandidateIds": ["CWE-120", "CWE-787", "CWE-119"],
-      "retrievedCandidateIds": ["CWE-120", "CWE-787", "CAPEC-100", "CWE-119"],
-      "qualityOracle": {"evaluated": true, "k": 4},
-      "topKPolicy": {"name": "s5-top-k-policy-v1", "finalTopK": 4},
-      "candidatePoolPolicy": {"name": "s5-candidate-pool-policy-v1", "candidatePoolK": 20}
+      "expectedCandidateIds": [
+        "CWE-120",
+        "CWE-787",
+        "CWE-119"
+      ],
+      "retrievedCandidateIds": [
+        "CWE-120",
+        "CWE-787",
+        "CAPEC-100",
+        "CWE-119"
+      ],
+      "qualityOracle": {
+        "evaluated": true,
+        "k": 4
+      },
+      "topKPolicy": {
+        "name": "s5-top-k-policy-v1",
+        "finalTopK": 4
+      },
+      "candidatePoolPolicy": {
+        "name": "s5-candidate-pool-policy-v1",
+        "candidatePoolK": 20
+      }
     },
     {
       "caseId": "rq-command-execution-popen-t1059",
@@ -28,16 +57,49 @@
       "query": "popen command shell execution from network handler",
       "queryIntent": "attack_pattern_context",
       "corpusPartition": "attack_pattern",
-      "profiles": ["embedded-system-specialization"],
-      "methodsAttempted": ["keyword_match", "constrained_embedding_rerank", "graph_expansion"],
-      "methodsUsed": ["keyword_match", "graph_expansion"],
-      "runtimeObservation": {"acquisitionStatus": "completed_hit", "candidateReturned": true, "negativeEvidenceAllowed": false},
+      "profiles": [
+        "embedded-system-specialization"
+      ],
+      "methodsAttempted": [
+        "keyword_match",
+        "constrained_embedding_rerank",
+        "graph_expansion"
+      ],
+      "methodsUsed": [
+        "keyword_match",
+        "graph_expansion"
+      ],
+      "runtimeObservation": {
+        "acquisitionStatus": "completed_hit",
+        "candidateReturned": true,
+        "negativeEvidenceAllowed": false
+      },
       "consumerPolicy": "contextual_only",
-      "expectedCandidateIds": ["CWE-78", "CAPEC-88", "T1059", "T0807"],
-      "retrievedCandidateIds": ["CWE-78", "CAPEC-88", "T1059", "T0807", "CWE-77"],
-      "qualityOracle": {"evaluated": true, "k": 5},
-      "topKPolicy": {"name": "s5-top-k-policy-v1", "finalTopK": 5},
-      "candidatePoolPolicy": {"name": "s5-candidate-pool-policy-v1", "candidatePoolK": 28}
+      "expectedCandidateIds": [
+        "CWE-78",
+        "CAPEC-88",
+        "T1059",
+        "T0807"
+      ],
+      "retrievedCandidateIds": [
+        "CWE-78",
+        "CAPEC-88",
+        "T1059",
+        "T0807",
+        "CWE-77"
+      ],
+      "qualityOracle": {
+        "evaluated": true,
+        "k": 5
+      },
+      "topKPolicy": {
+        "name": "s5-top-k-policy-v1",
+        "finalTopK": 5
+      },
+      "candidatePoolPolicy": {
+        "name": "s5-candidate-pool-policy-v1",
+        "candidatePoolK": 28
+      }
     },
     {
       "caseId": "rq-path-file-access-realpath-openat",
@@ -47,15 +109,41 @@
       "queryIntent": "weakness_context",
       "corpusPartition": "weakness_taxonomy",
       "profiles": [],
-      "methodsAttempted": ["keyword_match", "constrained_embedding_rerank"],
-      "methodsUsed": ["keyword_match", "constrained_embedding_rerank"],
-      "runtimeObservation": {"acquisitionStatus": "completed_hit", "candidateReturned": true, "negativeEvidenceAllowed": false},
+      "methodsAttempted": [
+        "keyword_match",
+        "constrained_embedding_rerank"
+      ],
+      "methodsUsed": [
+        "keyword_match",
+        "constrained_embedding_rerank"
+      ],
+      "runtimeObservation": {
+        "acquisitionStatus": "completed_hit",
+        "candidateReturned": true,
+        "negativeEvidenceAllowed": false
+      },
       "consumerPolicy": "contextual_only",
-      "expectedCandidateIds": ["CWE-22", "CWE-73"],
-      "retrievedCandidateIds": ["CWE-22", "CWE-73", "CWE-200"],
-      "qualityOracle": {"evaluated": true, "k": 3},
-      "topKPolicy": {"name": "s5-top-k-policy-v1", "finalTopK": 3},
-      "candidatePoolPolicy": {"name": "s5-candidate-pool-policy-v1", "candidatePoolK": 18}
+      "expectedCandidateIds": [
+        "CWE-22",
+        "CWE-73"
+      ],
+      "retrievedCandidateIds": [
+        "CWE-22",
+        "CWE-73",
+        "CWE-200"
+      ],
+      "qualityOracle": {
+        "evaluated": true,
+        "k": 3
+      },
+      "topKPolicy": {
+        "name": "s5-top-k-policy-v1",
+        "finalTopK": 3
+      },
+      "candidatePoolPolicy": {
+        "name": "s5-candidate-pool-policy-v1",
+        "candidatePoolK": 18
+      }
     },
     {
       "caseId": "rq-crypto-tls-certificate-verify",
@@ -65,15 +153,40 @@
       "queryIntent": "weakness_context",
       "corpusPartition": "weakness_taxonomy",
       "profiles": [],
-      "methodsAttempted": ["keyword_match", "constrained_embedding_rerank"],
-      "methodsUsed": ["keyword_match", "constrained_embedding_rerank"],
-      "runtimeObservation": {"acquisitionStatus": "completed_hit", "candidateReturned": true, "negativeEvidenceAllowed": false},
+      "methodsAttempted": [
+        "keyword_match",
+        "constrained_embedding_rerank"
+      ],
+      "methodsUsed": [
+        "keyword_match",
+        "constrained_embedding_rerank"
+      ],
+      "runtimeObservation": {
+        "acquisitionStatus": "completed_hit",
+        "candidateReturned": true,
+        "negativeEvidenceAllowed": false
+      },
       "consumerPolicy": "contextual_only",
-      "expectedCandidateIds": ["CWE-295", "CWE-327"],
-      "retrievedCandidateIds": ["CWE-295", "CWE-327"],
-      "qualityOracle": {"evaluated": true, "k": 3},
-      "topKPolicy": {"name": "s5-top-k-policy-v1", "finalTopK": 3},
-      "candidatePoolPolicy": {"name": "s5-candidate-pool-policy-v1", "candidatePoolK": 18}
+      "expectedCandidateIds": [
+        "CWE-295",
+        "CWE-327"
+      ],
+      "retrievedCandidateIds": [
+        "CWE-295",
+        "CWE-327"
+      ],
+      "qualityOracle": {
+        "evaluated": true,
+        "k": 3
+      },
+      "topKPolicy": {
+        "name": "s5-top-k-policy-v1",
+        "finalTopK": 3
+      },
+      "candidatePoolPolicy": {
+        "name": "s5-candidate-pool-policy-v1",
+        "candidatePoolK": 18
+      }
     },
     {
       "caseId": "rq-network-parser-deserialize",
@@ -83,15 +196,43 @@
       "queryIntent": "code_context",
       "corpusPartition": "code_graph",
       "profiles": [],
-      "methodsAttempted": ["keyword_match", "constrained_embedding_rerank", "graph_expansion"],
-      "methodsUsed": ["keyword_match", "constrained_embedding_rerank", "graph_expansion"],
-      "runtimeObservation": {"acquisitionStatus": "completed_hit", "candidateReturned": true, "negativeEvidenceAllowed": false},
+      "methodsAttempted": [
+        "keyword_match",
+        "constrained_embedding_rerank",
+        "graph_expansion"
+      ],
+      "methodsUsed": [
+        "keyword_match",
+        "constrained_embedding_rerank",
+        "graph_expansion"
+      ],
+      "runtimeObservation": {
+        "acquisitionStatus": "completed_hit",
+        "candidateReturned": true,
+        "negativeEvidenceAllowed": false
+      },
       "consumerPolicy": "contextual_only",
-      "expectedCandidateIds": ["func:parseIncomingFrame", "CWE-20"],
-      "retrievedCandidateIds": ["func:parseIncomingFrame", "func:recvLoop", "CWE-20"],
-      "qualityOracle": {"evaluated": true, "k": 5},
-      "topKPolicy": {"name": "s5-top-k-policy-v1", "finalTopK": 5},
-      "candidatePoolPolicy": {"name": "s5-candidate-pool-policy-v1", "candidatePoolK": 32}
+      "expectedCandidateIds": [
+        "func:parseIncomingFrame",
+        "CWE-20"
+      ],
+      "retrievedCandidateIds": [
+        "func:parseIncomingFrame",
+        "func:recvLoop",
+        "CWE-20"
+      ],
+      "qualityOracle": {
+        "evaluated": true,
+        "k": 5
+      },
+      "topKPolicy": {
+        "name": "s5-top-k-policy-v1",
+        "finalTopK": 5
+      },
+      "candidatePoolPolicy": {
+        "name": "s5-candidate-pool-policy-v1",
+        "candidatePoolK": 32
+      }
     },
     {
       "caseId": "rq-concurrency-resource-lifecycle",
@@ -101,15 +242,42 @@
       "queryIntent": "code_context",
       "corpusPartition": "code_graph",
       "profiles": [],
-      "methodsAttempted": ["keyword_match", "constrained_embedding_rerank", "graph_expansion"],
-      "methodsUsed": ["keyword_match", "constrained_embedding_rerank"],
-      "runtimeObservation": {"acquisitionStatus": "completed_hit", "candidateReturned": true, "negativeEvidenceAllowed": false},
+      "methodsAttempted": [
+        "keyword_match",
+        "constrained_embedding_rerank",
+        "graph_expansion"
+      ],
+      "methodsUsed": [
+        "keyword_match",
+        "constrained_embedding_rerank"
+      ],
+      "runtimeObservation": {
+        "acquisitionStatus": "completed_hit",
+        "candidateReturned": true,
+        "negativeEvidenceAllowed": false
+      },
       "consumerPolicy": "contextual_only",
-      "expectedCandidateIds": ["CWE-362", "CWE-772"],
-      "retrievedCandidateIds": ["CWE-362", "func:closeFd", "CWE-772"],
-      "qualityOracle": {"evaluated": true, "k": 5},
-      "topKPolicy": {"name": "s5-top-k-policy-v1", "finalTopK": 5},
-      "candidatePoolPolicy": {"name": "s5-candidate-pool-policy-v1", "candidatePoolK": 32}
+      "expectedCandidateIds": [
+        "CWE-362",
+        "CWE-772"
+      ],
+      "retrievedCandidateIds": [
+        "CWE-362",
+        "func:closeFd",
+        "CWE-772"
+      ],
+      "qualityOracle": {
+        "evaluated": true,
+        "k": 5
+      },
+      "topKPolicy": {
+        "name": "s5-top-k-policy-v1",
+        "finalTopK": 5
+      },
+      "candidatePoolPolicy": {
+        "name": "s5-candidate-pool-policy-v1",
+        "candidatePoolK": 32
+      }
     },
     {
       "caseId": "rq-package-identity-curl-cve",
@@ -119,15 +287,43 @@
       "queryIntent": "cve_discovery",
       "corpusPartition": "public_vulnerability",
       "profiles": [],
-      "methodsAttempted": ["keyword_match", "direct_source_relation", "provider_range_eval", "constrained_embedding_rerank"],
-      "methodsUsed": ["direct_source_relation", "provider_range_eval"],
-      "runtimeObservation": {"acquisitionStatus": "completed_hit", "candidateReturned": true, "negativeEvidenceAllowed": false},
+      "methodsAttempted": [
+        "keyword_match",
+        "direct_source_relation",
+        "provider_range_eval",
+        "constrained_embedding_rerank"
+      ],
+      "methodsUsed": [
+        "direct_source_relation",
+        "provider_range_eval"
+      ],
+      "runtimeObservation": {
+        "acquisitionStatus": "completed_hit",
+        "candidateReturned": true,
+        "negativeEvidenceAllowed": false
+      },
       "consumerPolicy": "contextual_only",
-      "expectedCandidateIds": ["CVE-2026-0001", "GHSA-curl-fixture"],
-      "retrievedCandidateIds": ["CVE-2026-0001", "GHSA-curl-fixture", "CVE-2026-0002"],
-      "qualityOracle": {"evaluated": true, "k": 5},
-      "topKPolicy": {"name": "s5-top-k-policy-v1", "finalTopK": 5},
-      "candidatePoolPolicy": {"name": "s5-candidate-pool-policy-v1", "candidatePoolK": 30}
+      "expectedCandidateIds": [
+        "CVE-2026-0001",
+        "GHSA-curl-fixture"
+      ],
+      "retrievedCandidateIds": [
+        "CVE-2026-0001",
+        "GHSA-curl-fixture",
+        "CVE-2026-0002"
+      ],
+      "qualityOracle": {
+        "evaluated": true,
+        "k": 5
+      },
+      "topKPolicy": {
+        "name": "s5-top-k-policy-v1",
+        "finalTopK": 5
+      },
+      "candidatePoolPolicy": {
+        "name": "s5-candidate-pool-policy-v1",
+        "candidatePoolK": 30
+      }
     },
     {
       "caseId": "rq-embedded-ics-profile-t0807",
@@ -136,16 +332,152 @@
       "query": "ECU diagnostic shell command over UDS gateway",
       "queryIntent": "profile_context",
       "corpusPartition": "specialization_profile",
-      "profiles": ["automotive-specialization", "ics-ot-specialization"],
-      "methodsAttempted": ["keyword_match", "profile_signal", "graph_expansion", "constrained_embedding_rerank"],
-      "methodsUsed": ["keyword_match", "profile_signal", "graph_expansion"],
-      "runtimeObservation": {"acquisitionStatus": "completed_hit", "candidateReturned": true, "negativeEvidenceAllowed": false},
+      "profiles": [
+        "automotive-specialization",
+        "ics-ot-specialization"
+      ],
+      "methodsAttempted": [
+        "keyword_match",
+        "profile_signal",
+        "graph_expansion",
+        "constrained_embedding_rerank"
+      ],
+      "methodsUsed": [
+        "keyword_match",
+        "profile_signal",
+        "graph_expansion"
+      ],
+      "runtimeObservation": {
+        "acquisitionStatus": "completed_hit",
+        "candidateReturned": true,
+        "negativeEvidenceAllowed": false
+      },
       "consumerPolicy": "contextual_only",
-      "expectedCandidateIds": ["T0807", "T1059", "CWE-78"],
-      "retrievedCandidateIds": ["T0807", "T1059", "CWE-78", "CAPEC-88"],
-      "qualityOracle": {"evaluated": true, "k": 5},
-      "topKPolicy": {"name": "s5-top-k-policy-v1", "finalTopK": 5},
-      "candidatePoolPolicy": {"name": "s5-candidate-pool-policy-v1", "candidatePoolK": 30}
+      "expectedCandidateIds": [
+        "T0807",
+        "T1059",
+        "CWE-78"
+      ],
+      "retrievedCandidateIds": [
+        "T0807",
+        "T1059",
+        "CWE-78",
+        "CAPEC-88"
+      ],
+      "qualityOracle": {
+        "evaluated": true,
+        "k": 5
+      },
+      "topKPolicy": {
+        "name": "s5-top-k-policy-v1",
+        "finalTopK": 5
+      },
+      "candidatePoolPolicy": {
+        "name": "s5-candidate-pool-policy-v1",
+        "candidatePoolK": 30
+      }
+    },
+    {
+      "caseId": "rq-judge-affectedness-first-topk",
+      "family": "package_identity_cve",
+      "surface": "evidenceGroundedJudge",
+      "query": "curl 8.0.0 affected with topK one and higher risk same-package context",
+      "queryIntent": "judge_threat_context",
+      "corpusPartition": "public_vulnerability",
+      "profiles": [],
+      "methodsAttempted": [
+        "affectedness_evidence",
+        "package_identity_context",
+        "risk_signal_join"
+      ],
+      "methodsUsed": [
+        "affectedness_evidence",
+        "package_identity_context"
+      ],
+      "runtimeObservation": {
+        "acquisitionStatus": "completed_hit",
+        "candidateReturned": true,
+        "topK": 1,
+        "verdictLinkedEvidenceTier": "affectedness_evidence",
+        "contextualPackageTier": "package_identity_context",
+        "verdictLinkedEvidenceOutranksRiskOnlyContext": true,
+        "negativeEvidenceAllowed": false
+      },
+      "consumerPolicy": "contextual_only_not_affectedness_authority",
+      "expectedCandidateIds": [
+        "CVE-2026-0001"
+      ],
+      "retrievedCandidateIds": [
+        "CVE-2026-0001",
+        "CVE-2099-9999"
+      ],
+      "qualityOracle": {
+        "evaluated": true,
+        "k": 1
+      },
+      "topKPolicy": {
+        "name": "s5-top-k-policy-v1",
+        "finalTopK": 1
+      },
+      "candidatePoolPolicy": {
+        "name": "s5-candidate-pool-policy-v1",
+        "candidatePoolK": 24
+      }
+    },
+    {
+      "caseId": "rq-judge-multisource-alias-fusion",
+      "family": "package_identity_cve",
+      "surface": "evidenceGroundedJudge",
+      "query": "curl advisory context preserves NVD GHSA OSV aliases under topK one",
+      "queryIntent": "judge_threat_context",
+      "corpusPartition": "public_vulnerability",
+      "profiles": [],
+      "methodsAttempted": [
+        "affectedness_evidence",
+        "alias_equivalence_fusion",
+        "risk_signal_join"
+      ],
+      "methodsUsed": [
+        "affectedness_evidence",
+        "alias_equivalence_fusion"
+      ],
+      "runtimeObservation": {
+        "acquisitionStatus": "completed_hit",
+        "candidateReturned": true,
+        "topK": 1,
+        "equivalenceKey": "CVE-2026-0001",
+        "equivalentSourceKinds": [
+          "GHSA",
+          "NVD_CVE",
+          "OSV"
+        ],
+        "equivalentAdvisoryCount": 3,
+        "equivalentAdvisoriesVisible": true,
+        "negativeEvidenceAllowed": false
+      },
+      "consumerPolicy": "contextual_only_not_affectedness_authority",
+      "expectedCandidateIds": [
+        "CVE-2026-0001",
+        "GHSA-aaaa-bbbb-cccc",
+        "OSV-2026-CURL-0001"
+      ],
+      "retrievedCandidateIds": [
+        "CVE-2026-0001",
+        "GHSA-aaaa-bbbb-cccc",
+        "OSV-2026-CURL-0001"
+      ],
+      "qualityOracle": {
+        "evaluated": true,
+        "k": 3
+      },
+      "topKPolicy": {
+        "name": "s5-top-k-policy-v1",
+        "finalTopK": 1
+      },
+      "candidatePoolPolicy": {
+        "name": "s5-candidate-pool-policy-v1",
+        "candidatePoolK": 24
+      }
     }
   ]
 }

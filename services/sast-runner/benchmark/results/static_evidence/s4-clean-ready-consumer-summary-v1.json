@@ -1,0 +1,68 @@
+{
+  "blockingSurfaces": [],
+  "claimSupportReadiness": "pass",
+  "claimSupportReasonCodes": [],
+  "claimSupportStatuses": {
+    "absence-of-vulnerability": "unsupported",
+    "build-configuration-dependent-negative-claim": "unsupported",
+    "cwe-absence": "unsupported",
+    "exploitability-judgment": "unsupported",
+    "external-vulnerability-affectedness": "unsupported",
+    "final-security-verdict": "unsupported",
+    "local-static-artifact": "supported",
+    "reported-finding-positive-evidence": "not_applicable",
+    "runtime-behavior": "unsupported",
+    "semantic-graph-completeness": "unsupported"
+  },
+  "contractLocation": "top-level",
+  "contractPresent": true,
+  "evidenceReadiness": "ready",
+  "evidenceReasonCodes": [],
+  "localStaticEvidenceReady": true,
+  "mustNotSupportAlone": [
+    "external-vulnerability-affectedness",
+    "semantic-graph-completeness",
+    "runtime-exploitability",
+    "final-security-verdict",
+    "absence-of-vulnerability-from-empty-findings"
+  ],
+  "notProvidedSurfaces": [
+    "exploitabilityJudgment",
+    "externalVulnerabilityKnowledge",
+    "finalSecurityVerdict",
+    "runtimeBehavior",
+    "semanticGraphRetrieval"
+  ],
+  "partialSurfaces": [],
+  "qualityEvaluation": "not_evaluated",
+  "summarySchemaVersion": "s4-static-evidence-contract-consumer-summary-v1",
+  "systemReasonCodes": [],
+  "systemStability": "pass",
+  "toolAnomalyReasonCodes": [],
+  "toolConsumerPolicies": {
+    "clang-tidy": "local_tool_execution_state_only_not_vulnerability_verdict",
+    "cppcheck": "local_tool_execution_state_only_not_vulnerability_verdict",
+    "flawfinder": "local_tool_execution_state_only_not_vulnerability_verdict",
+    "gcc-fanalyzer": "local_tool_execution_state_only_not_vulnerability_verdict",
+    "scan-build": "local_tool_execution_state_only_not_vulnerability_verdict",
+    "semgrep": "local_tool_execution_state_only_not_vulnerability_verdict"
+  },
+  "toolMatrixStatuses": {
+    "clang-tidy": "ok",
+    "cppcheck": "ok",
+    "flawfinder": "ok",
+    "gcc-fanalyzer": "ok",
+    "scan-build": "ok",
+    "semgrep": "ok"
+  },
+  "unsupportedClaims": [
+    "absence-of-vulnerability",
+    "cwe-absence",
+    "build-configuration-dependent-negative-claim",
+    "runtime-behavior",
+    "external-vulnerability-affectedness",
+    "semantic-graph-completeness",
+    "exploitability-judgment",
+    "final-security-verdict"
+  ]
+}

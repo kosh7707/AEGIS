@@ -7,6 +7,8 @@ import re
 from pathlib import Path
 from typing import Any
 
+from app.scanner.repository_url import repository_name_from_url
+
 logger = logging.getLogger("aegis-sast-runner")
 
 # 버전 추출 패턴들
@@ -70,7 +72,7 @@ class LibraryIdentifier:
             if info:
                 libraries.append(info)
 
-        logger.info("Identified %d libraries in %s", len(libraries), project_path)
+        logger.info("Identified %d libraries", len(libraries))
         return libraries
 
     def _find_library_dirs(self, project_path: Path) -> list[Path]:
@@ -107,7 +109,7 @@ class LibraryIdentifier:
                     else:
                         scan(child, depth + 1)
             except PermissionError:
-                logger.warning("Permission denied scanning directory: %s", child)
+                logger.warning("Permission denied scanning directory")
 
         scan(project_path)
         return candidates
@@ -258,9 +260,7 @@ class LibraryIdentifier:
             name = lib_dir.name
             if remote_url:
                 # https://github.com/eclipse/mosquitto.git → mosquitto
-                repo_name = remote_url.rstrip("/").rstrip(".git").split("/")[-1]
-                if repo_name:
-                    name = repo_name
+                name = repository_name_from_url(remote_url, fallback=lib_dir.name)
 
             return {
                 "name": name,

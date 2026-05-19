@@ -48,7 +48,7 @@ def discover_cwe_suites(
     """
     testcases_dir = juliet_root / "testcases"
     if not testcases_dir.is_dir():
-        raise FileNotFoundError(f"testcases/ not found in {juliet_root}")
+        raise FileNotFoundError("Juliet testcases directory not found")
 
     suites: list[JulietCWESuite] = []
 

@@ -17,10 +17,12 @@ MAX_CANDIDATE_POOL_K = 120
 DEFAULT_FINAL_TOP_K = 5
 
 METHOD_RANK_WEIGHTS: dict[str, int] = {
+    "affectedness_evidence": 110,
     "exact_id_match": 100,
     "curated_mapping": 95,
     "direct_source_relation": 90,
     "provider_range_eval": 90,
+    "package_identity_context": 80,
     "graph_expansion": 70,
     "constrained_embedding_rerank": 60,
     "embedding_similarity": 45,
@@ -30,6 +32,7 @@ METHOD_RANK_WEIGHTS: dict[str, int] = {
 }
 
 INTENT_POOL_FLOORS: dict[str, int] = {
+    "judge_threat_context": 24,
     "code_context": 24,
     "package_identity_resolution": 24,
     "candidate_cve_evaluation": 24,
@@ -44,6 +47,7 @@ INTENT_POOL_FLOORS: dict[str, int] = {
 }
 
 INTENT_POOL_MULTIPLIERS: dict[str, int] = {
+    "judge_threat_context": 5,
     "code_context": 5,
     "package_identity_resolution": 5,
     "candidate_cve_evaluation": 5,
@@ -75,6 +79,7 @@ class RetrievalPolicyDecision:
             "name": "s5-top-k-policy-v1",
             "requestedTopK": self.requested_top_k,
             "finalTopK": self.final_top_k,
+            "acceptedControlTopK": self.final_top_k,
             "minFinalTopK": self.min_final_top_k,
             "maxFinalTopK": self.max_final_top_k,
             "topKMeans": "final_returned_count",
@@ -153,10 +158,12 @@ def deterministic_reranker_policy() -> dict[str, Any]:
         "negativeEvidenceAllowed": False,
         "methodWeights": dict(METHOD_RANK_WEIGHTS),
         "ordering": [
+            "affectedness_evidence",
             "exact_id_match",
             "curated_mapping",
             "direct_source_relation",
             "provider_range_eval",
+            "package_identity_context",
             "graph_expansion",
             "constrained_embedding_rerank",
             "embedding_similarity",

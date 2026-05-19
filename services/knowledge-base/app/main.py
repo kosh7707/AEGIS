@@ -10,7 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse, Response
 
-from app.config import settings
+from app.config import redact_url_for_log, settings
 from app.cve.nvd_client import NvdClient
 from app.graphrag.code_graph_assembler import CodeGraphAssembler
 from app.graphrag.code_graph_service import CodeGraphService
@@ -28,6 +28,7 @@ from app.routers import (
     code_graph_api,
     contracts_api,
     cve_api,
+    judge_api,
     project_memory_api,
     source_kg_api,
     target_context_api,
@@ -60,7 +61,7 @@ async def lifespan(_app: FastAPI):
             vector_search = VectorSearch(threat_search)
         logger.info("Qdrant 초기화 완료: mode=%s, target=%s",
                      threat_search.mode,
-                     settings.qdrant_url or settings.qdrant_path)
+                     redact_url_for_log(settings.qdrant_url) if settings.qdrant_url else settings.qdrant_path)
         if THREAT_COLLECTION not in collections:
             logger.warning("Qdrant 연결은 성공했지만 threat_knowledge 컬렉션이 없어 threat search 비활성")
     except Exception as e:
@@ -138,7 +139,7 @@ async def lifespan(_app: FastAPI):
         )
         logger.info(
             "Target context SQLite ledger 초기화 완료: ledger=%s mirror=%s",
-            settings.ledger_url,
+            redact_url_for_log(settings.ledger_url),
             settings.target_context_store_file,
         )
     except Exception as e:
@@ -160,6 +161,7 @@ async def lifespan(_app: FastAPI):
     target_context_api.set_knowledge_assembler(assembler)
     target_context_api.set_nvd_client(nvd_client)
     source_kg_api.set_ledger_repository(ledger_repository)
+    judge_api.set_ledger_repository(ledger_repository)
 
     logger.info("Knowledge Base 초기화 완료")
 
@@ -207,19 +209,27 @@ async def _http_exception_handler(request: Request, exc: HTTPException):
         503: "KB_NOT_READY",
     }
     code = _code_map.get(exc.status_code, "INTERNAL_ERROR")
-    detail = exc.detail if isinstance(exc.detail, str) else str(exc.detail)
+    reason = None
+    if isinstance(exc.detail, dict):
+        detail = str(exc.detail.get("message") or exc.detail.get("detail") or exc.detail)
+        reason = exc.detail.get("reason")
+    else:
+        detail = exc.detail if isinstance(exc.detail, str) else str(exc.detail)
     request_id = request.headers.get("x-request-id")
+    error_detail = {
+        "code": code,
+        "message": detail,
+        "requestId": request_id,
+        "retryable": exc.status_code == 503,
+    }
+    if reason:
+        error_detail["reason"] = reason
     return JSONResponse(
         status_code=exc.status_code,
         content={
             "success": False,
             "error": detail,
-            "errorDetail": {
-                "code": code,
-                "message": detail,
-                "requestId": request_id,
-                "retryable": exc.status_code == 503,
-            },
+            "errorDetail": error_detail,
         },
     )
 
@@ -228,7 +238,80 @@ async def _http_exception_handler(request: Request, exc: HTTPException):
 async def _request_validation_exception_handler(request: Request, exc: RequestValidationError):
     """Pydantic/FastAPI validation errors in the S5 observability error envelope."""
     request_id = request.headers.get("x-request-id")
-    detail = str(exc)
+    errors = exc.errors()
+    sanitized_errors = [
+        {key: value for key, value in error.items() if key not in {"input", "ctx"}}
+        for error in errors
+    ]
+    detail = f"{len(errors)} validation error(s): " + "; ".join(
+        f"{'.'.join(str(part) for part in (error.get('loc') or []))}: {error.get('msg')}"
+        for error in sanitized_errors[:5]
+    )
+    reason = "request_schema_invalid"
+    if request.url.path in {"/v1/source-code-kg/context", "/v1/judge/query"}:
+        scalar_selector_fields = {"repositorySnapshotId", "buildContextId", "analysisArtifactSetId"}
+        collection_selector_fields = {"graphNodeIds", "evidenceSnippetIds", "richIrArtifactIds"}
+        selector_fields = scalar_selector_fields | collection_selector_fields
+        control_list_fields = {"exclude", "prefer"}
+        force_context_fields = {"forceContext", "force_context"}
+        if request.url.path == "/v1/source-code-kg/context" and "at least one context identifier" in detail:
+            reason = "no_context_selector"
+        else:
+            control_list_errors = [
+                error
+                for error in errors
+                if control_list_fields.intersection({str(part) for part in (error.get("loc") or [])})
+            ]
+            selector_errors = [
+                error
+                for error in errors
+                if selector_fields.intersection({str(part) for part in (error.get("loc") or [])})
+            ]
+            force_context_errors = [
+                error
+                for error in errors
+                if force_context_fields.intersection({str(part) for part in (error.get("loc") or [])})
+            ]
+            if any(
+                error.get("type") == "too_long" or "List should have at most" in str(error.get("msg") or "")
+                for error in control_list_errors
+            ):
+                reason = "control_list_too_long"
+            elif any(
+                error.get("type") == "too_long"
+                or "Dictionary should have at most" in str(error.get("msg") or "")
+                or "control_object_too_large" in str(error.get("msg") or "")
+                for error in force_context_errors
+            ):
+                reason = "control_object_too_large"
+            elif any(
+                error.get("type") == "string_too_long"
+                or "String should have at most" in str(error.get("msg") or "")
+                for error in selector_errors
+            ):
+                reason = "selector_value_too_long"
+            elif any(
+                collection_selector_fields.intersection({str(part) for part in (error.get("loc") or [])})
+                and (error.get("type") == "too_long" or "List should have at most" in str(error.get("msg") or ""))
+                for error in selector_errors
+            ):
+                reason = "explicit_selector_limit_exceeded"
+    elif request.url.path == "/v1/source-code-kg/ingest":
+        collection_fields = {"sourceArtifacts", "evidenceSnippets", "graphNodes", "graphEdges", "richIrArtifacts"}
+        if any(
+            collection_fields.intersection({str(part) for part in (error.get("loc") or [])})
+            and (error.get("type") == "too_long" or "List should have at most" in str(error.get("msg") or ""))
+            for error in errors
+        ):
+            reason = "ingest_collection_limit_exceeded"
+        elif any(
+            error.get("type") == "string_too_long"
+            or "String should have at most" in str(error.get("msg") or "")
+            or "payload byte length exceeds max bytes" in str(error.get("msg") or "")
+            or "nested JSON object byte length exceeds max bytes" in str(error.get("msg") or "")
+            for error in errors
+        ):
+            reason = "ingest_value_too_large"
     return JSONResponse(
         status_code=422,
         content={
@@ -239,6 +322,7 @@ async def _request_validation_exception_handler(request: Request, exc: RequestVa
                 "message": detail,
                 "requestId": request_id,
                 "retryable": False,
+                "reason": reason,
             },
         },
     )
@@ -257,6 +341,7 @@ app.include_router(analyst_api.router)
 app.include_router(code_graph_api.router)
 app.include_router(contracts_api.router)
 app.include_router(cve_api.router)
+app.include_router(judge_api.router)
 app.include_router(project_memory_api.router)
 app.include_router(source_kg_api.router)
 app.include_router(target_context_api.router)

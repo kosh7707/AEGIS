@@ -110,7 +110,13 @@ class GccAnalyzerRunner:
             actual_profile = enriched_profile
             logger.info("gcc-fanalyzer: using enriched profile (SDK compiler detected)")
 
-        logger.info("Running gcc -fanalyzer (%s) on %d files", gcc_bin, len(c_cpp_files))
+        logger.info(
+            "Running gcc -fanalyzer",
+            extra={
+                "filesCount": len(c_cpp_files),
+                "customCompilerProvided": gcc_bin != "gcc",
+            },
+        )
 
         # 파일별 개별 실행 (동일 심볼 충돌 방지) + Semaphore 동시성 제한
         _concurrency = 8
@@ -179,7 +185,7 @@ class GccAnalyzerRunner:
         all_findings: list[SastFinding] = []
         for f, result in zip(c_cpp_files, results):
             if isinstance(result, Exception):
-                logger.warning("gcc -fanalyzer failed for %s: %s", f, result)
+                logger.warning("gcc -fanalyzer failed")
             else:
                 all_findings.extend(result or [])
 
@@ -228,7 +234,7 @@ class GccAnalyzerRunner:
         except asyncio.TimeoutError:
             proc.kill()
             await proc.communicate()
-            logger.warning("gcc -fanalyzer timed out for %s (%ds)", source_file, timeout)
+            logger.warning("gcc -fanalyzer timed out (%ds)", timeout)
             return None  # sentinel: timeout
 
         output = stderr.decode()
@@ -248,8 +254,8 @@ class GccAnalyzerRunner:
                 return sdk_gcc
             elif sdk_gcc:
                 logger.info(
-                    "SDK gcc (%s) does not support -fanalyzer, falling back to host gcc",
-                    sdk_gcc,
+                    "SDK gcc does not support -fanalyzer, falling back to host gcc",
+                    extra={"sdkCompilerProvided": True},
                 )
         return "gcc"
 

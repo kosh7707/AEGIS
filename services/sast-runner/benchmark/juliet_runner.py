@@ -10,7 +10,7 @@ import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, NoReturn, Sequence
 
 # 프로젝트 루트를 path에 추가
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -33,6 +33,213 @@ logger = logging.getLogger("benchmark")
 PRIORITY_CWES = [78, 121, 122, 190, 416, 476]
 
 ALL_TOOLS = ["semgrep", "cppcheck", "flawfinder", "clang-tidy", "scan-build", "gcc-fanalyzer"]
+
+PUBLIC_JULIET_PATH_LABEL = "<JULIET_ROOT>/C"
+_CLI_PARSE_ERROR = "invalid Juliet arguments"
+_CLI_ERROR_DETAILS = {
+    _CLI_PARSE_ERROR: ("JULIET_CLI_ARGUMENTS_INVALID", "input"),
+    "invalid tool selection": ("JULIET_TOOL_SELECTION_INVALID", "input"),
+    "invalid CWE selection": ("JULIET_CWE_SELECTION_INVALID", "input"),
+    "invalid variant selection": ("JULIET_VARIANT_SELECTION_INVALID", "input"),
+    "invalid timeout selection": ("JULIET_TIMEOUT_SELECTION_INVALID", "input"),
+    "invalid baseline artifact": ("JULIET_BASELINE_ARTIFACT_INVALID", "input"),
+    "invalid output artifact": ("JULIET_OUTPUT_ARTIFACT_INVALID", "input"),
+    "invalid baseline artifact payload": ("JULIET_BASELINE_PAYLOAD_INVALID", "input"),
+    "output artifact write failed": ("JULIET_OUTPUT_ARTIFACT_WRITE_FAILED", "output"),
+    "markdown report failed": ("JULIET_MARKDOWN_REPORT_FAILED", "output"),
+    "stdout JSON write failed": ("JULIET_STDOUT_JSON_WRITE_FAILED", "output"),
+    "comparison handoff failed": ("JULIET_COMPARISON_HANDOFF_FAILED", "handoff"),
+    "benchmark execution failed": ("JULIET_BENCHMARK_EXECUTION_FAILED", "run"),
+    "benchmark report build failed": ("JULIET_BENCHMARK_REPORT_BUILD_FAILED", "output"),
+}
+
+
+def _emit_cli_error(error: str, *, reason_code: str, stage: str) -> None:
+    payload = {
+        "error": error,
+        "reasonCode": reason_code,
+        "stage": stage,
+    }
+    try:
+        sys.stderr.write(json.dumps(payload, separators=(",", ":"), sort_keys=True) + "\n")
+    except (OSError, TypeError, ValueError, UnicodeError):
+        return
+
+
+def _exit_cli_error(error: str) -> NoReturn:
+    safe_error = error if error in _CLI_ERROR_DETAILS else _CLI_PARSE_ERROR
+    reason_code, stage = _CLI_ERROR_DETAILS[safe_error]
+    _emit_cli_error(safe_error, reason_code=reason_code, stage=stage)
+    raise SystemExit(2)
+
+
+class _FixedDiagnosticArgumentParser(argparse.ArgumentParser):
+    def error(self, message: str) -> None:
+        _exit_cli_error(message)
+
+
+def _parse_cli_tools(raw_tools: str | None, parser: argparse.ArgumentParser) -> list[str] | None:
+    if raw_tools is None:
+        return None
+
+    tools = [tool.strip() for tool in raw_tools.split(",")]
+    if not tools or any(not tool or tool not in ALL_TOOLS for tool in tools):
+        parser.error("invalid tool selection")
+    if len(set(tools)) != len(tools):
+        parser.error("invalid tool selection")
+    return tools
+
+
+def _parse_positive_decimal(value: str, parser: argparse.ArgumentParser, error_message: str) -> int:
+    if not value or not value.isdecimal():
+        parser.error(error_message)
+    try:
+        parsed = int(value)
+    except (OverflowError, ValueError):
+        parser.error(error_message)
+    if parsed <= 0:
+        parser.error(error_message)
+    return parsed
+
+
+def _parse_cli_cwes(raw_cwes: str | None, parser: argparse.ArgumentParser) -> list[int] | None:
+    if raw_cwes is None:
+        return None
+
+    values = [value.strip() for value in raw_cwes.split(",")]
+    if not values:
+        parser.error("invalid CWE selection")
+    return [_parse_positive_decimal(value, parser, "invalid CWE selection") for value in values]
+
+
+def _parse_cli_variant_filter(raw_variant: str, parser: argparse.ArgumentParser) -> tuple[str, str | None]:
+    value = raw_variant.strip()
+    if value == "all":
+        return "all", None
+    _parse_positive_decimal(value, parser, "invalid variant selection")
+    return value, value
+
+
+def _parse_cli_timeout(raw_timeout: str, parser: argparse.ArgumentParser) -> int:
+    value = raw_timeout.strip()
+    return _parse_positive_decimal(value, parser, "invalid timeout selection")
+
+
+def _validate_cli_baseline_artifact(
+    baseline_path: Path | None,
+    parser: argparse.ArgumentParser,
+) -> Path | None:
+    if baseline_path is None:
+        return None
+    try:
+        is_file = baseline_path.is_file()
+    except (OSError, ValueError):
+        parser.error("invalid baseline artifact")
+    if not is_file:
+        parser.error("invalid baseline artifact")
+    return baseline_path
+
+
+def _validate_cli_output_artifact(
+    output_path: Path | None,
+    parser: argparse.ArgumentParser,
+) -> Path | None:
+    if output_path is None:
+        return None
+    try:
+        output_exists = output_path.exists()
+        output_is_file = output_path.is_file() if output_exists else False
+        parent = output_path.parent
+        parent_exists = parent.exists()
+        parent_is_dir = parent.is_dir() if parent_exists else False
+    except (OSError, ValueError):
+        parser.error("invalid output artifact")
+    if output_exists and not output_is_file:
+        parser.error("invalid output artifact")
+    if parent_exists and not parent_is_dir:
+        parser.error("invalid output artifact")
+    return output_path
+
+
+def _validate_cli_baseline_payload(
+    baseline_path: Path | None,
+    parser: argparse.ArgumentParser,
+) -> Path | None:
+    if baseline_path is None:
+        return None
+
+    invalid_payload = False
+    data: Any = None
+    try:
+        data = json.loads(baseline_path.read_text())
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError, TypeError):
+        invalid_payload = True
+
+    if not invalid_payload:
+        from benchmark.compare import is_comparison_payload_shape
+        invalid_payload = not is_comparison_payload_shape(data)
+
+    if invalid_payload:
+        parser.error("invalid baseline artifact payload")
+    return baseline_path
+
+
+def _write_cli_output_artifact(
+    output_path: Path | None,
+    output_data: dict[str, Any],
+    parser: argparse.ArgumentParser,
+) -> None:
+    if output_path is None:
+        return
+
+    try:
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(json.dumps(output_data, indent=2, ensure_ascii=False))
+    except (OSError, TypeError, UnicodeError):
+        parser.error("output artifact write failed")
+    logger.info("Results saved to output file")
+
+
+def _emit_cli_markdown_report(
+    result: BenchmarkResult,
+    show_rules: bool,
+    parser: argparse.ArgumentParser,
+) -> None:
+    try:
+        print()
+        print(result.to_markdown(show_rules=show_rules))
+    except (OSError, TypeError, ValueError, AttributeError, UnicodeError):
+        parser.error("markdown report failed")
+
+
+def _emit_cli_stdout_json(output_data: dict[str, Any], parser: argparse.ArgumentParser) -> None:
+    try:
+        print()
+        print(json.dumps(output_data, indent=2, ensure_ascii=False))
+    except (OSError, TypeError, UnicodeError):
+        parser.error("stdout JSON write failed")
+
+
+def _run_cli_compare_handoff(
+    baseline_path: Path | None,
+    current: Path | dict[str, Any],
+    parser: argparse.ArgumentParser,
+) -> None:
+    if baseline_path is None:
+        return
+
+    try:
+        from benchmark.compare import compare_from_files
+        compare_from_files(baseline_path, current)
+    except (
+        OSError,
+        UnicodeDecodeError,
+        json.JSONDecodeError,
+        TypeError,
+        ValueError,
+        AttributeError,
+    ):
+        parser.error("comparison handoff failed")
 
 
 async def run_benchmark(
@@ -59,56 +266,108 @@ async def run_benchmark(
     if not custom_rules:
         settings.custom_rules_dir = None
         logger.info("Custom Semgrep rules DISABLED for this benchmark run")
-    if target_cwes is None:
-        target_cwes = PRIORITY_CWES
+    try:
+        if target_cwes is None:
+            target_cwes = PRIORITY_CWES
 
-    suites = discover_cwe_suites(juliet_root, target_cwes, variant_filter)
-    if not suites:
-        logger.error("No test suites found in %s for CWEs %s", juliet_root, target_cwes)
-        return BenchmarkResult()
+        suites = discover_cwe_suites(juliet_root, target_cwes, variant_filter)
+        if not suites:
+            logger.error("No Juliet test suites found for benchmark selection")
+            return BenchmarkResult()
 
-    support_path = get_testcasesupport_path(juliet_root)
-
-    logger.info(
-        "Benchmark started: %d CWEs, %d total files, variant=%s, tools=%s",
-        len(suites),
-        sum(s.count for s in suites),
-        variant_filter or "all",
-        ",".join(tools) if tools else "all",
-    )
-
-    orchestrator = ScanOrchestrator()
-    result = BenchmarkResult()
-
-    for suite in suites:
-        cwe_key = f"CWE-{suite.cwe_num}"
-        logger.info("--- %s (%s): %d files ---", cwe_key, suite.cwe_name, suite.count)
-
-        cwe_metrics = await _benchmark_cwe(
-            orchestrator, suite, support_path, cwe_key, timeout, tools,
-        )
-        result.cwe_results[cwe_key] = cwe_metrics
+        support_path = get_testcasesupport_path(juliet_root)
+        variant_selection = "filtered" if variant_filter else "all"
+        tool_selection = "custom" if tools else "all"
+        tool_count = len(tools) if tools else 0
 
         logger.info(
-            "%s: recall=%.1f%% (%d/%d, noise/file=%.1f)",
-            cwe_key,
-            cwe_metrics.combined_recall * 100,
-            cwe_metrics.combined_tp,
-            cwe_metrics.total_files,
-            cwe_metrics.noise_per_file,
+            "Benchmark started: %d CWEs, %d total files, variantSelection=%s, toolSelection=%s, toolCount=%d",
+            len(suites),
+            sum(s.count for s in suites),
+            variant_selection,
+            tool_selection,
+            tool_count,
         )
 
-    logger.info(
-        "=== Overall — Recall: %.1f%%  Noise/File: %.1f ===",
-        result.overall_recall * 100,
-        result.overall_noise_per_file,
-    )
+        orchestrator = ScanOrchestrator()
+        result = BenchmarkResult()
 
-    # 커스텀 룰 복원
-    if not custom_rules:
-        settings.custom_rules_dir = _orig_rules_dir
+        for suite in suites:
+            cwe_key = f"CWE-{suite.cwe_num}"
+            logger.info("--- %s: %d files ---", cwe_key, suite.count)
 
-    return result
+            cwe_metrics = await _benchmark_cwe(
+                orchestrator, suite, support_path, cwe_key, timeout, tools,
+            )
+            result.cwe_results[cwe_key] = cwe_metrics
+
+            logger.info(
+                "%s: recall=%.1f%% (%d/%d, noise/file=%.1f)",
+                cwe_key,
+                cwe_metrics.combined_recall * 100,
+                cwe_metrics.combined_tp,
+                cwe_metrics.total_files,
+                cwe_metrics.noise_per_file,
+            )
+
+        logger.info(
+            "=== Overall — Recall: %.1f%%  Noise/File: %.1f ===",
+            result.overall_recall * 100,
+            result.overall_noise_per_file,
+        )
+
+        return result
+
+    finally:
+        # 커스텀 룰 복원
+        if not custom_rules:
+            settings.custom_rules_dir = _orig_rules_dir
+
+
+def _run_cli_benchmark(
+    parser: argparse.ArgumentParser,
+    *,
+    juliet_root: Path,
+    target_cwes: list[int] | None,
+    variant_filter: str | None,
+    timeout: int,
+    custom_rules: bool,
+    tools: list[str] | None,
+) -> BenchmarkResult:
+    try:
+        return asyncio.run(run_benchmark(
+            juliet_root=juliet_root,
+            target_cwes=target_cwes,
+            variant_filter=variant_filter,
+            timeout=timeout,
+            custom_rules=custom_rules,
+            tools=tools,
+        ))
+    except (OSError, ValueError, TypeError, AttributeError):
+        parser.error("benchmark execution failed")
+
+
+def _build_cli_output_data(
+    result: BenchmarkResult,
+    variant_label: str,
+    target_cwes: list[int] | None,
+    tools: list[str] | None,
+    parser: argparse.ArgumentParser,
+) -> dict[str, Any]:
+    try:
+        result_data = result.to_dict()
+        if not isinstance(result_data, dict):
+            parser.error("benchmark report build failed")
+        return {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "julietPath": PUBLIC_JULIET_PATH_LABEL,
+            "variantFilter": variant_label,
+            "targetCWEs": [f"CWE-{c}" for c in (target_cwes or PRIORITY_CWES)],
+            "tools": tools,
+            **result_data,
+        }
+    except (TypeError, ValueError, AttributeError, UnicodeError):
+        parser.error("benchmark report build failed")
 
 
 async def _benchmark_cwe(
@@ -154,8 +413,8 @@ async def _benchmark_cwe(
             tools=tools,
             timeout=timeout,
         )
-    except Exception as e:
-        logger.error("Scan failed for %s: %s", cwe_key, e)
+    except Exception:
+        logger.error("Scan failed for %s", cwe_key)
         metrics.combined_fn = suite.count
         return metrics
 
@@ -232,8 +491,8 @@ async def _benchmark_cwe(
     return metrics
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description="Juliet Benchmark Runner")
+def main(argv: Sequence[str] | None = None) -> None:
+    parser = _FixedDiagnosticArgumentParser(description="Juliet Benchmark Runner")
     parser.add_argument(
         "--juliet-path", type=Path, required=True,
         help="Juliet C/ 디렉토리 경로",
@@ -251,7 +510,7 @@ def main() -> None:
         help="결과 JSON 출력 경로",
     )
     parser.add_argument(
-        "--timeout", type=int, default=300,
+        "--timeout", type=str, default="300",
         help="도구 타임아웃 (초, 기본: 300)",
     )
     parser.add_argument(
@@ -270,57 +529,47 @@ def main() -> None:
         "--show-rules", action="store_true",
         help="마크다운에 per-rule 메트릭 포함",
     )
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(message)s",
     )
 
-    target_cwes = None
-    if args.cwes:
-        target_cwes = [int(c.strip()) for c in args.cwes.split(",")]
+    target_cwes = _parse_cli_cwes(args.cwes, parser)
 
-    variant = args.variant_filter if args.variant_filter != "all" else None
-    tools = [t.strip() for t in args.tools.split(",")] if args.tools else None
+    variant_label, variant = _parse_cli_variant_filter(args.variant_filter, parser)
+    tools = _parse_cli_tools(args.tools, parser)
+    timeout = _parse_cli_timeout(args.timeout, parser)
+    baseline = _validate_cli_baseline_artifact(args.baseline, parser)
+    output_path = _validate_cli_output_artifact(args.output, parser)
+    baseline = _validate_cli_baseline_payload(baseline, parser)
 
-    result = asyncio.run(run_benchmark(
+    result = _run_cli_benchmark(
+        parser,
         juliet_root=args.juliet_path,
         target_cwes=target_cwes,
         variant_filter=variant,
-        timeout=args.timeout,
+        timeout=timeout,
         custom_rules=not args.no_custom_rules,
         tools=tools,
-    ))
+    )
 
     # JSON 출력
-    output_data = {
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "julietPath": str(args.juliet_path),
-        "variantFilter": args.variant_filter,
-        "targetCWEs": [f"CWE-{c}" for c in (target_cwes or PRIORITY_CWES)],
-        "tools": tools,
-        **result.to_dict(),
-    }
+    output_data = _build_cli_output_data(result, variant_label, target_cwes, tools, parser)
 
-    if args.output:
-        args.output.parent.mkdir(parents=True, exist_ok=True)
-        args.output.write_text(json.dumps(output_data, indent=2, ensure_ascii=False))
-        logger.info("Results saved to %s", args.output)
+    if output_path:
+        _write_cli_output_artifact(output_path, output_data, parser)
 
     # Markdown 출력
-    print()
-    print(result.to_markdown(show_rules=args.show_rules))
+    _emit_cli_markdown_report(result, args.show_rules, parser)
 
     # JSON도 stdout에 (output 없을 때)
-    if not args.output:
-        print()
-        print(json.dumps(output_data, indent=2, ensure_ascii=False))
+    if not output_path:
+        _emit_cli_stdout_json(output_data, parser)
 
     # 회귀 감지
-    if args.baseline:
-        from benchmark.compare import compare_from_files
-        compare_from_files(args.baseline, args.output or output_data)
+    _run_cli_compare_handoff(baseline, output_path or output_data, parser)
 
 
 if __name__ == "__main__":

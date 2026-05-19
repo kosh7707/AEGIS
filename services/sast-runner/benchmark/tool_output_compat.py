@@ -17,7 +17,17 @@ REPORT_SCHEMA_VERSION = "s4-tool-output-compat-report-v1"
 
 
 def load_manifest(path: Path) -> dict[str, Any]:
-    return json.loads(path.read_text(encoding="utf-8"))
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        raise ValueError("tool-output compatibility manifest could not be read") from None
+    try:
+        manifest = json.loads(text)
+    except json.JSONDecodeError:
+        raise ValueError("tool-output compatibility manifest is malformed JSON") from None
+    if not isinstance(manifest, Mapping):
+        raise ValueError("tool-output compatibility manifest must be an object")
+    return dict(manifest)
 
 
 def parse_manifest_cases(manifest_path: Path) -> list[dict[str, Any]]:
@@ -68,23 +78,52 @@ def _parse_case(case: Mapping[str, Any], fixture_root: Path) -> dict[str, Any]:
 def _parse_findings(case: Mapping[str, Any], fixture_root: Path) -> list[SastFinding]:
     parser_kind = case.get("parserKind")
     base_dir = Path(str(case.get("baseDir", "/tmp/scan")))
-    input_fixture = fixture_root / str(case.get("inputFixture"))
+    input_fixture = _resolve_fixture_path(fixture_root, case.get("inputFixture"))
 
     if parser_kind == "semgrep-sarif":
-        findings, _rules_run = parse_sarif(json.loads(input_fixture.read_text(encoding="utf-8")), base_dir)
+        findings, _rules_run = parse_sarif(_load_fixture_json(input_fixture), base_dir)
         return findings
     if parser_kind == "cppcheck-xml":
-        return CppcheckRunner()._parse_xml(input_fixture.read_text(encoding="utf-8"), base_dir)
+        return CppcheckRunner()._parse_xml(_read_fixture_text(input_fixture), base_dir)
     if parser_kind == "flawfinder-csv":
-        return FlawfinderRunner()._parse_csv(input_fixture.read_text(encoding="utf-8"), base_dir)
+        return FlawfinderRunner()._parse_csv(_read_fixture_text(input_fixture), base_dir)
     if parser_kind == "clang-tidy-text":
-        return ClangTidyRunner()._parse_output(input_fixture.read_text(encoding="utf-8"), base_dir)
+        return ClangTidyRunner()._parse_output(_read_fixture_text(input_fixture), base_dir)
     if parser_kind == "scan-build-plist":
         return ScanbuildRunner()._parse_plist_results(input_fixture, base_dir)
     if parser_kind == "gcc-fanalyzer-text":
-        return GccAnalyzerRunner()._parse_output(input_fixture.read_text(encoding="utf-8"), base_dir)
+        return GccAnalyzerRunner()._parse_output(_read_fixture_text(input_fixture), base_dir)
 
-    raise ValueError(f"unsupported parserKind: {parser_kind!r}")
+    raise ValueError("unsupported parserKind")
+
+
+def _resolve_fixture_path(fixture_root: Path, value: Any) -> Path:
+    if not isinstance(value, str) or not value.strip() or value != value.strip():
+        raise ValueError("tool-output compatibility fixture path is unsafe")
+    path = Path(value)
+    if path.is_absolute():
+        raise ValueError("tool-output compatibility fixture path is unsafe")
+    root = fixture_root.resolve()
+    candidate = (root / path).resolve()
+    try:
+        candidate.relative_to(root)
+    except ValueError:
+        raise ValueError("tool-output compatibility fixture path is unsafe") from None
+    return candidate
+
+
+def _read_fixture_text(path: Path) -> str:
+    try:
+        return path.read_text(encoding="utf-8")
+    except OSError:
+        raise ValueError("tool-output compatibility fixture could not be read") from None
+
+
+def _load_fixture_json(path: Path) -> Any:
+    try:
+        return json.loads(_read_fixture_text(path))
+    except json.JSONDecodeError:
+        raise ValueError("tool-output compatibility fixture is malformed JSON") from None
 
 
 def _dump_finding(finding: SastFinding) -> dict[str, Any]:

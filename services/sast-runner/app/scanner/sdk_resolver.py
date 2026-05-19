@@ -75,12 +75,12 @@ def _load_sdk_registry() -> dict[str, dict[str, Any]]:
     """
     registry_path = _get_sdk_root() / "sdk-registry.json"
     if not registry_path.exists():
-        logger.warning("SDK registry not found: %s", registry_path)
+        logger.warning("SDK registry not found")
         return {}
     try:
         return json.loads(registry_path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError) as e:
-        logger.error("Failed to load SDK registry: %s", e)
+    except (json.JSONDecodeError, OSError):
+        logger.error("Failed to load SDK registry")
         return {}
 
 
@@ -150,27 +150,27 @@ def validate_sdk(data: dict[str, Any]) -> list[str]:
 
     sdk_path = Path(data.get("path", ""))
     if not sdk_path.is_dir():
-        errors.append(f"SDK path not found: {sdk_path}")
+        errors.append("SDK path not found")
         return errors  # 경로가 없으면 나머지 검증 불가
 
     sysroot = data.get("sysroot")
     if sysroot:
         sysroot_path = sdk_path / sysroot
         if not sysroot_path.is_dir():
-            errors.append(f"Sysroot not found: {sysroot_path}")
+            errors.append("Sysroot not found")
 
     env_setup = data.get("environmentSetup") or data.get("environment_setup")
     if env_setup:
         setup_path = sdk_path / env_setup
         if not setup_path.is_file():
-            errors.append(f"Environment setup script not found: {setup_path}")
+            errors.append("Environment setup script not found")
 
     prefix = data.get("compilerPrefix") or data.get("compiler_prefix")
     if prefix and sysroot:
         sysroot_path = sdk_path / sysroot
         compiler = sysroot_path / "usr" / "bin" / f"{prefix}-gcc"
         if not compiler.exists():
-            errors.append(f"Compiler not found: {compiler}")
+            errors.append("Compiler not found")
 
     return errors
 
@@ -188,7 +188,7 @@ def register_sdk(sdk_id: str, data: dict[str, Any]) -> None:
     }
     _save_registry(registry)
     _invalidate_cache()
-    logger.info("SDK registered: %s at %s", sdk_id, data["path"])
+    logger.info("SDK registered")
 
 
 def unregister_sdk(sdk_id: str) -> bool:
@@ -199,7 +199,7 @@ def unregister_sdk(sdk_id: str) -> bool:
     del registry[sdk_id]
     _save_registry(registry)
     _invalidate_cache()
-    logger.info("SDK unregistered: %s", sdk_id)
+    logger.info("SDK unregistered")
     return True
 
 
@@ -237,11 +237,11 @@ def resolve_sdk_paths(profile: BuildProfile) -> list[str]:
             sdk_paths = _resolve_from_registry(base, sdk_info)
             paths.extend(sdk_paths)
             logger.info(
-                "Resolved %d include paths from SDK '%s' at %s",
-                len(sdk_paths), sdk_id, base,
+                "Resolved %d include paths from SDK",
+                len(sdk_paths),
             )
         elif not base.is_dir():
-            logger.warning("SDK directory not found: %s", base)
+            logger.warning("SDK directory not found")
 
     # 2. BuildProfile에 명시된 includePaths 추가
     if profile.include_paths:
@@ -374,7 +374,7 @@ def _resolve_from_registry(base: Path, sdk_info: dict[str, Any]) -> list[str]:
 
     sysroot_dir = base / sysroot
     if not sysroot_dir.exists():
-        logger.warning("SDK sysroot not found: %s", sysroot_dir)
+        logger.warning("SDK sysroot not found")
         return []
 
     gcc_base = sysroot_dir / "usr" / "lib" / "gcc" / prefix / gcc_ver

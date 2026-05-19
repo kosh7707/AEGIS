@@ -16,11 +16,27 @@ logger = logging.getLogger(__name__)
 def _s4_build_profile(build_profile: dict | None) -> dict:
     if not isinstance(build_profile, dict):
         return {}
-    return {
+    normalized = {
         key: value
         for key, value in build_profile.items()
         if not (key == "sdkId" and value == "custom")
     }
+    mode = normalized.get("sdkResolutionMode")
+    if mode == "none":
+        normalized.pop("sdkId", None)
+        normalized.pop("sdkDescriptor", None)
+        return normalized
+    if mode == "non-registered":
+        normalized.pop("sdkId", None)
+        descriptor = normalized.get("sdkDescriptor")
+        if isinstance(descriptor, dict):
+            normalized["sdkDescriptor"] = {
+                key: value
+                for key, value in descriptor.items()
+                if value not in (None, "", [], {})
+            }
+        return normalized
+    return normalized
 
 
 class MetadataTool:

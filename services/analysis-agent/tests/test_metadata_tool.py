@@ -99,3 +99,55 @@ async def test_omits_custom_sdkid_for_s4_metadata():
     call_args = tool._client.post.call_args
     body = call_args.kwargs.get("json") or call_args[1].get("json")
     assert body["buildProfile"] == {"compiler": "g++"}
+
+
+@pytest.mark.asyncio
+async def test_metadata_profile_honors_none_sdk_resolution_mode():
+    tool = MetadataTool(
+        sast_endpoint="http://localhost:9000",
+        project_path="/tmp/test-project",
+        build_profile={
+            "sdkResolutionMode": "none",
+            "sdkId": "must-not-be-sent",
+            "sdkDescriptor": {"sdkRootPath": "/secret/sdk"},
+            "compiler": "g++",
+        },
+    )
+    mock_resp = MagicMock()
+    mock_resp.raise_for_status = MagicMock()
+    mock_resp.json.return_value = {"macros": {}, "targetInfo": {"arch": "x86_64"}}
+    tool._client = MagicMock()
+    tool._client.post = AsyncMock(return_value=mock_resp)
+
+    await tool.execute({})
+
+    body = tool._client.post.call_args.kwargs["json"]
+    assert body["buildProfile"] == {"sdkResolutionMode": "none", "compiler": "g++"}
+
+
+@pytest.mark.asyncio
+async def test_metadata_profile_preserves_non_registered_descriptor_without_empty_values():
+    tool = MetadataTool(
+        sast_endpoint="http://localhost:9000",
+        project_path="/tmp/test-project",
+        build_profile={
+            "sdkResolutionMode": "non-registered",
+            "sdkId": "must-not-be-sent",
+            "sdkDescriptor": {"sdkRootPath": "/uploads/sdk", "sysroot": "", "compilerPath": None},
+            "compiler": "g++",
+        },
+    )
+    mock_resp = MagicMock()
+    mock_resp.raise_for_status = MagicMock()
+    mock_resp.json.return_value = {"macros": {}, "targetInfo": {"arch": "x86_64"}}
+    tool._client = MagicMock()
+    tool._client.post = AsyncMock(return_value=mock_resp)
+
+    await tool.execute({})
+
+    body = tool._client.post.call_args.kwargs["json"]
+    assert body["buildProfile"] == {
+        "sdkResolutionMode": "non-registered",
+        "sdkDescriptor": {"sdkRootPath": "/uploads/sdk"},
+        "compiler": "g++",
+    }

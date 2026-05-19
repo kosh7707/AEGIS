@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+import logging
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -109,12 +111,12 @@ class TestAnalyzeLibraries:
         mock_differ.find_closest_version.assert_not_awaited()
 
     async def test_diff_failure_returns_none(
-        self, mock_identifier, mock_differ, tmp_path: Path
+        self, mock_identifier, mock_differ, tmp_path: Path, caplog
     ):
         """diff 실패 시 entry['diff'] = None, 나머지 라이브러리 계속 처리."""
         mock_identifier.identify.return_value = [
             {
-                "name": "lib1",
+                "name": "SECRET_LIB_NAME_SHOULD_NOT_LEAK",
                 "path": "lib1",
                 "version": "1.0",
                 "repoUrl": "https://example.com/lib1",
@@ -127,15 +129,20 @@ class TestAnalyzeLibraries:
             },
         ]
         mock_differ.diff.side_effect = [
-            RuntimeError("clone failed"),
+            RuntimeError("SECRET_DIFF_ERROR_SHOULD_NOT_LEAK"),
             {"matchedVersion": "v2.0"},
         ]
+        caplog.set_level(logging.WARNING, logger="aegis-sast-runner")
 
         result = await sca_service.analyze_libraries(tmp_path)
 
         assert len(result) == 2
         assert result[0]["diff"] is None
         assert result[1]["diff"] == {"matchedVersion": "v2.0"}
+        assert "lib_differ.diff failed" in caplog.text
+        assert "lib_differ.diff failed for" not in caplog.text
+        assert "SECRET_LIB_NAME_SHOULD_NOT_LEAK" not in caplog.text
+        assert "SECRET_DIFF_ERROR_SHOULD_NOT_LEAK" not in caplog.text
 
     async def test_no_repo_url(self, mock_identifier, mock_differ, tmp_path: Path):
         """repoUrl 없으면 diff=None + note 추가."""
@@ -168,6 +175,76 @@ class TestAnalyzeLibraries:
         # include_diff=False이므로 elif not repo_url 블록에 진입하지만
         # include_diff가 False이므로 note가 추가되지 않음
         assert "note" not in result[0]
+
+    async def test_public_repository_urls_are_sanitized_but_diff_uses_raw_url(
+        self, mock_identifier, mock_differ, tmp_path: Path
+    ):
+        """공개 SCA entry는 URL credential을 제거하지만 diff 입력은 raw URL을 유지한다."""
+        secret_repo = (
+            "https://user:SECRET_TOKEN_SHOULD_NOT_LEAK@example.internal:8443/org/"
+            "lib.git?token=SECRET_QUERY_SHOULD_NOT_LEAK#SECRET_FRAGMENT_SHOULD_NOT_LEAK"
+        )
+        secret_remote = (
+            "ssh://git:SECRET_SSH_PASSWORD_SHOULD_NOT_LEAK@git.example.internal/org/"
+            "lib.git?token=SECRET_REMOTE_QUERY_SHOULD_NOT_LEAK"
+        )
+        mock_identifier.identify.return_value = [
+            {
+                "name": "lib",
+                "path": "lib",
+                "version": "1.0",
+                "repoUrl": secret_repo,
+                "remoteUrl": secret_remote,
+            }
+        ]
+        mock_differ.diff.return_value = {"matchedVersion": "v1.0"}
+
+        result = await sca_service.analyze_libraries(tmp_path, include_diff=True)
+
+        mock_differ.diff.assert_awaited_once()
+        assert mock_differ.diff.call_args.args[1] == secret_repo
+        assert result[0]["repoUrl"] == "https://example.internal:8443/org/lib.git"
+        assert result[0]["remoteUrl"] == "ssh://git.example.internal/org/lib.git"
+        rendered = json.dumps(result, sort_keys=True)
+        assert "SECRET_TOKEN_SHOULD_NOT_LEAK" not in rendered
+        assert "SECRET_QUERY_SHOULD_NOT_LEAK" not in rendered
+        assert "SECRET_FRAGMENT_SHOULD_NOT_LEAK" not in rendered
+        assert "SECRET_SSH_PASSWORD_SHOULD_NOT_LEAK" not in rendered
+        assert "SECRET_REMOTE_QUERY_SHOULD_NOT_LEAK" not in rendered
+
+    async def test_public_diff_repository_url_is_sanitized_but_diff_uses_raw_url(
+        self, mock_identifier, mock_differ, tmp_path: Path
+    ):
+        """Public nested diff.repoUrl must not echo differ/test-double credentials."""
+        raw_repo = "https://user:SECRET_INPUT_SHOULD_NOT_LEAK@example.internal/org/lib.git"
+        raw_diff_repo = (
+            "https://user:SECRET_DIFF_TOKEN_SHOULD_NOT_LEAK@example.internal/org/"
+            "lib.git?token=SECRET_DIFF_QUERY_SHOULD_NOT_LEAK#SECRET_DIFF_FRAGMENT_SHOULD_NOT_LEAK"
+        )
+        mock_identifier.identify.return_value = [
+            {
+                "name": "lib",
+                "path": "lib",
+                "version": "1.0",
+                "repoUrl": raw_repo,
+            }
+        ]
+        mock_differ.diff.return_value = {
+            "matchedVersion": "v1.0",
+            "repoUrl": raw_diff_repo,
+        }
+
+        result = await sca_service.analyze_libraries(tmp_path, include_diff=True)
+
+        mock_differ.diff.assert_awaited_once()
+        assert mock_differ.diff.call_args.args[1] == raw_repo
+        assert result[0]["repoUrl"] == "https://example.internal/org/lib.git"
+        assert result[0]["diff"]["repoUrl"] == "https://example.internal/org/lib.git"
+        rendered = json.dumps(result, sort_keys=True)
+        assert "SECRET_INPUT_SHOULD_NOT_LEAK" not in rendered
+        assert "SECRET_DIFF_TOKEN_SHOULD_NOT_LEAK" not in rendered
+        assert "SECRET_DIFF_QUERY_SHOULD_NOT_LEAK" not in rendered
+        assert "SECRET_DIFF_FRAGMENT_SHOULD_NOT_LEAK" not in rendered
 
 
 # ---------------------------------------------------------------------------

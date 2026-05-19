@@ -45,7 +45,7 @@ class FlawfinderRunner:
         timeout: int = 120,
     ) -> list[SastFinding]:
         cmd = self._build_command(scan_dir)
-        logger.info("Running Flawfinder: %s", " ".join(cmd))
+        logger.info("Running Flawfinder")
 
         proc = await asyncio.create_subprocess_exec(
             *cmd,
@@ -87,26 +87,25 @@ class FlawfinderRunner:
 
         reader = csv.DictReader(io.StringIO(csv_str))
         for row in reader:
-            file_path = row.get("File", "")
-            line_str = row.get("Line", "0")
-            level = row.get("Level", "1")
-            category = row.get("Category", "")
-            name = row.get("Name", "")
-            warning = row.get("Warning", "")
-            context = row.get("Context", "")
+            file_path = _safe_cell(row.get("File"))
+            line = _safe_positive_int(row.get("Line"))
+            level_value = _safe_positive_int(row.get("Level")) or 1
+            level = str(level_value)
+            category = _safe_cell(row.get("Category"))
+            name = _safe_cell(row.get("Name"))
+            warning = _safe_cell(row.get("Warning"))
+            context = _safe_cell(row.get("Context"))
 
-            if not file_path or line_str == "0":
+            if not file_path or line is None:
                 continue
 
-            line = int(line_str)
             file_path = normalize_path(file_path, base_dir)
 
             severity = _SEVERITY_MAP.get(level, "info")
-            column_str = row.get("Column", "0")
-            column = int(column_str) if column_str and column_str != "0" else None
+            column = _safe_positive_int(row.get("Column"))
 
             metadata: dict[str, Any] = {
-                "flawfinderLevel": int(level),
+                "flawfinderLevel": level_value,
                 "category": category,
                 "name": name,
             }
@@ -135,3 +134,20 @@ class FlawfinderRunner:
             ))
 
         return findings
+
+
+def _safe_cell(value: Any) -> str:
+    return value.strip() if isinstance(value, str) else ""
+
+
+def _safe_positive_int(value: Any) -> int | None:
+    if not isinstance(value, str):
+        return None
+    value = value.strip()
+    if not value:
+        return None
+    try:
+        parsed = int(value)
+    except ValueError:
+        return None
+    return parsed if parsed > 0 else None

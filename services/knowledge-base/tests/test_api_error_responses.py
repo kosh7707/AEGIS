@@ -7,7 +7,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
-from app.routers import api, code_graph_api, cve_api, project_memory_api
+from app.routers import api, code_graph_api, cve_api, judge_api, project_memory_api, source_kg_api
 
 
 @pytest.fixture(autouse=True)
@@ -21,6 +21,8 @@ def _reset_state():
     old_code_assembler = code_graph_api._code_assembler
     old_nvd_client = cve_api._nvd_client
     old_memory_service = project_memory_api._service
+    old_source_kg_repo = source_kg_api._ledger_repository
+    old_judge_repo = judge_api._ledger_repository
     api.set_assembler(None)
     api.set_neo4j_graph(None)
     api.set_qdrant_ready(False)
@@ -29,6 +31,8 @@ def _reset_state():
     code_graph_api.set_code_assembler(None)
     cve_api.set_nvd_client(None)
     project_memory_api.set_service(None)
+    source_kg_api.set_ledger_repository(None)
+    judge_api.set_ledger_repository(None)
     yield
     api.set_assembler(old_assembler)
     api.set_neo4j_graph(old_graph)
@@ -38,6 +42,8 @@ def _reset_state():
     code_graph_api.set_code_assembler(old_code_assembler)
     cve_api.set_nvd_client(old_nvd_client)
     project_memory_api.set_service(old_memory_service)
+    source_kg_api.set_ledger_repository(old_source_kg_repo)
+    judge_api.set_ledger_repository(old_judge_repo)
 
 
 client = TestClient(app, raise_server_exceptions=False)
@@ -129,6 +135,8 @@ def test_ready_returns_200_when_initialized():
     api.set_assembler(FakeAssembler())
     api.set_neo4j_graph(FakeGraph())
     api.set_qdrant_ready(True)
+    source_kg_api.set_ledger_repository(object())
+    judge_api.set_ledger_repository(object())
 
     resp = client.get("/v1/ready")
     assert resp.status_code == 200
@@ -137,6 +145,27 @@ def test_ready_returns_200_when_initialized():
     assert body["components"]["qdrant"]["initialized"] is True
     assert body["components"]["neo4j"]["connected"] is True
     assert body["components"]["neo4j"]["nodeCount"] == 100
+
+
+def test_ready_returns_503_when_source_kg_judge_ledger_unavailable():
+    class FakeGraph:
+        node_count = 100
+        edge_count = 200
+
+    class FakeAssembler:
+        pass
+
+    api.set_assembler(FakeAssembler())
+    api.set_neo4j_graph(FakeGraph())
+    api.set_qdrant_ready(True)
+    source_kg_api.set_ledger_repository(None)
+    judge_api.set_ledger_repository(None)
+
+    resp = client.get("/v1/ready", headers={"X-Request-Id": "req-ready-no-ledger"})
+
+    _assert_503_format(resp)
+    body = resp.json()
+    assert body["errorDetail"]["requestId"] == "req-ready-no-ledger"
 
 
 # ── 전역 HTTPException 핸들러 ──

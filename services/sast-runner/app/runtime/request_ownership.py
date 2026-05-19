@@ -7,7 +7,7 @@ from typing import Any, Awaitable, Callable
 
 from pydantic import BaseModel
 
-from app.errors import PolicyViolationError, SastRunnerError
+from app.errors import INTERNAL_ERROR_MESSAGE, PolicyViolationError, SastRunnerError
 from app.runtime.request_summary import request_summary_tracker
 
 _RETENTION_SECONDS = 300
@@ -62,6 +62,20 @@ def _cancel_payload(request_id: str, reason: str = "request cancelled") -> dict[
     }
 
 
+def _request_error_payload(*, code: str, message: str, request_id: str) -> dict[str, Any]:
+    return {
+        "success": False,
+        "error": code,
+        "requestId": request_id,
+        "errorDetail": {
+            "code": code,
+            "message": message,
+            "requestId": request_id,
+            "retryable": False,
+        },
+    }
+
+
 class RequestOwnershipStore:
     def __init__(self, retention_seconds: int = _RETENTION_SECONDS) -> None:
         self.retention_seconds = retention_seconds
@@ -84,14 +98,20 @@ class RequestOwnershipStore:
             existing = self._entries.get(request_id)
             if existing and not self._is_expired_locked(existing):
                 if existing.get("endpoint") != endpoint:
-                    return {
-                        "error": "REQUEST_ID_CONFLICT",
-                        "requestId": request_id,
-                        "existingEndpoint": existing.get("endpoint"),
-                        "requestedEndpoint": endpoint,
-                        "statusUrl": existing.get("statusUrl"),
-                        "resultUrl": existing.get("resultUrl"),
-                    }, 409
+                    payload = _request_error_payload(
+                        code="REQUEST_ID_CONFLICT",
+                        message="request id already belongs to another endpoint",
+                        request_id=request_id,
+                    )
+                    payload.update(
+                        {
+                            "existingEndpoint": existing.get("endpoint"),
+                            "requestedEndpoint": endpoint,
+                            "statusUrl": existing.get("statusUrl"),
+                            "resultUrl": existing.get("resultUrl"),
+                        }
+                    )
+                    return payload, 409
                 status_code = 202 if existing["state"] in {"queued", "running"} else 200
                 return self._status_locked(existing, reused=True), status_code
 
@@ -159,16 +179,21 @@ class RequestOwnershipStore:
         except Exception as exc:  # pragma: no cover - defensive wrapper
             payload = {
                 "success": False,
-                "error": str(exc),
+                "error": INTERNAL_ERROR_MESSAGE,
                 "errorDetail": {
                     "code": "INTERNAL_ERROR",
-                    "message": str(exc),
+                    "message": INTERNAL_ERROR_MESSAGE,
                     "requestId": request_id,
                     "retryable": False,
                 },
             }
-            request_summary_tracker.mark_failed(request_id, str(exc))
-            await self._complete(request_id, "failed", payload, error=str(exc))
+            request_summary_tracker.mark_failed(request_id, INTERNAL_ERROR_MESSAGE)
+            await self._complete(
+                request_id,
+                "failed",
+                payload,
+                error=INTERNAL_ERROR_MESSAGE,
+            )
 
     async def _complete(
         self,
@@ -201,9 +226,17 @@ class RequestOwnershipStore:
             self._prune_locked()
             entry = self._entries.get(request_id)
             if not entry:
-                return {"error": "REQUEST_NOT_FOUND", "requestId": request_id}, 404
+                return _request_error_payload(
+                    code="REQUEST_NOT_FOUND",
+                    message="request not found",
+                    request_id=request_id,
+                ), 404
             if self._is_expired_locked(entry):
-                return {"error": "REQUEST_EXPIRED", "requestId": request_id}, 410
+                return _request_error_payload(
+                    code="REQUEST_EXPIRED",
+                    message="request expired",
+                    request_id=request_id,
+                ), 410
             return self._status_locked(entry), 200
 
     async def get_result(self, request_id: str) -> tuple[dict[str, Any], int]:
@@ -211,9 +244,17 @@ class RequestOwnershipStore:
             self._prune_locked()
             entry = self._entries.get(request_id)
             if not entry:
-                return {"error": "REQUEST_NOT_FOUND", "requestId": request_id}, 404
+                return _request_error_payload(
+                    code="REQUEST_NOT_FOUND",
+                    message="request not found",
+                    request_id=request_id,
+                ), 404
             if self._is_expired_locked(entry):
-                return {"error": "REQUEST_EXPIRED", "requestId": request_id}, 410
+                return _request_error_payload(
+                    code="REQUEST_EXPIRED",
+                    message="request expired",
+                    request_id=request_id,
+                ), 410
             if entry["state"] in {"queued", "running"}:
                 return self._status_locked(entry), 202
             return self._result_locked(entry), 200
@@ -223,9 +264,17 @@ class RequestOwnershipStore:
             self._prune_locked()
             entry = self._entries.get(request_id)
             if not entry:
-                return {"error": "REQUEST_NOT_FOUND", "requestId": request_id}, 404
+                return _request_error_payload(
+                    code="REQUEST_NOT_FOUND",
+                    message="request not found",
+                    request_id=request_id,
+                ), 404
             if self._is_expired_locked(entry):
-                return {"error": "REQUEST_EXPIRED", "requestId": request_id}, 410
+                return _request_error_payload(
+                    code="REQUEST_EXPIRED",
+                    message="request expired",
+                    request_id=request_id,
+                ), 410
 
             if entry["state"] in {"queued", "running"}:
                 task = entry.get("task")

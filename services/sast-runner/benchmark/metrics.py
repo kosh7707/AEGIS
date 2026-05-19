@@ -6,6 +6,26 @@ from dataclasses import dataclass, field
 from typing import Any
 
 
+SAFE_CWE_DISPLAY_NAMES = {
+    "CWE-78": "OS_Command_Injection",
+    "CWE-121": "Stack_Based_Buffer_Overflow",
+    "CWE-122": "Heap_Based_Buffer_Overflow",
+    "CWE-134": "Uncontrolled_Format_String",
+    "CWE-190": "Integer_Overflow",
+    "CWE-252": "Unchecked_Return_Value",
+    "CWE-369": "Divide_by_Zero",
+    "CWE-401": "Memory_Leak",
+    "CWE-416": "Use_After_Free",
+    "CWE-457": "Use_of_Uninitialized_Variable",
+    "CWE-476": "NULL_Pointer_Dereference",
+    "CWE-680": "Integer_Overflow_to_Buffer_Overflow",
+}
+
+
+def safe_cwe_display_name(cwe: str) -> str:
+    return SAFE_CWE_DISPLAY_NAMES.get(cwe, cwe)
+
+
 @dataclass
 class ToolMetrics:
     """단일 도구의 CWE별 메트릭."""
@@ -92,7 +112,7 @@ class CWEMetrics:
     def to_dict(self) -> dict[str, Any]:
         result: dict[str, Any] = {
             "cwe": self.cwe,
-            "cweName": self.cwe_name,
+            "cweName": safe_cwe_display_name(self.cwe),
             "totalFiles": self.total_files,
             "combined": {
                 "tp": self.combined_tp,

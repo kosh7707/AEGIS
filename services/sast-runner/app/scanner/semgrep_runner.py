@@ -55,7 +55,13 @@ class SemgrepRunner:
             raise SemgrepNotAvailableError("Semgrep binary not found in PATH")
 
         cmd = self._build_command(scan_dir, rulesets, include_extensions)
-        logger.info("Running Semgrep: %s", " ".join(cmd))
+        logger.info(
+            "Running Semgrep",
+            extra={
+                "rulesetsCount": len(rulesets),
+                "includeExtensionsCount": len(include_extensions or []),
+            },
+        )
 
         proc = await asyncio.create_subprocess_exec(
             *cmd,
@@ -81,7 +87,7 @@ class SemgrepRunner:
             # stderr에 에러가 있을 수 있음
             err_msg = stderr.decode().strip()
             if err_msg:
-                logger.warning("Semgrep stderr: %s", err_msg)
+                logger.warning("Semgrep stderr was non-empty")
             # 빈 결과를 SARIF 형태로 반환
             return {"runs": [{"tool": {"driver": {"rules": []}}, "results": []}]}
 
@@ -89,8 +95,7 @@ class SemgrepRunner:
             return json.loads(raw)
         except json.JSONDecodeError:
             # JSON이 아닌 출력 (에러 메시지 등)
-            err_msg = stderr.decode().strip()
-            logger.error("Semgrep non-JSON output: %s, stderr: %s", raw[:500], err_msg)
+            logger.error("Semgrep produced non-JSON SARIF output")
             raise ToolOutputInvalidError("Semgrep produced non-JSON SARIF output")
 
     def _build_command(

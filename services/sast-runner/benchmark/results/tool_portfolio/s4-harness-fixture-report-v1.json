@@ -725,9 +725,11 @@
         "acquisitionId": "juliet-c-cpp-1.3",
         "caseCount": 0,
         "corpusName": "juliet",
+        "localPathStatus": "not_declared",
         "reasonCodes": [
           "LOCAL_JULIET_CORPUS_NOT_PRESENT"
         ],
+        "resolvedLocalPathStatus": "not_resolved",
         "status": "blocked"
       }
     },
@@ -736,6 +738,9 @@
     "decisionGradeReady": false,
     "externalCorpusStatus": {
       "juliet": {
+        "acquisitionIds": [
+          "juliet-c-cpp-1.3"
+        ],
         "reasonCodes": [
           "LOCAL_JULIET_CORPUS_NOT_PRESENT"
         ],
@@ -806,6 +811,15 @@
     "currentDecision": "insufficient-evidence-for-tool-change",
     "externalCorpusStatus": {
       "juliet": {
+        "acquisitionIds": [
+          "juliet-c-cpp-1.3"
+        ],
+        "reasonCodes": [
+          "LOCAL_JULIET_CORPUS_NOT_PRESENT"
+        ],
+        "status": "blocked"
+      },
+      "requiredCorpusReadiness": {
         "reasonCodes": [
           "LOCAL_JULIET_CORPUS_NOT_PRESENT"
         ],
@@ -814,12 +828,16 @@
     },
     "futureCandidateActionsRequireWr": true,
     "reasonCodes": [
+      "FINDING_PRECISION_BELOW_THRESHOLD",
       "LOCAL_JULIET_CORPUS_NOT_PRESENT",
-      "LOCAL_ORACLE_QUALITY_FAILED"
+      "LOCAL_ORACLE_QUALITY_FAILED",
+      "NEGATIVE_TARGET_FPR_ABOVE_THRESHOLD",
+      "SYSTEM_STABILITY_GATE_NOT_RUN"
     ],
     "removeCandidates": [],
     "requiredFollowUps": [
-      "Provide local pinned juliet corpus before decision-grade validation/test evidence."
+      "Provide local pinned juliet corpus before decision-grade validation/test evidence.",
+      "Run Corpus Readiness Gate with explicit required corpora before decision-grade validation/test evidence."
     ],
     "upgradeCandidates": []
   },
@@ -874,6 +892,419 @@
   "producer": {
     "deterministic": true,
     "service": "s4-sast-runner"
+  },
+  "qualityDiagnostics": {
+    "consumerPolicy": "diagnostic_only_not_quality_gate",
+    "diagnosticScope": "primary-tool-set-config-only",
+    "primaryToolSetConfig": "full-current-six",
+    "reasonCodes": [],
+    "schemaVersion": "s4-tool-portfolio-quality-diagnostics-v1",
+    "splitDiagnostics": {
+      "canary": {
+        "byCwe": {
+          "CWE-120": {
+            "exact-target-match": 1,
+            "missed-target": 0,
+            "negative-case-finding": 0,
+            "negativeTargetViolationCount": 0,
+            "off-target-finding": 0,
+            "strong-related-match": 0,
+            "targetFN": 0,
+            "targetTP": 1,
+            "triageReasonCodes": [],
+            "weak-related-match": 0,
+            "wrong-cwe-target-location": 0
+          }
+        },
+        "byCweTool": {
+          "CWE-120": {
+            "semgrep": {
+              "negativeTargetViolationCount": 0,
+              "targetOutcomeCounts": {
+                "exact-target-match": 1
+              },
+              "targetTP": 1,
+              "triageReasonCodes": []
+            }
+          }
+        },
+        "byTool": {
+          "semgrep": {
+            "nonTpRawFindingCount": 0,
+            "targetOutcomeCounts": {
+              "exact-target-match": 1
+            },
+            "tpFindingCount": 1,
+            "uniqueRawFindingCount": 1
+          }
+        },
+        "diagnosticHints": [],
+        "diagnosticTriage": {
+          "candidates": [],
+          "consumerPolicy": "candidate_investigation_lanes_not_root_cause_or_verdict",
+          "status": "available"
+        },
+        "findingPressure": {
+          "nonTpRawFindingCount": 0,
+          "oracleCountedFpFindingCount": 0,
+          "tpFindingCount": 1,
+          "uniqueRawFindingCount": 1
+        },
+        "matchAttemptDiagnostics": {
+          "weakRelatedAttemptCount": 0,
+          "wrongCweTargetLocationAttemptCount": 0
+        },
+        "metricSummary": {
+          "findingPrecision": 1.0,
+          "fpFindings": 0,
+          "negativeTargetCleanCount": 0,
+          "negativeTargetFpr": null,
+          "negativeTargetViolationCount": 0,
+          "targetFN": 0,
+          "targetRecall": 1.0,
+          "targetTP": 1,
+          "weakRelatedCount": 0,
+          "wrongCweCount": 0
+        },
+        "split": "canary",
+        "status": "available",
+        "targetOutcomeCounts": {
+          "exact-target-match": 1,
+          "missed-target": 0,
+          "negative-case-finding": 0,
+          "off-target-finding": 0,
+          "strong-related-match": 0,
+          "weak-related-match": 0,
+          "wrong-cwe-target-location": 0
+        }
+      },
+      "test": {
+        "byCwe": {
+          "CWE-121": {
+            "exact-target-match": 0,
+            "missed-target": 0,
+            "negative-case-finding": 1,
+            "negativeTargetViolationCount": 1,
+            "off-target-finding": 0,
+            "strong-related-match": 0,
+            "targetFN": 0,
+            "targetTP": 0,
+            "triageReasonCodes": [
+              "NEGATIVE_TARGET_VIOLATIONS_PRESENT"
+            ],
+            "weak-related-match": 0,
+            "wrong-cwe-target-location": 0
+          },
+          "CWE-416": {
+            "exact-target-match": 1,
+            "missed-target": 0,
+            "negative-case-finding": 0,
+            "negativeTargetViolationCount": 0,
+            "off-target-finding": 0,
+            "strong-related-match": 0,
+            "targetFN": 0,
+            "targetTP": 1,
+            "triageReasonCodes": [],
+            "weak-related-match": 0,
+            "wrong-cwe-target-location": 0
+          }
+        },
+        "byCweTool": {
+          "CWE-121": {
+            "flawfinder": {
+              "negativeTargetViolationCount": 1,
+              "targetOutcomeCounts": {
+                "negative-case-finding": 1
+              },
+              "targetTP": 0,
+              "triageReasonCodes": [
+                "NEGATIVE_TARGET_VIOLATIONS_PRESENT"
+              ]
+            }
+          },
+          "CWE-416": {
+            "gcc-fanalyzer": {
+              "negativeTargetViolationCount": 0,
+              "targetOutcomeCounts": {
+                "exact-target-match": 1
+              },
+              "targetTP": 1,
+              "triageReasonCodes": []
+            }
+          }
+        },
+        "byTool": {
+          "flawfinder": {
+            "nonTpRawFindingCount": 1,
+            "targetOutcomeCounts": {
+              "negative-case-finding": 1
+            },
+            "tpFindingCount": 0,
+            "uniqueRawFindingCount": 1
+          },
+          "gcc-fanalyzer": {
+            "nonTpRawFindingCount": 0,
+            "targetOutcomeCounts": {
+              "exact-target-match": 1
+            },
+            "tpFindingCount": 1,
+            "uniqueRawFindingCount": 1
+          }
+        },
+        "diagnosticHints": [
+          "NOISE_PRESSURE_PRESENT",
+          "NEGATIVE_TARGET_VIOLATIONS_PRESENT"
+        ],
+        "diagnosticTriage": {
+          "candidates": [
+            {
+              "candidateId": "negative-discrimination-review",
+              "category": "coverage-or-noise-review",
+              "evidence": {
+                "negativeTargetViolationCount": 1
+              },
+              "nextLocalAction": "inspect-negative-region-ruleset-discrimination",
+              "reasonCodes": [
+                "NEGATIVE_TARGET_VIOLATIONS_PRESENT"
+              ]
+            },
+            {
+              "candidateId": "noise-pressure-review",
+              "category": "coverage-or-noise-review",
+              "evidence": {
+                "fpFindings": 1,
+                "nonTpRawFindingCount": 1,
+                "oracleCountedFpFindingCount": 1
+              },
+              "nextLocalAction": "inspect-high-pressure-tools-and-rule-ids",
+              "reasonCodes": [
+                "NOISE_PRESSURE_PRESENT"
+              ]
+            }
+          ],
+          "consumerPolicy": "candidate_investigation_lanes_not_root_cause_or_verdict",
+          "status": "available"
+        },
+        "findingPressure": {
+          "nonTpRawFindingCount": 1,
+          "oracleCountedFpFindingCount": 1,
+          "tpFindingCount": 1,
+          "uniqueRawFindingCount": 2
+        },
+        "matchAttemptDiagnostics": {
+          "weakRelatedAttemptCount": 0,
+          "wrongCweTargetLocationAttemptCount": 0
+        },
+        "metricSummary": {
+          "findingPrecision": 0.5,
+          "fpFindings": 1,
+          "negativeTargetCleanCount": 1,
+          "negativeTargetFpr": 0.5,
+          "negativeTargetViolationCount": 1,
+          "targetFN": 0,
+          "targetRecall": 1.0,
+          "targetTP": 1,
+          "weakRelatedCount": 0,
+          "wrongCweCount": 0
+        },
+        "split": "test",
+        "status": "available",
+        "targetOutcomeCounts": {
+          "exact-target-match": 1,
+          "missed-target": 0,
+          "negative-case-finding": 1,
+          "off-target-finding": 0,
+          "strong-related-match": 0,
+          "weak-related-match": 0,
+          "wrong-cwe-target-location": 0
+        }
+      },
+      "validation": {
+        "byCwe": {
+          "CWE-121": {
+            "exact-target-match": 1,
+            "missed-target": 0,
+            "negative-case-finding": 0,
+            "negativeTargetViolationCount": 0,
+            "off-target-finding": 0,
+            "strong-related-match": 0,
+            "targetFN": 0,
+            "targetTP": 1,
+            "triageReasonCodes": [],
+            "weak-related-match": 0,
+            "wrong-cwe-target-location": 0
+          },
+          "CWE-190": {
+            "exact-target-match": 1,
+            "missed-target": 0,
+            "negative-case-finding": 0,
+            "negativeTargetViolationCount": 0,
+            "off-target-finding": 0,
+            "strong-related-match": 0,
+            "targetFN": 0,
+            "targetTP": 1,
+            "triageReasonCodes": [],
+            "weak-related-match": 0,
+            "wrong-cwe-target-location": 0
+          },
+          "CWE-476": {
+            "exact-target-match": 0,
+            "missed-target": 0,
+            "negative-case-finding": 0,
+            "negativeTargetViolationCount": 0,
+            "off-target-finding": 0,
+            "strong-related-match": 1,
+            "targetFN": 0,
+            "targetTP": 1,
+            "triageReasonCodes": [],
+            "weak-related-match": 0,
+            "wrong-cwe-target-location": 0
+          }
+        },
+        "byCweTool": {
+          "CWE-121": {
+            "semgrep": {
+              "negativeTargetViolationCount": 0,
+              "targetOutcomeCounts": {
+                "exact-target-match": 1
+              },
+              "targetTP": 1,
+              "triageReasonCodes": []
+            }
+          },
+          "CWE-190": {
+            "semgrep": {
+              "negativeTargetViolationCount": 0,
+              "targetOutcomeCounts": {
+                "exact-target-match": 1
+              },
+              "targetTP": 1,
+              "triageReasonCodes": []
+            }
+          },
+          "CWE-476": {
+            "scan-build": {
+              "negativeTargetViolationCount": 0,
+              "targetOutcomeCounts": {
+                "strong-related-match": 1
+              },
+              "targetTP": 1,
+              "triageReasonCodes": []
+            }
+          }
+        },
+        "byTool": {
+          "cppcheck": {
+            "nonTpRawFindingCount": 2,
+            "targetOutcomeCounts": {},
+            "tpFindingCount": 0,
+            "uniqueRawFindingCount": 2
+          },
+          "flawfinder": {
+            "nonTpRawFindingCount": 1,
+            "targetOutcomeCounts": {},
+            "tpFindingCount": 0,
+            "uniqueRawFindingCount": 1
+          },
+          "scan-build": {
+            "nonTpRawFindingCount": 0,
+            "targetOutcomeCounts": {
+              "strong-related-match": 1
+            },
+            "tpFindingCount": 1,
+            "uniqueRawFindingCount": 1
+          },
+          "semgrep": {
+            "nonTpRawFindingCount": 0,
+            "targetOutcomeCounts": {
+              "exact-target-match": 2
+            },
+            "tpFindingCount": 2,
+            "uniqueRawFindingCount": 2
+          }
+        },
+        "diagnosticHints": [
+          "NOISE_PRESSURE_PRESENT",
+          "WRONG_CWE_MATCHES_PRESENT",
+          "WEAK_RELATED_MATCHES_PRESENT"
+        ],
+        "diagnosticTriage": {
+          "candidates": [
+            {
+              "candidateId": "matching-policy-review",
+              "category": "measurement-review",
+              "evidence": {
+                "weakRelatedAttemptCount": 1
+              },
+              "nextLocalAction": "inspect-oracle-line-window-or-function-fallback",
+              "reasonCodes": [
+                "WEAK_RELATED_MATCHES_PRESENT"
+              ]
+            },
+            {
+              "candidateId": "cwe-normalization-review",
+              "category": "measurement-review",
+              "evidence": {
+                "wrongCweTargetLocationAttemptCount": 1
+              },
+              "nextLocalAction": "inspect-tool-cwe-mapping-and-target-cwe-family",
+              "reasonCodes": [
+                "WRONG_CWE_MATCHES_PRESENT"
+              ]
+            },
+            {
+              "candidateId": "noise-pressure-review",
+              "category": "coverage-or-noise-review",
+              "evidence": {
+                "fpFindings": 3,
+                "nonTpRawFindingCount": 3,
+                "oracleCountedFpFindingCount": 3
+              },
+              "nextLocalAction": "inspect-high-pressure-tools-and-rule-ids",
+              "reasonCodes": [
+                "NOISE_PRESSURE_PRESENT"
+              ]
+            }
+          ],
+          "consumerPolicy": "candidate_investigation_lanes_not_root_cause_or_verdict",
+          "status": "available"
+        },
+        "findingPressure": {
+          "nonTpRawFindingCount": 3,
+          "oracleCountedFpFindingCount": 3,
+          "tpFindingCount": 3,
+          "uniqueRawFindingCount": 6
+        },
+        "matchAttemptDiagnostics": {
+          "weakRelatedAttemptCount": 1,
+          "wrongCweTargetLocationAttemptCount": 1
+        },
+        "metricSummary": {
+          "findingPrecision": 0.5,
+          "fpFindings": 3,
+          "negativeTargetCleanCount": 0,
+          "negativeTargetFpr": null,
+          "negativeTargetViolationCount": 0,
+          "targetFN": 0,
+          "targetRecall": 1.0,
+          "targetTP": 3,
+          "weakRelatedCount": 1,
+          "wrongCweCount": 1
+        },
+        "split": "validation",
+        "status": "available",
+        "targetOutcomeCounts": {
+          "exact-target-match": 2,
+          "missed-target": 0,
+          "negative-case-finding": 0,
+          "off-target-finding": 0,
+          "strong-related-match": 1,
+          "weak-related-match": 0,
+          "wrong-cwe-target-location": 0
+        }
+      }
+    },
+    "status": "available"
   },
   "qualityGate": {
     "blockedBy": [],
@@ -946,6 +1377,16 @@
         }
       },
       "status": "fail",
+      "thresholdProfile": {
+        "discriminatingThresholdFields": [
+          "minimumTargetRecall",
+          "minimumFindingPrecision",
+          "maximumNegativeTargetFpr"
+        ],
+        "intent": "quality-sufficiency",
+        "reasonCodes": [],
+        "status": "decision_grade_candidate"
+      },
       "thresholds": {
         "maximumNegativeTargetFpr": 0.0,
         "minimumFindingPrecision": 0.8,
@@ -959,8 +1400,11 @@
       }
     },
     "reasonCodes": [
+      "FINDING_PRECISION_BELOW_THRESHOLD",
       "LOCAL_JULIET_CORPUS_NOT_PRESENT",
-      "LOCAL_ORACLE_QUALITY_FAILED"
+      "LOCAL_ORACLE_QUALITY_FAILED",
+      "NEGATIVE_TARGET_FPR_ABOVE_THRESHOLD",
+      "SYSTEM_STABILITY_GATE_NOT_RUN"
     ],
     "schemaVersion": "s4-tool-portfolio-quality-gate-v1",
     "status": "not_decision_grade"
@@ -984,7 +1428,7 @@
         "status": "not_run"
       }
     },
-    "qualityGateAllowed": true,
+    "qualityGateAllowed": false,
     "reasonCodes": [
       "HARNESS_FIXTURE_DOES_NOT_EXECUTE_TOOLS"
     ],
@@ -1752,6 +2196,147 @@
     },
     "split": "test",
     "status": "pass"
+  },
+  "toolContributionDiagnostics": {
+    "consumerPolicy": "diagnostic_only_not_tool_change_verdict",
+    "includedSplits": [
+      "validation",
+      "test",
+      "canary"
+    ],
+    "metricScope": "aggregate_all_scored_targets",
+    "primaryToolSetConfig": "full-current-six",
+    "reasonCodes": [],
+    "schemaVersion": "s4-tool-portfolio-tool-contribution-diagnostics-v1",
+    "status": "available",
+    "tools": [
+      {
+        "evidenceClass": "unique-positive-contributor",
+        "leaveOneOutDelta": {
+          "fpFindingsDelta": 1,
+          "targetRecallDelta": 0.4
+        },
+        "reasonCodes": [
+          "UNIQUE_POSITIVE_CONTRIBUTION_PRESENT"
+        ],
+        "singleTool": {
+          "findingPrecision": 1.0,
+          "fpFindings": 0,
+          "negativeTargetFpr": 0.0,
+          "negativeTargetViolationCount": 0,
+          "targetFN": 2,
+          "targetRecall": 0.6,
+          "targetTP": 3
+        },
+        "toolId": "semgrep",
+        "uniqueTpContribution": 2
+      },
+      {
+        "evidenceClass": "overlap-only-positive-contributor",
+        "leaveOneOutDelta": {
+          "fpFindingsDelta": 2,
+          "targetRecallDelta": 0.0
+        },
+        "reasonCodes": [
+          "OVERLAP_POSITIVE_CONTRIBUTION_PRESENT"
+        ],
+        "singleTool": {
+          "findingPrecision": 0.5,
+          "fpFindings": 1,
+          "negativeTargetFpr": 0.0,
+          "negativeTargetViolationCount": 0,
+          "targetFN": 4,
+          "targetRecall": 0.2,
+          "targetTP": 1
+        },
+        "toolId": "cppcheck",
+        "uniqueTpContribution": 0
+      },
+      {
+        "evidenceClass": "noise-only-or-no-positive-contribution",
+        "leaveOneOutDelta": {
+          "fpFindingsDelta": 2,
+          "targetRecallDelta": 0.0
+        },
+        "reasonCodes": [
+          "NOISE_WITHOUT_POSITIVE_CONTRIBUTION_PRESENT"
+        ],
+        "singleTool": {
+          "findingPrecision": 0.0,
+          "fpFindings": 2,
+          "negativeTargetFpr": 0.5,
+          "negativeTargetViolationCount": 1,
+          "targetFN": 5,
+          "targetRecall": 0.0,
+          "targetTP": 0
+        },
+        "toolId": "flawfinder",
+        "uniqueTpContribution": 0
+      },
+      {
+        "evidenceClass": "no-observed-signal",
+        "leaveOneOutDelta": {
+          "fpFindingsDelta": 0,
+          "targetRecallDelta": 0.0
+        },
+        "reasonCodes": [
+          "NO_OBSERVED_SIGNAL"
+        ],
+        "singleTool": {
+          "findingPrecision": null,
+          "fpFindings": 0,
+          "negativeTargetFpr": 0.0,
+          "negativeTargetViolationCount": 0,
+          "targetFN": 5,
+          "targetRecall": 0.0,
+          "targetTP": 0
+        },
+        "toolId": "clang-tidy",
+        "uniqueTpContribution": 0
+      },
+      {
+        "evidenceClass": "unique-positive-contributor",
+        "leaveOneOutDelta": {
+          "fpFindingsDelta": 0,
+          "targetRecallDelta": 0.2
+        },
+        "reasonCodes": [
+          "UNIQUE_POSITIVE_CONTRIBUTION_PRESENT"
+        ],
+        "singleTool": {
+          "findingPrecision": 1.0,
+          "fpFindings": 0,
+          "negativeTargetFpr": 0.0,
+          "negativeTargetViolationCount": 0,
+          "targetFN": 4,
+          "targetRecall": 0.2,
+          "targetTP": 1
+        },
+        "toolId": "scan-build",
+        "uniqueTpContribution": 1
+      },
+      {
+        "evidenceClass": "unique-positive-contributor",
+        "leaveOneOutDelta": {
+          "fpFindingsDelta": 0,
+          "targetRecallDelta": 0.2
+        },
+        "reasonCodes": [
+          "UNIQUE_POSITIVE_CONTRIBUTION_PRESENT"
+        ],
+        "singleTool": {
+          "findingPrecision": 1.0,
+          "fpFindings": 0,
+          "negativeTargetFpr": 0.0,
+          "negativeTargetViolationCount": 0,
+          "targetFN": 4,
+          "targetRecall": 0.2,
+          "targetTP": 1
+        },
+        "toolId": "gcc-fanalyzer",
+        "uniqueTpContribution": 1
+      }
+    ]
   },
   "toolSetConfigs": [
     "full-current-six",

@@ -38,30 +38,55 @@ _BEAR_PREFIX_RE = re.compile(r"\bbear\s+--\s*")
 
 
 def _validate_build_result(data: dict) -> tuple[bool, str | None]:
-    """S4 빌드 응답의 성공 판정. v0.11 buildEvidence와 legacy exitCode 모두 수용."""
-    build_evidence = data.get("buildEvidence", {}) if isinstance(data.get("buildEvidence"), dict) else {}
-    exit_code = build_evidence.get("exitCode", data.get("exitCode", -1))
+    """S4 빌드 응답의 성공 판정.
 
-    if exit_code == 0:
+    Current S4 `/v1/build` clean success requires the full readiness contract,
+    not merely `exitCode == 0`. Partial/not-ready build output is execution
+    evidence and repair guidance, but it is not a reusable Quick compile DB.
+    """
+    build_evidence = data.get("buildEvidence", {}) if isinstance(data.get("buildEvidence"), dict) else {}
+    readiness = data.get("readiness", {}) if isinstance(data.get("readiness"), dict) else {}
+    exit_code = build_evidence.get("exitCode", data.get("exitCode", -1))
+    user_entries = build_evidence.get("userEntries", data.get("userEntries", 0))
+    compile_commands_path = build_evidence.get("compileCommandsPath") or data.get("compileCommandsPath")
+
+    clean_failures: list[str] = []
+    if data.get("success") is not True:
+        clean_failures.append("success=false")
+    if readiness.get("status") != "ready":
+        clean_failures.append(f"readiness.status={readiness.get('status') or 'missing'}")
+    if readiness.get("compileCommandsReady") is not True:
+        clean_failures.append(f"compileCommandsReady={str(readiness.get('compileCommandsReady')).lower()}")
+    if readiness.get("quickEligible") is not True:
+        clean_failures.append(f"quickEligible={str(readiness.get('quickEligible')).lower()}")
+    if not isinstance(compile_commands_path, str) or not compile_commands_path.strip():
+        clean_failures.append("compileCommandsPath missing")
+    if not isinstance(user_entries, int) or isinstance(user_entries, bool) or user_entries <= 0:
+        clean_failures.append(f"userEntries={user_entries}")
+    if exit_code != 0:
+        clean_failures.append(f"exitCode={exit_code}")
+
+    if not clean_failures:
         return True, None
 
     # 부분 빌드: 실패했지만 일부 compile_commands 사용 가능
-    user_entries = build_evidence.get("userEntries", data.get("userEntries", 0))
     failure_detail = data.get("failureDetail", {}) if isinstance(data.get("failureDetail"), dict) else {}
     failure_summary = failure_detail.get("summary", "")
     failure_hint = failure_detail.get("hint", "")
     s4_warning = data.get("warning", "")
+    readiness_summary = readiness.get("summary", "")
+    clean_failure_summary = ", ".join(clean_failures)
     if user_entries > 0:
         return False, (
-            f"빌드 exit code={exit_code} (실패). "
-            f"단, 부분 compile_commands 사용 가능 ({user_entries}개 유저 엔트리). "
-            f"{failure_summary or s4_warning}".strip()
+            f"빌드 준비 조건 불충족 ({clean_failure_summary}). "
+            f"부분 compile_commands 사용 가능 ({user_entries}개 유저 엔트리)하더라도 canonical Quick 입력으로는 사용하지 않습니다. "
+            f"{failure_summary or readiness_summary or s4_warning}".strip()
         )
 
-    extra = " ".join(part for part in (failure_summary, failure_hint, s4_warning) if part).strip()
+    extra = " ".join(part for part in (failure_summary, failure_hint, readiness_summary, s4_warning) if part).strip()
     if extra:
-        return False, f"빌드 exit code={exit_code} (실패). {extra}"
-    return False, f"빌드 exit code={exit_code} (실패)."
+        return False, f"빌드 준비 조건 불충족 ({clean_failure_summary}). {extra}"
+    return False, f"빌드 준비 조건 불충족 ({clean_failure_summary})."
 
 
 class TryBuildTool:

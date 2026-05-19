@@ -15,12 +15,49 @@
 #   ./scripts/knowledge-base/etl-build.sh --fresh --seed # 전체 재빌드
 set -euo pipefail
 
-KB_DIR="$(cd "$(dirname "$0")/../../services/knowledge-base" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+KB_DIR="$REPO_ROOT/services/knowledge-base"
 QDRANT_PATH="$KB_DIR/data/qdrant"
 RAW_CACHE="$KB_DIR/data/threat-db-raw"
 SEED=false
 FRESH=false
 BUILD_ARGS=()
+
+load_env_file() {
+  local env_file="$1"
+  local line key value
+  [ -f "$env_file" ] || return 0
+  while IFS= read -r line || [ -n "$line" ]; do
+    line="${line#"${line%%[![:space:]]*}"}"
+    line="${line%"${line##*[![:space:]]}"}"
+    [[ -z "$line" || "$line" == \#* ]] && continue
+    [[ "$line" == export\ * ]] && line="${line#export }"
+    [[ "$line" == AEGIS_KB_*"="* ]] || continue
+    key="${line%%=*}"
+    value="${line#*=}"
+    value="${value#"${value%%[![:space:]]*}"}"
+    value="${value%"${value##*[![:space:]]}"}"
+    if [[ "$value" == \"*\" && "$value" == *\" ]]; then
+      value="${value:1:${#value}-2}"
+    elif [[ "$value" == \'*\' && "$value" == *\' ]]; then
+      value="${value:1:${#value}-2}"
+    fi
+    export "${key}=${value}"
+  done < "$env_file"
+}
+
+redact_url_userinfo() {
+  local value="$1"
+  local prefix rest
+  if [[ "$value" == *"://"* && "$value" == *"@"* ]]; then
+    prefix="${value%%://*}://"
+    rest="${value#*://}"
+    echo "${prefix}***@${rest#*@}"
+  else
+    echo "$value"
+  fi
+}
 
 for arg in "$@"; do
   case $arg in
@@ -32,6 +69,14 @@ done
 
 cd "$KB_DIR"
 
+# .env 로드: shell source 대신 S5-owned AEGIS_KB_* key-value만 안전 export한다.
+load_env_file ".env"
+
+LEDGER_URL="${AEGIS_KB_LEDGER_URL:-sqlite:///data/s5-ledger.sqlite}"
+NEO4J_URI="${AEGIS_KB_NEO4J_URI:-bolt://localhost:7687}"
+NEO4J_USER="${AEGIS_KB_NEO4J_USER:-neo4j}"
+NEO4J_PASSWORD="${AEGIS_KB_NEO4J_PASSWORD:-aegis-kb}"
+
 # ── Pre-flight checks ──
 
 if [ ! -d ".venv" ]; then
@@ -40,10 +85,17 @@ if [ ! -d ".venv" ]; then
   exit 1
 fi
 
-if [ -f "$QDRANT_PATH/.lock" ] && lsof "$QDRANT_PATH/.lock" &>/dev/null 2>&1; then
-  echo "ERROR: Qdrant DB가 다른 프로세스에 의해 사용 중입니다."
-  echo "       KB 서비스를 먼저 중지하세요: ./scripts/stop.sh"
-  exit 1
+if [ -f "$QDRANT_PATH/.lock" ]; then
+  if ! command -v lsof &>/dev/null 2>&1; then
+    echo "ERROR: Qdrant lock file exists but lsof is unavailable; refusing to run ETL fail-closed."
+    echo "       KB 서비스를 먼저 중지하거나 lsof를 설치한 뒤 stale lock 여부를 확인하세요."
+    exit 1
+  fi
+  if lsof "$QDRANT_PATH/.lock" &>/dev/null 2>&1; then
+    echo "ERROR: Qdrant DB가 다른 프로세스에 의해 사용 중입니다."
+    echo "       KB 서비스를 먼저 중지하세요: $REPO_ROOT/scripts/stop.sh"
+    exit 1
+  fi
 fi
 
 # ── 시작 배너 ──
@@ -52,7 +104,11 @@ echo ""
 echo "=== AEGIS KB ETL Pipeline ==="
 echo "  소스:   CWE + ATT&CK (ICS+Enterprise) + CAPEC"
 echo "  Qdrant: $QDRANT_PATH"
-[ "$SEED" = true ]  && echo "  Neo4j:  시드 포함 (--seed)"
+if [ "$SEED" = true ]; then
+  echo "  Neo4j:  ledger-derived projection seed 포함 (--seed)"
+  LEDGER_DISPLAY_URL="$(redact_url_userinfo "$LEDGER_URL")"
+  echo "  Ledger: $LEDGER_DISPLAY_URL"
+fi
 [ "$FRESH" = true ] && echo "  모드:   캐시 초기화 (--fresh)"
 echo ""
 
@@ -101,7 +157,12 @@ if [ "$SEED" = true ]; then
     done
   fi
 
-  .venv/bin/python scripts/neo4j-seed.py --qdrant-path "$QDRANT_PATH" --clear
+  .venv/bin/python scripts/neo4j-seed.py \
+    --ledger-url "$LEDGER_URL" \
+    --neo4j-uri "$NEO4J_URI" \
+    --neo4j-user "$NEO4J_USER" \
+    --neo4j-password "$NEO4J_PASSWORD" \
+    --clear
   echo ""
   echo "=== Neo4j Seed 완료 ==="
 fi
@@ -114,4 +175,4 @@ ETL_SEC=$(( ETL_ELAPSED % 60 ))
 
 echo ""
 echo "=== ETL 완료 (${ETL_MIN}분 ${ETL_SEC}초) ==="
-echo "  다음 단계: ./scripts/start-knowledge-base.sh 로 KB 서비스 기동"
+echo "  다음 단계: $REPO_ROOT/scripts/start-knowledge-base.sh 로 KB 서비스 기동"

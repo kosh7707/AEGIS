@@ -10,6 +10,7 @@ from app.agent_runtime.context import get_request_id
 from app.agent_runtime.observability import agent_log
 from app.core.phase_one_types import Phase1Result
 from app.core.s4_static_evidence import extract_static_evidence_contract, summarize_static_evidence_contract
+from app.core.s4_tool_portfolio_report import extract_tool_portfolio_report, summarize_tool_portfolio_report
 
 if TYPE_CHECKING:
     from app.core.agent_session import AgentSession
@@ -92,6 +93,9 @@ async def execute_phase_one(executor, session: "AgentSession", logger: logging.L
     graph_warnings = graph_context.get("warnings")
     if isinstance(graph_warnings, list):
         result.code_graph_warnings = [str(item) for item in graph_warnings]
+    graph_functions = graph_context.get("functions")
+    if isinstance(graph_functions, list):
+        result.code_functions = [func for func in graph_functions if isinstance(func, dict)]
 
     analysis_path = resolve_analysis_path(project_path, target_path, logger)
 
@@ -104,6 +108,11 @@ async def execute_phase_one(executor, session: "AgentSession", logger: logging.L
     if pre_findings is None:
         pre_findings = quick_context.get("sastFindings")
     pre_static_contract = extract_static_evidence_contract(trusted, quick_context)
+    pre_tool_portfolio_report = extract_tool_portfolio_report(trusted, quick_context)
+    if pre_tool_portfolio_report:
+        result.s4_tool_portfolio_report = pre_tool_portfolio_report
+        result.s4_tool_portfolio_diagnostics = summarize_tool_portfolio_report(pre_tool_portfolio_report)
+        result.s4_tool_portfolio_quality_ready = bool(result.s4_tool_portfolio_diagnostics.get("qualityReady"))
     pre_sca = trusted.get("scaLibraries")
     if pre_sca is None:
         pre_sca = quick_context.get("scaLibraries")
@@ -147,6 +156,18 @@ async def execute_phase_one(executor, session: "AgentSession", logger: logging.L
             )
             if ba_result is not None:
                 result = ba_result
+                if result.code_functions and project_id:
+                    await executor._ingest_code_graph(
+                        result,
+                        project_id,
+                        request_id,
+                        revision_hint=revision_hint,
+                        provenance=provenance,
+                        compile_commands_path=result.build_compile_commands_path,
+                        build_profile=build_profile,
+                        build_environment=build_environment,
+                        build_target=target_path or analysis_path,
+                    )
             else:
                 agent_log(
                     logger, "Phase 1: build-and-analyze 실패, 개별 도구 fallback",
@@ -172,6 +193,19 @@ async def execute_phase_one(executor, session: "AgentSession", logger: logging.L
                 provenance=provenance,
                 build_environment=build_environment,
             )
+
+    if pre_findings is not None and result.code_functions and project_id:
+        await executor._ingest_code_graph(
+            result,
+            project_id,
+            request_id,
+            revision_hint=revision_hint,
+            provenance=provenance,
+            compile_commands_path=result.build_compile_commands_path,
+            build_profile=build_profile,
+            build_environment=build_environment,
+            build_target=target_path or analysis_path,
+        )
 
     if result.sca_libraries:
         result = await executor._run_cve_lookup(result)

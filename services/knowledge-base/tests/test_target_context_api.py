@@ -63,6 +63,21 @@ class SlowCodeGraphService(FakeCodeGraphService):
         return super().ingest(project_id, functions, provenance=provenance)
 
 
+class SlowTargetContextService:
+    def __init__(self, delegate):
+        self.delegate = delegate
+
+    def ingest(self, bundle):
+        time.sleep(0.08)
+        return self.delegate.ingest(bundle)
+
+    def get(self, *args, **kwargs):
+        return self.delegate.get(*args, **kwargs)
+
+    def list_contexts(self, *args, **kwargs):
+        return self.delegate.list_contexts(*args, **kwargs)
+
+
 class FakeNvdClient:
     async def batch_lookup(self, libraries):
         results = []
@@ -321,6 +336,30 @@ def test_target_context_ingest_graph_projection_timeout_returns_envelope(full_bu
     assert item["acquisitionStatus"] == "timeout"
     assert item["scope"]["graphProjectionReady"] is False
     assert item["diagnostics"][0]["code"] == "TARGET_CONTEXT_GRAPH_PROJECTION_TIMEOUT"
+    assert vector_search.ingests == []
+
+
+def test_target_context_durable_ingest_does_not_false_408_before_projection_timeout(full_bundle, _reset_state):
+    vector_search = FakeCodeVectorSearch()
+    target_context_api.set_target_context_service(SlowTargetContextService(_reset_state))
+    target_context_api.set_code_graph_service(FakeCodeGraphService())
+    target_context_api.set_code_vector_search(vector_search)
+
+    resp = client.post(
+        "/v1/target-contexts",
+        json=full_bundle,
+        headers={**_HEADERS, "X-Timeout-Ms": "50"},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+
+    assert body["schemaVersion"] == "acquisition-envelope-v1"
+    assert body["surface"] == "target-context-ingest"
+    assert body["targetKnowledgeId"].startswith("tctx-")
+    assert body["acquisitionStatus"] == "timeout"
+    assert body["acquisitionQualityGate"] == "inconclusive"
+    assert body["consumerPolicy"] == "do_not_use_as_negative_evidence"
+    assert body["itemAcquisitions"][0]["diagnostics"][0]["code"] == "TARGET_CONTEXT_GRAPH_PROJECTION_TIMEOUT"
     assert vector_search.ingests == []
 
 

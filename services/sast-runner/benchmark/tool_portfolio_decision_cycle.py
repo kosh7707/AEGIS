@@ -94,5 +94,5 @@ def assert_no_forbidden_runtime_coupling(paths: Iterable[Path]) -> dict[str, Any
                 if pattern.search(text):
                     violations.append({"file": str(path), "pattern": pattern.pattern})
     if violations:
-        raise ValueError(f"forbidden runtime coupling detected: {violations}")
+        raise ValueError("forbidden runtime coupling detected")
     return {"status": "pass", "checkedFiles": checked, "violations": []}

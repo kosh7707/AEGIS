@@ -148,3 +148,29 @@ class TestParseSarif:
         assert "ruleId" in data
         assert "endLine" in data["location"]
         assert "dataFlow" not in data  # None이면 제외
+
+    def test_malformed_rule_shape_raises_sanitized_parse_error_without_exception_chain(self) -> None:
+        sarif = {
+            "runs": [{
+                "tool": {"driver": {"rules": [None]}},
+                "results": [],
+            }]
+        }
+
+        with pytest.raises(SarifParseError) as excinfo:
+            parse_sarif(sarif, BASE_DIR)
+
+        assert str(excinfo.value) == "Failed to parse SARIF output"
+        assert "NoneType" not in str(excinfo.value)
+        assert excinfo.value.__cause__ is None
+
+    def test_non_mapping_run_raises_sanitized_parse_error(self) -> None:
+        secret_run = "SECRET_SARIF_RUN_SHOULD_NOT_LEAK"
+        sarif = {"runs": [secret_run]}
+
+        with pytest.raises(SarifParseError) as excinfo:
+            parse_sarif(sarif, BASE_DIR)
+
+        assert str(excinfo.value) == "Failed to parse SARIF output"
+        assert secret_run not in str(excinfo.value)
+        assert excinfo.value.__cause__ is None

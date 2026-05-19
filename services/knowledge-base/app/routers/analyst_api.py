@@ -12,13 +12,15 @@ from app.context import set_request_id
 
 router = APIRouter(prefix="/v1", tags=["analyst"])
 
+MAX_ANALYST_BRIEF_SELECTOR_LENGTH = 32
+
 
 class AnalystBriefRequest(BaseModel):
     """Request body for deterministic S5 analyst brief generation."""
 
     artifact: dict[str, Any] = Field(default_factory=dict)
-    audience: str = "s3"
-    language: str = "ko"
+    audience: str = Field(default="s3", max_length=MAX_ANALYST_BRIEF_SELECTOR_LENGTH)
+    language: str = Field(default="ko", max_length=MAX_ANALYST_BRIEF_SELECTOR_LENGTH)
 
 
 @router.post("/analyst-brief")
@@ -34,7 +36,7 @@ async def analyst_brief(
 
     set_request_id(x_request_id)
     if req.audience not in SUPPORTED_AUDIENCES:
-        raise HTTPException(422, f"Unsupported analyst brief audience '{req.audience}'")
+        raise HTTPException(422, {"message": "Unsupported analyst brief audience", "reason": "unsupported_analyst_brief_audience"})
     if req.language not in SUPPORTED_LANGUAGES:
-        raise HTTPException(422, f"Unsupported analyst brief language '{req.language}'")
+        raise HTTPException(422, {"message": "Unsupported analyst brief language", "reason": "unsupported_analyst_brief_language"})
     return build_analyst_brief(req.artifact, audience=req.audience, language=req.language)

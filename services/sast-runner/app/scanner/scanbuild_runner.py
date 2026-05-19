@@ -159,7 +159,7 @@ class ScanbuildRunner:
         all_findings: list[SastFinding] = []
         for f, result in zip(c_cpp_files, results):
             if isinstance(result, Exception):
-                logger.warning("scan-build failed for %s: %s", f, result)
+                logger.warning("scan-build failed")
             else:
                 all_findings.extend(result or [])
 
@@ -205,7 +205,7 @@ class ScanbuildRunner:
             except asyncio.TimeoutError:
                 proc.kill()
                 await proc.communicate()
-                logger.warning("scan-build timed out for %s (%ds)", source_file, timeout)
+                logger.warning("scan-build timed out (%ds)", timeout)
                 return None  # sentinel: timeout
 
             return self._parse_plist_results(output_dir, scan_dir)
@@ -258,8 +258,8 @@ class ScanbuildRunner:
             try:
                 with open(plist_file, "rb") as f:
                     data = plistlib.load(f)
-            except Exception as exc:
-                logger.warning("Failed to parse plist %s: %s", plist_file.name, exc)
+            except Exception:
+                logger.warning("Failed to parse scan-build plist")
                 continue
 
             files_list = data.get("files", [])

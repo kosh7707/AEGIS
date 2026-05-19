@@ -215,6 +215,62 @@ class EvidenceCatalog:
                 roles=("operational_status", "sast_static_evidence_not_ready"),
             )
 
+        if result.s4_tool_portfolio_quality_ready is False:
+            diagnostics = result.s4_tool_portfolio_diagnostics or {}
+            attempted = {
+                "phase": "phase1",
+                "corpusStatus": diagnostics.get("corpusStatus"),
+                "decisionGradeReady": diagnostics.get("decisionGradeReady"),
+                "systemStability": diagnostics.get("systemStability"),
+                "qualityGateStatus": diagnostics.get("qualityGateStatus"),
+                "localQualityStatus": diagnostics.get("localQualityStatus"),
+                "validationMetricsStatus": diagnostics.get("validationMetricsStatus"),
+                "testMetricsStatus": diagnostics.get("testMetricsStatus"),
+                "canaryMetricsStatus": diagnostics.get("canaryMetricsStatus"),
+                "sardAggregateStatus": diagnostics.get("sardAggregateStatus"),
+            }
+            reason_codes = diagnostics.get("reasonCodes")
+            if reason_codes:
+                attempted["reasonCodes"] = list(reason_codes)
+            self.add_operational(
+                "s4.toolPortfolioReport",
+                {key: value for key, value in attempted.items() if value is not None},
+                "not_ready",
+                roles=("operational_status", "s4_tool_portfolio_not_ready"),
+            )
+
+        if result.source_code_kg_status or result.source_code_kg_diagnostics:
+            diagnostics = result.source_code_kg_diagnostics or {}
+            attempted = {
+                "phase": "phase1",
+                "status": result.source_code_kg_status,
+                "contractAvailable": result.source_code_kg_contract_available,
+                "contractVersion": diagnostics.get("contractVersion"),
+                "contractEndpointPath": diagnostics.get("contractEndpointPath"),
+                "functionCount": diagnostics.get("functionCount"),
+                "coverageComplete": diagnostics.get("coverageComplete"),
+                "graphNodeCount": diagnostics.get("graphNodeCount"),
+                "graphEdgeCount": diagnostics.get("graphEdgeCount"),
+                "ledgerOnly": diagnostics.get("ledgerOnly"),
+                "productionWrites": diagnostics.get("productionWrites"),
+            }
+            reason_codes = diagnostics.get("reasonCodes")
+            if reason_codes:
+                attempted["reasonCodes"] = list(reason_codes)
+            roles = ["operational_status"]
+            if result.source_code_kg_status in {None, "skipped"} or diagnostics.get("ready") is False:
+                roles.append("source_code_kg_not_ready")
+            elif result.source_code_kg_status == "failed":
+                roles.append("source_code_kg_ingest_failed")
+            else:
+                roles.append("source_code_kg_ingest_status")
+            self.add_operational(
+                "source_code_kg.ingest",
+                {key: value for key, value in attempted.items() if value is not None},
+                str(result.source_code_kg_status or "diagnostic"),
+                roles=tuple(roles),
+            )
+
         if result.sast_partial_tools and not result.sast_failure_detail:
             self.add_operational(
                 "sast",
@@ -252,6 +308,7 @@ class EvidenceCatalog:
             result.sast_scan_completed
             and not result.sast_findings
             and result.sast_static_evidence_ready is not False
+            and result.s4_tool_portfolio_quality_ready is not False
             and not result.sast_partial_tools
         ):
             self.add_negative(

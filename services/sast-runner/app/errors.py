@@ -3,6 +3,9 @@ from __future__ import annotations
 from typing import Any
 
 
+INTERNAL_ERROR_MESSAGE = "internal error"
+
+
 class SastRunnerError(Exception):
     code: str = "INTERNAL_ERROR"
     status_code: int = 500

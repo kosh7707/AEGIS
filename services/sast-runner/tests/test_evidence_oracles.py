@@ -243,6 +243,58 @@ def test_git_library_oracle_preserves_commit_branch_repo_and_tag(tmp_path: Path)
     _assert_no_verdict_keys(actual)
 
 
+def test_sca_library_projection_sanitizes_repository_url_credentials() -> None:
+    from app.scanner.evidence import project_library_evidence
+
+    lib = {
+        "name": "private-lib",
+        "version": "1.0",
+        "path": "libraries/private-lib",
+        "source": "git",
+        "remoteUrl": (
+            "https://user:SECRET_TOKEN_SHOULD_NOT_LEAK@example.internal:8443/org/"
+            "private-lib.git?token=SECRET_QUERY_SHOULD_NOT_LEAK#SECRET_FRAGMENT_SHOULD_NOT_LEAK"
+        ),
+    }
+
+    actual = project_library_evidence(lib, provenance=None, diff_computed=False)
+
+    assert actual["repoUrl"] == "https://example.internal:8443/org/private-lib.git"
+    rendered = json.dumps(actual, sort_keys=True)
+    assert "SECRET_TOKEN_SHOULD_NOT_LEAK" not in rendered
+    assert "SECRET_QUERY_SHOULD_NOT_LEAK" not in rendered
+    assert "SECRET_FRAGMENT_SHOULD_NOT_LEAK" not in rendered
+
+
+def test_sca_library_projection_sanitizes_diff_summary_repository_url() -> None:
+    from app.scanner.evidence import project_library_evidence
+
+    raw_diff = {
+        "repoUrl": (
+            "https://user:SECRET_DIFF_TOKEN_SHOULD_NOT_LEAK@example.internal/org/"
+            "private-lib.git?token=SECRET_DIFF_QUERY_SHOULD_NOT_LEAK#SECRET_DIFF_FRAGMENT_SHOULD_NOT_LEAK"
+        ),
+        "modifiedFiles": 0,
+    }
+    lib = {
+        "name": "private-lib",
+        "version": "1.0",
+        "path": "libraries/private-lib",
+        "source": "git",
+        "repoUrl": "https://example.internal/org/private-lib.git",
+        "diff": raw_diff,
+    }
+
+    actual = project_library_evidence(lib, provenance=None, diff_computed=True)
+
+    assert actual["diffSummary"]["repoUrl"] == "https://example.internal/org/private-lib.git"
+    assert raw_diff["repoUrl"].startswith("https://user:SECRET_DIFF_TOKEN_SHOULD_NOT_LEAK")
+    rendered = json.dumps(actual, sort_keys=True)
+    assert "SECRET_DIFF_TOKEN_SHOULD_NOT_LEAK" not in rendered
+    assert "SECRET_DIFF_QUERY_SHOULD_NOT_LEAK" not in rendered
+    assert "SECRET_DIFF_FRAGMENT_SHOULD_NOT_LEAK" not in rendered
+
+
 def test_evidence_module_has_no_s5_or_cve_lookup_references() -> None:
     evidence_module = Path(__file__).parents[1] / "app" / "scanner" / "evidence.py"
     text = evidence_module.read_text(encoding="utf-8").lower()

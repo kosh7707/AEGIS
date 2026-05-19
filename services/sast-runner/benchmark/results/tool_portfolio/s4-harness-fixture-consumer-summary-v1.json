@@ -1,0 +1,45 @@
+{
+  "corpusDecisionGradeReady": false,
+  "corpusReadiness": "blocked",
+  "diagnosticCandidateIds": [
+    "matching-policy-review",
+    "cwe-normalization-review",
+    "noise-pressure-review",
+    "negative-discrimination-review"
+  ],
+  "diagnosticSurfaces": {
+    "qualityDiagnostics": "available",
+    "toolContributionDiagnostics": "available"
+  },
+  "finalQualityStatus": "not_decision_grade",
+  "localQualityStatus": "fail",
+  "reasonCodes": [
+    "HARNESS_FIXTURE_DOES_NOT_EXECUTE_TOOLS",
+    "LOCAL_JULIET_CORPUS_NOT_PRESENT",
+    "FINDING_PRECISION_BELOW_THRESHOLD",
+    "NEGATIVE_TARGET_FPR_ABOVE_THRESHOLD",
+    "LOCAL_ORACLE_QUALITY_FAILED",
+    "SYSTEM_STABILITY_GATE_NOT_RUN"
+  ],
+  "reportLocation": "top-level",
+  "reportPresent": true,
+  "requiredFollowUps": [
+    "Provide local pinned juliet corpus before decision-grade validation/test evidence.",
+    "Run Corpus Readiness Gate with explicit required corpora before decision-grade validation/test evidence."
+  ],
+  "runnerIntegrityOnly": false,
+  "schemaVersion": "s4-tool-portfolio-experiment-report-v1",
+  "summarySchemaVersion": "s4-tool-portfolio-report-consumer-summary-v1",
+  "systemStability": "not_run",
+  "thresholdIntent": "quality-sufficiency",
+  "thresholdProfileStatus": "decision_grade_candidate",
+  "toolContributionClasses": {
+    "clang-tidy": "no-observed-signal",
+    "cppcheck": "overlap-only-positive-contributor",
+    "flawfinder": "noise-only-or-no-positive-contribution",
+    "gcc-fanalyzer": "unique-positive-contributor",
+    "scan-build": "unique-positive-contributor",
+    "semgrep": "unique-positive-contributor"
+  },
+  "toolPortfolioDecisionGradeUsable": false
+}

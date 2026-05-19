@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import shutil
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
@@ -54,7 +55,7 @@ async def test_non_registered_sdk_descriptor_does_not_suppress_flawfinder_popen_
     project_dir.mkdir()
     _write_popen_project(project_dir)
 
-    sdk_root = tmp_path / "sdk"
+    sdk_root = tmp_path / "SECRET_SDK_ROOT_SHOULD_NOT_LEAK"
     include_dir = sdk_root / "sysroot" / "usr" / "include"
     include_dir.mkdir(parents=True)
 
@@ -88,7 +89,11 @@ async def test_non_registered_sdk_descriptor_does_not_suppress_flawfinder_popen_
     sdk = data["execution"]["sdk"]
     assert sdk["resolutionMode"] == "non-registered"
     assert sdk["resolvedFrom"] == "sdkDescriptor"
-    assert sdk["sdkRootPath"] == str(sdk_root)
+    # /v1/scan uses response_model_exclude_none=True, so nullable legacy fields
+    # may be omitted on the wire; either way the raw path must not be present.
+    assert sdk.get("sdkRootPath") is None
+    assert sdk["sdkRootPathStatus"] == "configured"
+    assert "SECRET_SDK_ROOT_SHOULD_NOT_LEAK" not in json.dumps(data, sort_keys=True)
 
 
 @pytest.mark.asyncio
@@ -131,6 +136,7 @@ async def test_unknown_bare_sdkid_fails_build_and_analyze_before_build(
     project_dir = tmp_path / "project"
     project_dir.mkdir()
     build_mock = AsyncMock()
+    secret_sdk_id = "SECRET_BUILD_ANALYZE_SDK_ID_SHOULD_NOT_LEAK"
 
     with patch("app.routers.scan.build_runner.build", build_mock):
         resp = await client.post(
@@ -138,7 +144,7 @@ async def test_unknown_bare_sdkid_fails_build_and_analyze_before_build(
             json={
                 "projectPath": str(project_dir),
                 "buildCommand": "make",
-                "scanProfile": {"sdkId": "definitely-unknown-sdk-20260508"},
+                "scanProfile": {"sdkId": secret_sdk_id},
                 "options": {"tools": ["flawfinder"]},
             },
         )
@@ -147,7 +153,9 @@ async def test_unknown_bare_sdkid_fails_build_and_analyze_before_build(
     data = resp.json()
     assert data["success"] is False
     assert data["errorDetail"]["code"] == "SDK_NOT_FOUND"
+    assert data["errorDetail"]["retryable"] is False
     assert "non-registered" in data["errorDetail"]["message"]
+    assert secret_sdk_id not in str(data)
     build_mock.assert_not_called()
 
 

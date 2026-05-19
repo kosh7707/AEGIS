@@ -10,6 +10,7 @@ from typing import TypeVar
 from fastapi import HTTPException
 
 _T = TypeVar("_T")
+MIN_SYNC_THREAD_DEADLINE_SECONDS = 0.01
 
 
 def parse_timeout(x_timeout_ms: int | None) -> tuple[float, float]:
@@ -28,17 +29,33 @@ def parse_timeout(x_timeout_ms: int | None) -> tuple[float, float]:
     if x_timeout_ms is None or x_timeout_ms <= 0:
         raise HTTPException(
             400,
-            "X-Timeout-Ms header is required and must be a positive integer",
+            {
+                "message": "X-Timeout-Ms header is required and must be a positive integer",
+                "reason": "timeout_header_missing_or_invalid",
+            },
         )
     timeout_sec = x_timeout_ms / 1000.0
     deadline = time.monotonic() + timeout_sec
     return deadline, timeout_sec
 
 
+def _deadline_reason(stage: str) -> str:
+    if stage == "source-code-kg-ledger-ingest":
+        return "deadline_exceeded_before_ledger_ingest_completed"
+    if stage == "source-code-kg-context":
+        return "deadline_exceeded_before_context_resolution_completed"
+    if stage == "judge-query":
+        return "deadline_exceeded_before_judge_query_completed"
+    return "deadline_exceeded"
+
+
 def _raise_timeout(stage: str) -> None:
     raise HTTPException(
         408,
-        f"Client timeout exceeded before completing stage: {stage}",
+        {
+            "message": f"Client timeout exceeded before completing stage: {stage}",
+            "reason": _deadline_reason(stage),
+        },
     )
 
 
@@ -74,6 +91,8 @@ async def run_sync_with_deadline(
 ) -> _T:
     """동기 함수를 별도 스레드에서 실행하고 데드라인을 강제한다."""
     timeout = remaining_timeout(deadline, stage)
+    if timeout < MIN_SYNC_THREAD_DEADLINE_SECONDS:
+        _raise_timeout(stage)
     try:
         return await asyncio.wait_for(
             asyncio.to_thread(fn, *args, **kwargs),
@@ -82,6 +101,28 @@ async def run_sync_with_deadline(
     except asyncio.TimeoutError as exc:
         _raise_timeout(stage)
         raise AssertionError("unreachable") from exc
+
+
+async def run_sync_durable_write_with_deadline(
+    deadline: float,
+    stage: str,
+    fn: Callable[..., _T],
+    *args,
+    **kwargs,
+) -> _T:
+    """Run a synchronous durable write without false timeout side effects.
+
+    `asyncio.wait_for(asyncio.to_thread(...))` can return 408 while the worker
+    thread keeps running and later commits ledger rows.  For durable-write
+    endpoints, a 408 is safe only before the sync worker starts.  Once there is
+    enough remaining budget to start the worker, S5 waits for completion and
+    returns the committed result instead of reporting a timeout that cannot
+    cancel the write.
+    """
+    timeout = remaining_timeout(deadline, stage)
+    if timeout < MIN_SYNC_THREAD_DEADLINE_SECONDS:
+        _raise_timeout(stage)
+    return await asyncio.to_thread(fn, *args, **kwargs)
 
 
 async def run_async_with_deadline(

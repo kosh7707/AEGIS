@@ -6,12 +6,12 @@ from fastapi.testclient import TestClient
 
 from app.ingestion.corpus_ingestion import ingest_fixture_corpus
 from app.judge.models import JudgeQueryRequest
-from app.judge.service import build_judge_answer
+from app.judge.service import build_judge_answer, validate_judge_answer
 from app.ledger.repository import SQLiteLedgerRepository
 from app.projections.ledger_projection import build_projection_bundle
 from app.quality import run_ledger_quality_gate
 from app.relations import detect_relation_conflicts
-from app.routers import api
+from app.routers import api, judge_api, source_kg_api
 from app.main import app
 
 client = TestClient(app)
@@ -106,6 +106,161 @@ def test_affectedness_status_conflict_records_stable_conflict_and_rejects_qualit
     assert "AFFECTEDNESS_STATUS_CONFLICT" in _codes(quality)
     assert quality["metrics"]["openConflictCount"] >= 1
     assert quality["scoreVector"]["conflictPenalty"] > 0
+
+
+def test_judge_surfaces_relevant_open_conflicts_in_uncertainty_and_quality_gate(tmp_path):
+    repo = _repo(tmp_path)
+    repo.upsert_affectedness_record(
+        affectedness_id="affectedness:test:not-affected",
+        advisory_id="advisory:NVD_CVE:CVE-2026-0001",
+        subject_kind="package_identity",
+        subject_id="pkg:generic/curl",
+        affectedness_status="known_not_affected",
+        introduced="0",
+        fixed="7.0.0",
+        range_data={"range": "<7.0.0"},
+        confidence=0.9,
+        decision_state="accepted",
+        provenance={"test": "status-conflict"},
+    )
+
+    answer = build_judge_answer(
+        repo,
+        JudgeQueryRequest(
+            question="Is curl 8.0.0 affected?",
+            component={"name": "curl", "version": "8.0.0", "purl": "pkg:generic/curl@8.0.0"},
+            sourceContext={"graphNodeIds": ["srcctx-curl-call-system"]},
+        ),
+    )
+
+    assert repo.count_rows("conflict_record") >= 1
+    assert answer["verdict"] == "affected"
+    assert answer["qualityGate"]["gate"] == "rejected"
+    assert answer["qualityGate"]["hardFail"] is True
+    assert answer["scoreVector"]["conflictPenalty"] > 0
+    conflicts = answer["uncertainty"]["conflicts"]
+    status_conflicts = [item for item in conflicts if item["conflictKind"] == "affectedness_status_conflict"]
+    assert len(status_conflicts) == 1
+    status_conflict = status_conflicts[0]
+    assert status_conflict["issueCode"] == "AFFECTEDNESS_STATUS_CONFLICT"
+    assert status_conflict["severity"] == "hard"
+    assert status_conflict["status"] == "open"
+    assert status_conflict["subjectId"] == "advisory:NVD_CVE:CVE-2026-0001:package_identity:pkg:generic/curl"
+    assert status_conflict["consumerPolicy"] == "conflicting_evidence_not_negative_evidence"
+    assert "negative_evidence" in status_conflict["forbiddenEffects"]
+    assert {ref["ledgerTable"] for ref in status_conflict["involvedLedgerRefs"]} == {"affectedness_record"}
+    assert {
+        item["value"]["affectednessStatus"]
+        for item in status_conflict["conflictingValues"]
+        if item["ledgerTable"] == "affectedness_record"
+    } == {"affected", "known_not_affected"}
+    assert all("provenance" in item for item in status_conflict["conflictingValues"])
+    assert any(
+        item["code"] == "AFFECTEDNESS_STATUS_CONFLICT"
+        and item["conflictRecordId"] == status_conflict["conflictRecordId"]
+        for item in answer["qualityGate"]["diagnostics"]
+    )
+    assert validate_judge_answer(answer) == []
+
+    silent_conflict = json.loads(json.dumps(answer))
+    silent_conflict["qualityGate"]["diagnostics"] = [
+        item
+        for item in silent_conflict["qualityGate"]["diagnostics"]
+        if item.get("conflictRecordId") != status_conflict["conflictRecordId"]
+    ]
+    assert any(issue["code"] == "CONFLICT_DIAGNOSTIC_SILENT" for issue in validate_judge_answer(silent_conflict))
+
+    negative_conflict = json.loads(json.dumps(answer))
+    negative_conflict["uncertainty"]["conflicts"][0]["negativeEvidenceAllowed"] = True
+    assert any(issue["code"] == "CONFLICT_USED_AS_NEGATIVE_EVIDENCE" for issue in validate_judge_answer(negative_conflict))
+
+    hidden_values = json.loads(json.dumps(answer))
+    hidden_values["uncertainty"]["conflicts"][0]["conflictingValues"] = []
+    assert any(issue["code"] == "CONFLICT_VALUES_MISSING" for issue in validate_judge_answer(hidden_values))
+
+
+def test_judge_conflict_summary_caps_conflicting_values_and_validates_metadata(tmp_path):
+    repo = _repo(tmp_path)
+    for index in range(9):
+        repo.upsert_affectedness_record(
+            affectedness_id=f"affectedness:test:not-affected:{index}",
+            advisory_id="advisory:NVD_CVE:CVE-2026-0001",
+            subject_kind="package_identity",
+            subject_id="pkg:generic/curl",
+            affectedness_status="known_not_affected",
+            introduced="0",
+            fixed=f"7.{index}.0",
+            range_data={"range": f"<7.{index}.0"},
+            confidence=0.8,
+            decision_state="accepted",
+            provenance={"test": "status-conflict-cap", "index": index},
+        )
+
+    answer = build_judge_answer(
+        repo,
+        JudgeQueryRequest(
+            question="Is curl 8.0.0 affected?",
+            component={"name": "curl", "version": "8.0.0", "purl": "pkg:generic/curl@8.0.0"},
+            sourceContext={"graphNodeIds": ["srcctx-curl-call-system"]},
+        ),
+    )
+
+    status_conflict = next(
+        item
+        for item in answer["uncertainty"]["conflicts"]
+        if item["conflictKind"] == "affectedness_status_conflict"
+    )
+    assert status_conflict["conflictingValueCount"] == 10
+    assert len(status_conflict["conflictingValues"]) == 8
+    assert status_conflict["conflictingValuesTruncated"] is True
+    assert validate_judge_answer(answer) == []
+
+    over_limit = json.loads(json.dumps(answer))
+    over_limit["uncertainty"]["conflicts"][0]["conflictingValues"].append(
+        {"ledgerTable": "affectedness_record", "ledgerId": "too-many", "value": {}, "provenance": {}}
+    )
+    assert any(issue["code"] == "CONFLICT_VALUES_OVER_LIMIT" for issue in validate_judge_answer(over_limit))
+
+    missing_truncation = json.loads(json.dumps(answer))
+    missing_truncation["uncertainty"]["conflicts"][0]["conflictingValuesTruncated"] = False
+    assert any(issue["code"] == "CONFLICT_VALUES_TRUNCATION_INVALID" for issue in validate_judge_answer(missing_truncation))
+
+
+def test_judge_does_not_surface_same_advisory_conflict_for_different_package_prefix(tmp_path):
+    repo = _repo(tmp_path)
+    for affectedness_id, status, fixed in (
+        ("affectedness:test:extra-affected", "affected", "9.0.0"),
+        ("affectedness:test:extra-not-affected", "known_not_affected", "7.0.0"),
+    ):
+        repo.upsert_affectedness_record(
+            affectedness_id=affectedness_id,
+            advisory_id="advisory:NVD_CVE:CVE-2026-0001",
+            subject_kind="package_identity",
+            subject_id="pkg:generic/curl-extra",
+            affectedness_status=status,
+            introduced="0",
+            fixed=fixed,
+            range_data={"range": f"<{fixed}"},
+            confidence=0.9,
+            decision_state="accepted",
+            provenance={"test": "same-advisory-different-package"},
+        )
+
+    answer = build_judge_answer(
+        repo,
+        JudgeQueryRequest(
+            question="Is curl 8.0.0 affected?",
+            component={"name": "curl", "version": "8.0.0", "purl": "pkg:generic/curl@8.0.0"},
+            sourceContext={"graphNodeIds": ["srcctx-curl-call-system"]},
+        ),
+    )
+
+    assert repo.count_rows("conflict_record") >= 1
+    assert answer["verdict"] == "affected"
+    assert answer["uncertainty"]["conflicts"] == []
+    assert answer["qualityGate"]["gate"] != "rejected"
+    assert not any(item.get("conflictRecordId") for item in answer["qualityGate"]["diagnostics"])
+    assert validate_judge_answer(answer) == []
 
 
 def test_affectedness_range_conflict_is_soft_caveat_and_metric(tmp_path):
@@ -232,10 +387,14 @@ def test_conflict_quality_gate_does_not_change_health_or_ready_semantics(tmp_pat
     old_assembler = api._assembler
     old_graph = api._neo4j_graph
     old_qdrant = api._qdrant_ready
+    old_source_kg_repo = source_kg_api._ledger_repository
+    old_judge_repo = judge_api._ledger_repository
     try:
         api.set_assembler(FakeAssembler())
         api.set_neo4j_graph(FakeGraph())
         api.set_qdrant_ready(True)
+        source_kg_api.set_ledger_repository(repo)
+        judge_api.set_ledger_repository(repo)
         ready = client.get("/v1/ready")
         assert ready.status_code == 200
         assert ready.json()["ready"] is True
@@ -243,3 +402,5 @@ def test_conflict_quality_gate_does_not_change_health_or_ready_semantics(tmp_pat
         api.set_assembler(old_assembler)
         api.set_neo4j_graph(old_graph)
         api.set_qdrant_ready(old_qdrant)
+        source_kg_api.set_ledger_repository(old_source_kg_repo)
+        judge_api.set_ledger_repository(old_judge_repo)

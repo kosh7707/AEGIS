@@ -226,6 +226,51 @@ async def test_async_scan_prefer_overrides_ndjson_accept(client: AsyncClient) ->
 
 
 @pytest.mark.asyncio
+async def test_async_scan_internal_error_result_summary_and_logs_do_not_echo_exception(
+    client: AsyncClient,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    secret = "SECRET_ASYNC_SCAN_INTERNAL_EXCEPTION_SHOULD_NOT_LEAK"
+    caplog.set_level("ERROR", logger="aegis-sast-runner")
+
+    with patch(
+        "app.routers.scan._run_scan_core",
+        AsyncMock(side_effect=RuntimeError(secret)),
+    ):
+        submit = await client.post(
+            "/v1/scan",
+            headers={
+                "X-Request-Id": "owned-scan-internal-sanitized",
+                "Prefer": "respond-async",
+            },
+            json={
+                "scanId": "owned-scan-internal-sanitized",
+                "projectId": "proj-test",
+                "files": [{"path": "src/main.c", "content": "int main() {}"}],
+            },
+        )
+        assert submit.status_code == 202
+        result = await _wait_for_result(client, "owned-scan-internal-sanitized")
+
+    assert result["state"] == "failed"
+    payload = result["result"]
+    assert payload["error"] == "internal error"
+    assert payload["errorDetail"]["code"] == "INTERNAL_ERROR"
+    assert payload["errorDetail"]["message"] == "internal error"
+    assert secret not in str(result)
+
+    health = await client.get(
+        "/v1/health",
+        params={"requestId": "owned-scan-internal-sanitized"},
+    )
+    summary = health.json()["requestSummary"]
+    assert summary["state"] == "failed"
+    assert summary["blockedReason"] == "internal error"
+    assert secret not in str(summary)
+    assert secret not in caplog.text
+
+
+@pytest.mark.asyncio
 async def test_async_build_and_analyze_result_recovery(client: AsyncClient) -> None:
     with patch("app.routers.scan.Path.is_dir", return_value=True), patch(
         "app.routers.scan.build_runner.build",
@@ -304,12 +349,16 @@ async def test_unknown_request_status_and_result_are_404(client: AsyncClient) ->
     status = await client.get("/v1/requests/missing")
     result = await client.get("/v1/requests/missing/result")
     cancel = await client.delete("/v1/requests/missing")
-    assert status.status_code == 404
-    assert status.json()["error"] == "REQUEST_NOT_FOUND"
-    assert result.status_code == 404
-    assert result.json()["error"] == "REQUEST_NOT_FOUND"
-    assert cancel.status_code == 404
-    assert cancel.json()["error"] == "REQUEST_NOT_FOUND"
+    for response in (status, result, cancel):
+        assert response.status_code == 404
+        payload = response.json()
+        assert payload["success"] is False
+        assert payload["error"] == "REQUEST_NOT_FOUND"
+        assert payload["requestId"] == "missing"
+        assert payload["errorDetail"]["code"] == "REQUEST_NOT_FOUND"
+        assert payload["errorDetail"]["message"] == "request not found"
+        assert payload["errorDetail"]["requestId"] == "missing"
+        assert payload["errorDetail"]["retryable"] is False
 
 
 @pytest.mark.asyncio
@@ -335,7 +384,14 @@ async def test_expired_terminal_result_returns_410(client: AsyncClient) -> None:
 
     result = await client.get("/v1/requests/owned-expired/result")
     assert result.status_code == 410
-    assert result.json()["error"] == "REQUEST_EXPIRED"
+    payload = result.json()
+    assert payload["success"] is False
+    assert payload["error"] == "REQUEST_EXPIRED"
+    assert payload["requestId"] == "owned-expired"
+    assert payload["errorDetail"]["code"] == "REQUEST_EXPIRED"
+    assert payload["errorDetail"]["message"] == "request expired"
+    assert payload["errorDetail"]["requestId"] == "owned-expired"
+    assert payload["errorDetail"]["retryable"] is False
 
 @pytest.mark.asyncio
 async def test_same_request_id_different_endpoint_returns_conflict(client: AsyncClient) -> None:
@@ -371,7 +427,15 @@ async def test_same_request_id_different_endpoint_returns_conflict(client: Async
     assert build_submit.status_code == 202
     assert scan_submit.status_code == 409
     payload = scan_submit.json()
+    assert payload["success"] is False
     assert payload["error"] == "REQUEST_ID_CONFLICT"
+    assert payload["requestId"] == "shared-trace-id"
+    assert payload["errorDetail"]["code"] == "REQUEST_ID_CONFLICT"
+    assert payload["errorDetail"]["message"] == "request id already belongs to another endpoint"
+    assert payload["errorDetail"]["requestId"] == "shared-trace-id"
+    assert payload["errorDetail"]["retryable"] is False
     assert payload["existingEndpoint"] == "build"
     assert payload["requestedEndpoint"] == "scan"
+    assert payload["statusUrl"] == "/v1/requests/shared-trace-id"
+    assert payload["resultUrl"] == "/v1/requests/shared-trace-id/result"
     scan_mock.assert_not_called()

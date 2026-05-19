@@ -6,6 +6,10 @@ from collections.abc import Iterable, Mapping
 from typing import Any
 
 from app.schemas.response import SastFinding
+from app.scanner.repository_url import (
+    sanitize_repository_url_fields_for_evidence,
+    sanitize_repository_url_for_evidence,
+)
 
 SCHEMA_VERSION = "s4-evidence-v1"
 FINDING_EVIDENCE_KEY = "evidenceResolution"
@@ -86,7 +90,9 @@ def project_library_evidence(
     name = library.get("name")
     version = library.get("version")
     source = library.get("source")
-    repo_url = library.get("repoUrl") or library.get("remoteUrl")
+    repo_url = sanitize_repository_url_for_evidence(
+        library.get("repoUrl") or library.get("remoteUrl")
+    )
     diff = library.get("diff")
     diff_available = diff is not None
     diagnostics: list[str] = []
@@ -123,7 +129,11 @@ def project_library_evidence(
         "diagnostics": diagnostics,
         "diffAvailable": diff_available,
         "modificationStatus": _modification_status(diff) if diff_available else "unknown",
-        "diffSummary": diff if diff_available else None,
+        "diffSummary": (
+            sanitize_repository_url_fields_for_evidence(diff)
+            if isinstance(diff, Mapping)
+            else diff
+        ) if diff_available else None,
         "provenance": _normalize_provenance(provenance, library.get("path")),
     }
 

@@ -11,6 +11,11 @@ from app.clients.kb_error_utils import is_kb_timeout_error
 from app.clients.s4_ownership import S4OwnershipError, S4OwnershipUnsupported, post_and_wait_s4_ownership
 from app.agent_runtime.observability import agent_log
 from app.core.s4_static_evidence import extract_static_evidence_contract, summarize_static_evidence_contract
+from app.core.source_code_kg import (
+    SOURCE_CODE_KG_INGEST_PATH,
+    build_source_code_kg_payload,
+    validate_source_code_kg_contract,
+)
 from app.runtime.request_summary import request_summary_tracker
 
 if TYPE_CHECKING:
@@ -382,6 +387,10 @@ async def run_individual_tools(
             codegraph_exclude_dirs=codegraph_exclude_dirs,
             revision_hint=revision_hint,
             provenance=provenance,
+            compile_commands_path=compile_commands_path,
+            build_profile=build_profile if isinstance(build_profile, dict) else None,
+            build_environment=build_environment if isinstance(build_environment, dict) else None,
+            build_target=project_path,
         )
 
     return result
@@ -397,6 +406,10 @@ async def ingest_code_graph(
     codegraph_exclude_dirs: frozenset[str],
     revision_hint: str | None = None,
     provenance: dict | None = None,
+    compile_commands_path: str | None = None,
+    build_profile: dict | None = None,
+    build_environment: dict | None = None,
+    build_target: str | None = None,
 ) -> None:
     """코드 그래프를 S5 KB에 적재한다. 노이즈 디렉토리만 제외."""
     relevant_functions = [
@@ -483,6 +496,142 @@ async def ingest_code_graph(
             logger, "Phase 1: KB 코드 그래프 적재 실패",
             component="phase_one", phase="kb_ingest_error",
             error=str(exc), level=logging.WARNING,
+        )
+
+    await ingest_source_code_kg(
+        kb_client,
+        result,
+        project_id,
+        request_id,
+        logger,
+        relevant_functions=relevant_functions,
+        revision_hint=revision_hint,
+        provenance=provenance,
+        compile_commands_path=compile_commands_path or result.build_compile_commands_path,
+        build_profile=build_profile,
+        build_environment=build_environment,
+        build_target=build_target,
+    )
+
+
+async def ingest_source_code_kg(
+    kb_client: "httpx.AsyncClient",
+    result: "Phase1Result",
+    project_id: str,
+    request_id: str,
+    logger: logging.Logger,
+    *,
+    relevant_functions: list[dict],
+    revision_hint: str | None = None,
+    provenance: dict | None = None,
+    compile_commands_path: str | None = None,
+    build_profile: dict | None = None,
+    build_environment: dict | None = None,
+    build_target: str | None = None,
+) -> None:
+    """Best-effort S5 Source Code KG producer path."""
+    payload, diagnostics = build_source_code_kg_payload(
+        project_id=project_id,
+        code_functions=relevant_functions,
+        revision_hint=revision_hint,
+        provenance=provenance,
+        build_target=build_target,
+        build_profile=build_profile,
+        build_environment=build_environment,
+        compile_commands_path=compile_commands_path,
+    )
+    result.source_code_kg_diagnostics = dict(diagnostics)
+    if not payload:
+        result.source_code_kg_status = "skipped"
+        return
+
+    headers: dict[str, str] = {"X-Timeout-Ms": "90000"}
+    if request_id:
+        headers["X-Request-Id"] = request_id
+
+    try:
+        contract_resp = await kb_client.get(
+            "/v1/contracts/source-code-kg",
+            headers={"X-Request-Id": request_id} if request_id else None,
+        )
+        contract_resp.raise_for_status()
+        contract = contract_resp.json()
+        result.source_code_kg_contract = contract if isinstance(contract, dict) else {}
+        contract_summary = validate_source_code_kg_contract(contract)
+        result.source_code_kg_contract_available = bool(contract_summary.get("ready"))
+        result.source_code_kg_diagnostics.update({
+            "contract": contract_summary,
+            "contractVersion": contract_summary.get("contractVersion"),
+            "contractEndpointPath": contract_summary.get("endpointPath"),
+        })
+        if not contract_summary.get("ready"):
+            result.source_code_kg_status = "skipped"
+            result.source_code_kg_diagnostics.setdefault("reasonCodes", [])
+            result.source_code_kg_diagnostics["reasonCodes"] = sorted(set(
+                list(result.source_code_kg_diagnostics.get("reasonCodes") or [])
+                + list(contract_summary.get("reasonCodes") or [])
+            ))
+            return
+    except Exception as exc:
+        result.source_code_kg_contract_available = False
+        result.source_code_kg_status = "skipped"
+        reason_codes = list(result.source_code_kg_diagnostics.get("reasonCodes") or [])
+        reason_codes.append("SOURCE_CODE_KG_CONTRACT_UNAVAILABLE")
+        result.source_code_kg_diagnostics["reasonCodes"] = sorted(set(reason_codes))
+        if is_kb_timeout_error(exc):
+            result.source_code_kg_ingest_timed_out = True
+        agent_log(
+            logger,
+            "Phase 1: S5 Source Code KG contract fetch skipped/failed",
+            component="phase_one",
+            phase="source_code_kg_contract_unavailable",
+            error=str(exc),
+            level=logging.WARNING,
+        )
+        return
+
+    try:
+        resp = await kb_client.post(
+            SOURCE_CODE_KG_INGEST_PATH,
+            json=payload,
+            headers=headers,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        result.source_code_kg_payload = payload
+        result.source_code_kg_status = (
+            data.get("status") if isinstance(data, dict) and isinstance(data.get("status"), str)
+            else "ingested"
+        )
+        result.source_code_kg_diagnostics.update({
+            "ledgerOnly": data.get("ledgerOnly") if isinstance(data, dict) else None,
+            "productionWrites": data.get("productionWrites") if isinstance(data, dict) else None,
+            "counts": data.get("counts") if isinstance(data, dict) else None,
+            "ids": data.get("ids") if isinstance(data, dict) else None,
+        })
+        agent_log(
+            logger,
+            "Phase 1: S5 Source Code KG ingest 완료",
+            component="phase_one",
+            phase="source_code_kg_ingest_end",
+            sourceCodeKgStatus=result.source_code_kg_status,
+            graphNodes=len(payload.get("graphNodes", [])),
+            graphEdges=len(payload.get("graphEdges", [])),
+        )
+    except Exception as exc:
+        result.source_code_kg_status = "failed"
+        reason_codes = list(result.source_code_kg_diagnostics.get("reasonCodes") or [])
+        reason_codes.append("SOURCE_CODE_KG_INGEST_FAILED")
+        result.source_code_kg_diagnostics["reasonCodes"] = sorted(set(reason_codes))
+        if is_kb_timeout_error(exc):
+            result.source_code_kg_ingest_timed_out = True
+        agent_log(
+            logger,
+            "Phase 1: S5 Source Code KG ingest 실패",
+            component="phase_one",
+            phase="source_code_kg_ingest_error",
+            error=str(exc),
+            level=logging.WARNING,
         )
 
 

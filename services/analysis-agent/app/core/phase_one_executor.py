@@ -115,6 +115,10 @@ class Phase1Executor:
         self, result: Phase1Result, project_id: str, request_id: str,
         revision_hint: str | None = None,
         provenance: dict | None = None,
+        compile_commands_path: str | None = None,
+        build_profile: dict | None = None,
+        build_environment: dict | None = None,
+        build_target: str | None = None,
     ) -> None:
         await _phase_one_ingest_code_graph(
             self._kb_client,
@@ -125,6 +129,10 @@ class Phase1Executor:
             codegraph_exclude_dirs=CODEGRAPH_EXCLUDE_DIRS,
             revision_hint=revision_hint,
             provenance=provenance,
+            compile_commands_path=compile_commands_path,
+            build_profile=build_profile,
+            build_environment=build_environment,
+            build_target=build_target,
         )
 
     async def _run_sast(

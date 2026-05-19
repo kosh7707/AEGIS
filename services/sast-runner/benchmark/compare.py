@@ -5,12 +5,56 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import math
+import re
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, NoReturn, Sequence
 
 logger = logging.getLogger("benchmark")
+
+_CWE_KEY_RE = re.compile(r"^CWE-[1-9][0-9]*$")
+_CLI_PARSE_ERROR = "invalid comparison arguments"
+_CLI_ERROR_DETAILS = {
+    _CLI_PARSE_ERROR: ("BENCHMARK_COMPARE_CLI_ARGUMENTS_INVALID", "input"),
+    "invalid threshold selection": ("BENCHMARK_COMPARE_THRESHOLD_INVALID", "input"),
+    "invalid comparison artifact": ("BENCHMARK_COMPARE_ARTIFACT_INVALID", "input"),
+    "invalid comparison artifact payload": ("BENCHMARK_COMPARE_PAYLOAD_INVALID", "input"),
+    "comparison report failed": ("BENCHMARK_COMPARE_REPORT_FAILED", "output"),
+}
+
+
+def _emit_cli_error(error: str, *, reason_code: str, stage: str) -> None:
+    payload = {
+        "error": error,
+        "reasonCode": reason_code,
+        "stage": stage,
+    }
+    try:
+        sys.stderr.write(json.dumps(payload, separators=(",", ":"), sort_keys=True) + "\n")
+    except (OSError, TypeError, ValueError, UnicodeError):
+        return
+
+
+def _exit_cli_error(error: str) -> NoReturn:
+    safe_error = error if error in _CLI_ERROR_DETAILS else _CLI_PARSE_ERROR
+    reason_code, stage = _CLI_ERROR_DETAILS[safe_error]
+    _emit_cli_error(safe_error, reason_code=reason_code, stage=stage)
+    raise SystemExit(2)
+
+
+class _FixedDiagnosticArgumentParser(argparse.ArgumentParser):
+    def error(self, message: str) -> None:
+        _exit_cli_error(message)
+
+
+def _comparison_display_label(label: str, role: str) -> str:
+    if role == "current" and label == "(current run)":
+        return label
+    if label == role:
+        return role
+    return f"{role} artifact"
 
 
 @dataclass
@@ -56,8 +100,10 @@ class ComparisonReport:
 
     def to_markdown(self) -> str:
         lines = ["# Benchmark Comparison", ""]
-        lines.append(f"Baseline: `{self.baseline_path}`")
-        lines.append(f"Current:  `{self.current_path}`")
+        baseline_label = _comparison_display_label(self.baseline_path, "baseline")
+        current_label = _comparison_display_label(self.current_path, "current")
+        lines.append(f"Baseline: `{baseline_label}`")
+        lines.append(f"Current:  `{current_label}`")
         lines.append("")
 
         lines.append(
@@ -99,6 +145,92 @@ def _load_result(path_or_data: Path | dict | str) -> dict:
         return path_or_data
     path = Path(path_or_data)
     return json.loads(path.read_text())
+
+
+def _is_finite_json_number(value: Any) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+
+
+def _is_probability_metric(value: Any) -> bool:
+    return _is_finite_json_number(value) and 0.0 <= value <= 1.0
+
+
+def _is_non_negative_json_number(value: Any) -> bool:
+    return _is_finite_json_number(value) and value >= 0.0
+
+
+def _is_canonical_cwe_key(value: Any) -> bool:
+    return isinstance(value, str) and _CWE_KEY_RE.fullmatch(value) is not None
+
+
+def is_comparison_payload_shape(data: Any) -> bool:
+    if not isinstance(data, dict):
+        return False
+
+    if "summary" not in data or "results" not in data:
+        return False
+
+    summary = data["summary"]
+    if not isinstance(summary, dict):
+        return False
+    if "overallRecall" not in summary or not _is_probability_metric(summary["overallRecall"]):
+        return False
+
+    results = data["results"]
+    if not isinstance(results, dict):
+        return False
+
+    for cwe, cwe_data in results.items():
+        if not _is_canonical_cwe_key(cwe) or not isinstance(cwe_data, dict):
+            return False
+        if "combined" not in cwe_data:
+            return False
+        combined = cwe_data["combined"]
+        if not isinstance(combined, dict):
+            return False
+        if "recall" not in combined or not _is_probability_metric(combined["recall"]):
+            return False
+        for field in ("noisePerFile", "targetedNoisePerFile"):
+            if field in combined and not _is_non_negative_json_number(combined[field]):
+                return False
+
+    return True
+
+
+def _validate_cli_comparison_artifact(path: Path, parser: argparse.ArgumentParser) -> Path:
+    try:
+        is_file = path.is_file()
+    except (OSError, ValueError):
+        parser.error("invalid comparison artifact")
+    if not is_file:
+        parser.error("invalid comparison artifact")
+    return path
+
+
+def _parse_cli_threshold(raw_threshold: str, parser: argparse.ArgumentParser) -> float:
+    text = raw_threshold.strip()
+    if not text:
+        parser.error("invalid threshold selection")
+    try:
+        threshold = float(text)
+    except (OverflowError, ValueError):
+        parser.error("invalid threshold selection")
+    if not math.isfinite(threshold) or threshold <= 0.0 or threshold > 1.0:
+        parser.error("invalid threshold selection")
+    return threshold
+
+
+def _load_cli_result(path: Path, parser: argparse.ArgumentParser) -> dict:
+    invalid_payload = False
+    data: Any = None
+    try:
+        data = _load_result(path)
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError, TypeError):
+        invalid_payload = True
+
+    if invalid_payload or not is_comparison_payload_shape(data):
+        parser.error("invalid comparison artifact payload")
+    return data
 
 
 def _get_cwe_metrics(data: dict, cwe: str) -> dict:
@@ -177,8 +309,18 @@ def compare_from_files(
     return report
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description="Benchmark Comparison Tool")
+def _emit_cli_comparison_markdown(
+    report: ComparisonReport,
+    parser: argparse.ArgumentParser,
+) -> None:
+    try:
+        print(report.to_markdown())
+    except (OSError, TypeError, ValueError, AttributeError, UnicodeError):
+        parser.error("comparison report failed")
+
+
+def main(argv: Sequence[str] | None = None) -> None:
+    parser = _FixedDiagnosticArgumentParser(description="Benchmark Comparison Tool")
     parser.add_argument(
         "--baseline", type=Path, required=True,
         help="Baseline JSON 파일",
@@ -188,28 +330,32 @@ def main() -> None:
         help="현재 결과 JSON 파일",
     )
     parser.add_argument(
-        "--threshold", type=float, default=0.05,
+        "--threshold", type=str, default="0.05",
         help="회귀 판정 임계값 (기본: 0.05 = 5%%)",
     )
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(message)s",
     )
 
-    baseline = _load_result(args.baseline)
-    current = _load_result(args.current)
+    threshold = _parse_cli_threshold(args.threshold, parser)
+    baseline_path = _validate_cli_comparison_artifact(args.baseline, parser)
+    current_path = _validate_cli_comparison_artifact(args.current, parser)
 
-    report = compare(baseline, current, str(args.baseline), str(args.current))
+    baseline = _load_cli_result(baseline_path, parser)
+    current = _load_cli_result(current_path, parser)
 
-    print(report.to_markdown())
+    report = compare(baseline, current, str(baseline_path), str(current_path))
 
-    if report.has_regression(args.threshold):
-        logger.warning("REGRESSION DETECTED (threshold=%.1f%%)", args.threshold * 100)
+    _emit_cli_comparison_markdown(report, parser)
+
+    if report.has_regression(threshold):
+        logger.warning("REGRESSION DETECTED (threshold=%.1f%%)", threshold * 100)
         sys.exit(1)
     else:
-        logger.info("No regression detected (threshold=%.1f%%)", args.threshold * 100)
+        logger.info("No regression detected (threshold=%.1f%%)", threshold * 100)
 
 
 if __name__ == "__main__":

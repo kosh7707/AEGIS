@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import logging
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -294,6 +295,41 @@ class TestRun:
         assert len(result["runs"][0]["results"]) == 1
 
     @pytest.mark.asyncio
+    async def test_command_start_log_does_not_echo_raw_command(self, runner, tmp_path, caplog):
+        """Semgrep 실행 시작 로그는 joined command, scan_dir, rules path를 남기지 않는다."""
+        scan_dir = tmp_path / "SECRET_SEMGREP_SCAN_DIR_SHOULD_NOT_LEAK"
+        scan_dir.mkdir()
+        secret_rules = str(tmp_path / "SECRET_SEMGREP_RULES_SHOULD_NOT_LEAK.yml")
+        sarif_bytes = json.dumps(EMPTY_SARIF).encode()
+        check_proc = _make_proc_mock(0, stdout=b"1.45.0\n")
+        run_proc = _make_proc_mock(0, stdout=sarif_bytes)
+        caplog.set_level(logging.INFO, logger="aegis-sast-runner")
+
+        call_count = 0
+
+        async def mock_exec(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return check_proc
+            return run_proc
+
+        with patch("asyncio.create_subprocess_exec", side_effect=mock_exec):
+            with patch("app.config.settings") as mock_settings:
+                mock_settings.custom_rules_dir = None
+                mock_settings.semgrep_per_rule_timeout = 5
+                mock_settings.semgrep_max_target_bytes = 1_000_000
+
+                result = await runner.run(scan_dir, [secret_rules])
+
+        assert result == EMPTY_SARIF
+        assert "Running Semgrep" in caplog.text
+        assert "SECRET_SEMGREP_SCAN_DIR_SHOULD_NOT_LEAK" not in caplog.text
+        assert "SECRET_SEMGREP_RULES_SHOULD_NOT_LEAK" not in caplog.text
+        assert "--sarif" not in caplog.text
+        assert "--config" not in caplog.text
+
+    @pytest.mark.asyncio
     async def test_empty_stdout(self, runner, tmp_path):
         """stdout가 빈 경우 → 빈 SARIF 구조 반환."""
         check_proc = _make_proc_mock(0, stdout=b"1.45.0\n")
@@ -319,6 +355,35 @@ class TestRun:
         assert result == EMPTY_SARIF
 
     @pytest.mark.asyncio
+    async def test_empty_stdout_stderr_log_does_not_echo_raw_stderr(self, runner, tmp_path, caplog):
+        """stdout가 비고 stderr가 있어도 raw stderr 내용을 로그에 남기지 않는다."""
+        secret_stderr = "SECRET_SEMGREP_STDERR_SHOULD_NOT_LEAK"
+        check_proc = _make_proc_mock(0, stdout=b"1.45.0\n")
+        run_proc = _make_proc_mock(0, stdout=b"", stderr=secret_stderr.encode())
+        caplog.set_level(logging.WARNING, logger="aegis-sast-runner")
+
+        call_count = 0
+
+        async def mock_exec(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return check_proc
+            return run_proc
+
+        with patch("asyncio.create_subprocess_exec", side_effect=mock_exec):
+            with patch("app.config.settings") as mock_settings:
+                mock_settings.custom_rules_dir = None
+                mock_settings.semgrep_per_rule_timeout = 5
+                mock_settings.semgrep_max_target_bytes = 1_000_000
+
+                result = await runner.run(tmp_path, ["p/c"])
+
+        assert result == EMPTY_SARIF
+        assert "Semgrep stderr was non-empty" in caplog.text
+        assert secret_stderr not in caplog.text
+
+    @pytest.mark.asyncio
     async def test_json_decode_error_is_system_stability_failure(self, runner, tmp_path):
         """stdout가 유효하지 않은 JSON이면 정상 응답으로 취급하지 않고 실패한다."""
         check_proc = _make_proc_mock(0, stdout=b"1.45.0\n")
@@ -341,6 +406,37 @@ class TestRun:
 
                 with pytest.raises(ToolOutputInvalidError):
                     await runner.run(tmp_path, ["p/c"])
+
+    @pytest.mark.asyncio
+    async def test_json_decode_error_log_does_not_echo_raw_stdout_or_stderr(self, runner, tmp_path, caplog):
+        """Semgrep non-JSON stdout/stderr 내용을 로그에 남기지 않는다."""
+        secret_stdout = "SECRET_SEMGREP_STDOUT_SHOULD_NOT_LEAK"
+        secret_stderr = "SECRET_SEMGREP_NON_JSON_STDERR_SHOULD_NOT_LEAK"
+        check_proc = _make_proc_mock(0, stdout=b"1.45.0\n")
+        run_proc = _make_proc_mock(1, stdout=secret_stdout.encode(), stderr=secret_stderr.encode())
+        caplog.set_level(logging.ERROR, logger="aegis-sast-runner")
+
+        call_count = 0
+
+        async def mock_exec(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return check_proc
+            return run_proc
+
+        with patch("asyncio.create_subprocess_exec", side_effect=mock_exec):
+            with patch("app.config.settings") as mock_settings:
+                mock_settings.custom_rules_dir = None
+                mock_settings.semgrep_per_rule_timeout = 5
+                mock_settings.semgrep_max_target_bytes = 1_000_000
+
+                with pytest.raises(ToolOutputInvalidError):
+                    await runner.run(tmp_path, ["p/c"])
+
+        assert "Semgrep produced non-JSON SARIF output" in caplog.text
+        assert secret_stdout not in caplog.text
+        assert secret_stderr not in caplog.text
 
     @pytest.mark.asyncio
     async def test_timeout_raises_scan_timeout_error(self, runner, tmp_path):

@@ -359,6 +359,28 @@ def build_phase2_prompt(
     else:
         sections.append("## SAST 스캔 결과\nSAST 스캔을 실행하지 못했습니다.")
 
+    if phase1.s4_tool_portfolio_report and phase1.s4_tool_portfolio_quality_ready is False:
+        diagnostics = json.dumps(phase1.s4_tool_portfolio_diagnostics, ensure_ascii=False)
+        sections.append(
+            "## S4 Tool Portfolio 품질/코퍼스 진단\n"
+            "S4 Tool Portfolio offline report가 decision-grade quality-ready 상태가 아닙니다. "
+            "`corpusReadinessGate`를 authoritative source로 보며, legacy `decisionSupport.externalCorpusStatus`나 "
+            "`validationMetrics.status`/`testMetrics.status` pass만으로 품질 통과 또는 취약점 부재를 추론하지 마라. "
+            "이 진단은 운영/실험 품질 메타데이터이며 claim supporting evidence, clean pass, final verdict가 아니다.\n"
+            f"- toolPortfolioDiagnostics: {diagnostics}"
+        )
+
+    if phase1.source_code_kg_status or phase1.source_code_kg_diagnostics:
+        diagnostics = json.dumps(phase1.source_code_kg_diagnostics, ensure_ascii=False)
+        sections.append(
+            "## S5 Source Code KG 생산 진단\n"
+            "Source Code KG ingest/contract 상태는 코드 지식 저장 생산 경로의 운영 진단이다. "
+            "성공하더라도 affectedness proof, exploitability proof, final security verdict로 쓰지 말고, "
+            "실패/skip도 취약점 부재 또는 SAST 부재 증거로 해석하지 마라.\n"
+            f"- sourceCodeKgStatus: {phase1.source_code_kg_status or 'unknown'}\n"
+            f"- sourceCodeKgDiagnostics: {diagnostics}"
+        )
+
     # Phase 1 코드 그래프 요약
     project_id = trusted_context.get("projectId")
     _CODEGRAPH_LIMITS = (

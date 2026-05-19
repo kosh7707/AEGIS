@@ -49,6 +49,25 @@ def _patch_httpx_exception(monkeypatch, exc: Exception):
     monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: mock_client)
 
 
+def _ready_build_response(*, entries: int = 5, user_entries: int | None = None) -> dict:
+    if user_entries is None:
+        user_entries = entries
+    return {
+        "success": True,
+        "buildEvidence": {
+            "exitCode": 0,
+            "entries": entries,
+            "userEntries": user_entries,
+            "compileCommandsPath": "/tmp/test/build-aegis/compile_commands.json",
+        },
+        "readiness": {
+            "status": "ready",
+            "compileCommandsReady": True,
+            "quickEligible": True,
+        },
+    }
+
+
 # ---------------------------------------------------------------------------
 # Forbidden-command tests
 # ---------------------------------------------------------------------------
@@ -134,10 +153,7 @@ async def test_forbidden_case_insensitive():
 
 @pytest.mark.asyncio
 async def test_allowed_cmake_make(monkeypatch):
-    _patch_httpx(monkeypatch, {
-        "success": True, "exitCode": 0, "entries": 5,
-        "compileCommandsPath": "/tmp/test/build-aegis/compile_commands.json",
-    })
+    _patch_httpx(monkeypatch, _ready_build_response(entries=5))
 
     tool = TryBuildTool(sast_endpoint="http://localhost:9000", project_path="/tmp/test")
     result = await tool.execute({"build_command": "cmake .. && make -j4"})
@@ -148,7 +164,7 @@ async def test_allowed_cmake_make(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_request_scoped_build_dir_requires_generated_script(monkeypatch):
-    mock_client = _make_mock_client({"success": True, "buildEvidence": {"exitCode": 0, "entries": 5}})
+    mock_client = _make_mock_client(_ready_build_response(entries=5))
     monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: mock_client)
 
     tool = TryBuildTool(
@@ -167,7 +183,7 @@ async def test_request_scoped_build_dir_requires_generated_script(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_request_scoped_build_dir_rejects_direct_uploaded_script_execution(monkeypatch):
-    mock_client = _make_mock_client({"success": True, "buildEvidence": {"exitCode": 0, "entries": 5}})
+    mock_client = _make_mock_client(_ready_build_response(entries=5))
     monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: mock_client)
 
     tool = TryBuildTool(
@@ -185,7 +201,7 @@ async def test_request_scoped_build_dir_rejects_direct_uploaded_script_execution
 
 @pytest.mark.asyncio
 async def test_request_scoped_build_dir_rejects_chained_commands(monkeypatch):
-    mock_client = _make_mock_client({"success": True, "buildEvidence": {"exitCode": 0, "entries": 5}})
+    mock_client = _make_mock_client(_ready_build_response(entries=5))
     monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: mock_client)
 
     tool = TryBuildTool(
@@ -240,24 +256,111 @@ async def test_s4_network_error(monkeypatch):
 
 
 def test_validate_success():
-    ok, warn = _validate_build_result({"success": True, "buildEvidence": {"exitCode": 0, "entries": 7}})
+    ok, warn = _validate_build_result({
+        "success": True,
+        "buildEvidence": {
+            "exitCode": 0,
+            "entries": 7,
+            "userEntries": 7,
+            "compileCommandsPath": "/uploads/project/compile_commands.json",
+        },
+        "readiness": {
+            "status": "ready",
+            "compileCommandsReady": True,
+            "quickEligible": True,
+        },
+    })
     assert ok is True
     assert warn is None
+
+
+@pytest.mark.parametrize(
+    ("payload", "expected_fragment"),
+    [
+        (
+            {
+                "success": True,
+                "buildEvidence": {
+                    "exitCode": 0,
+                    "entries": 7,
+                    "userEntries": 7,
+                    "compileCommandsPath": "/uploads/project/compile_commands.json",
+                },
+                "readiness": {
+                    "status": "partial",
+                    "compileCommandsReady": True,
+                    "quickEligible": True,
+                },
+            },
+            "readiness.status=partial",
+        ),
+        (
+            {
+                "success": True,
+                "buildEvidence": {
+                    "exitCode": 0,
+                    "entries": 7,
+                    "userEntries": 0,
+                    "compileCommandsPath": "/uploads/project/compile_commands.json",
+                },
+                "readiness": {
+                    "status": "ready",
+                    "compileCommandsReady": True,
+                    "quickEligible": True,
+                },
+            },
+            "userEntries=0",
+        ),
+        (
+            {
+                "success": True,
+                "buildEvidence": {"exitCode": 0, "entries": 7, "userEntries": 7},
+                "readiness": {
+                    "status": "ready",
+                    "compileCommandsReady": True,
+                    "quickEligible": True,
+                },
+            },
+            "compileCommandsPath",
+        ),
+        (
+            {
+                "success": True,
+                "buildEvidence": {
+                    "exitCode": 0,
+                    "entries": 7,
+                    "userEntries": 7,
+                    "compileCommandsPath": "/uploads/project/compile_commands.json",
+                },
+                "readiness": {
+                    "status": "ready",
+                    "compileCommandsReady": False,
+                    "quickEligible": True,
+                },
+            },
+            "compileCommandsReady=false",
+        ),
+    ],
+)
+def test_validate_requires_canonical_s4_build_readiness(payload, expected_fragment):
+    ok, warn = _validate_build_result(payload)
+
+    assert ok is False
+    assert expected_fragment in warn
 
 
 def test_validate_exit_code_nonzero():
     """exitCode != 0 이면 실패로 판정."""
     ok, warn = _validate_build_result({"success": True, "exitCode": 1, "entries": 3})
     assert ok is False
-    assert "exit code=1" in warn
+    assert "exitCode=1" in warn
 
 
 def test_validate_partial_compile_commands_warning_uses_user_entries():
     """부분 compile_commands는 실패로 남기되 userEntries 경고를 노출한다."""
     ok, warn = _validate_build_result({
         "success": True,
-        "exitCode": 1,
-        "userEntries": 4,
+        "buildEvidence": {"exitCode": 1, "userEntries": 4},
         "warning": "partial compile database available",
     })
 
@@ -293,7 +396,7 @@ async def test_exit_code_nonzero_overrides_s4_success(monkeypatch):
 @pytest.mark.asyncio
 async def test_default_build_environment_is_sent(monkeypatch):
     """default buildEnvironment가 S4 요청에 포함된다."""
-    mock_client = _make_mock_client({"success": True, "buildEvidence": {"exitCode": 0, "entries": 5}})
+    mock_client = _make_mock_client(_ready_build_response(entries=5))
     monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: mock_client)
 
     tool = TryBuildTool(
@@ -312,7 +415,7 @@ async def test_default_build_environment_is_sent(monkeypatch):
 @pytest.mark.asyncio
 async def test_no_build_environment_when_absent(monkeypatch):
     """buildEnvironment가 없으면 payload에 포함하지 않는다."""
-    mock_client = _make_mock_client({"success": True, "buildEvidence": {"exitCode": 0, "entries": 5}})
+    mock_client = _make_mock_client(_ready_build_response(entries=5))
     monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: mock_client)
 
     tool = TryBuildTool(sast_endpoint="http://localhost:9000", project_path="/tmp/test")
@@ -325,7 +428,7 @@ async def test_no_build_environment_when_absent(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_execute_merges_override_build_environment(monkeypatch):
-    mock_client = _make_mock_client({"success": True, "buildEvidence": {"exitCode": 0, "entries": 5}})
+    mock_client = _make_mock_client(_ready_build_response(entries=5))
     monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: mock_client)
 
     tool = TryBuildTool(
@@ -351,7 +454,7 @@ async def test_execute_merges_override_build_environment(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_execute_includes_provenance(monkeypatch):
-    mock_client = _make_mock_client({"success": True, "buildEvidence": {"exitCode": 0, "entries": 5}})
+    mock_client = _make_mock_client(_ready_build_response(entries=5))
     monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: mock_client)
 
     tool = TryBuildTool(
@@ -369,7 +472,7 @@ async def test_execute_includes_provenance(monkeypatch):
 @pytest.mark.asyncio
 async def test_bear_auto_stripped(monkeypatch):
     """LLM이 bear --를 넣어도 자동 제거된다."""
-    mock_client = _make_mock_client({"success": True, "buildEvidence": {"exitCode": 0, "entries": 5}})
+    mock_client = _make_mock_client(_ready_build_response(entries=5))
     monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: mock_client)
 
     tool = TryBuildTool(sast_endpoint="http://localhost:9000", project_path="/tmp/test")
@@ -384,7 +487,7 @@ async def test_bear_auto_stripped(monkeypatch):
 @pytest.mark.asyncio
 async def test_shell_gcc_command_preserved_and_request_id_forwarded(monkeypatch):
     """shell+gcc 경로도 그대로 전달되고 request id가 헤더에 전파된다."""
-    mock_client = _make_mock_client({"success": True, "buildEvidence": {"exitCode": 0, "entries": 2}})
+    mock_client = _make_mock_client(_ready_build_response(entries=2))
     monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: mock_client)
 
     tool = TryBuildTool(
@@ -468,7 +571,7 @@ async def test_try_build_uses_durable_ownership_and_polls_until_result(monkeypat
     final.json.return_value = {
         "requestId": "req-build-owned",
         "state": "completed",
-        "result": {"success": True, "buildEvidence": {"exitCode": 0, "entries": 5}},
+        "result": _ready_build_response(entries=5),
     }
 
     mock_client = AsyncMock()
@@ -500,7 +603,7 @@ async def test_try_build_changed_command_gets_new_s4_child_request_id(monkeypatc
 
     async def fake_post(url, **kwargs):
         seen_ids.append(kwargs["headers"]["X-Request-Id"])
-        return _make_mock_client({"success": True, "buildEvidence": {"exitCode": 0, "entries": 1}}).post.return_value
+        return _make_mock_client(_ready_build_response(entries=1)).post.return_value
 
     mock_client = AsyncMock()
     mock_client.post.side_effect = fake_post

@@ -377,7 +377,7 @@ async def handle_build_resolve(request: TaskRequest) -> TaskSuccessResponse | Ta
     ))
     registry.register(ToolSchema(
         name="try_build",
-        description="S4에 빌드 명령어를 전송하여 실행한다. exitCode=0이면 성공.",
+        description="S4에 빌드 명령어를 전송하여 실행한다. success=true, readiness.status=ready, compileCommandsReady=true, quickEligible=true, compileCommandsPath 존재, userEntries>0, exitCode=0이 모두 만족되어야 성공.",
         parameters={
             "type": "object",
             "properties": {

@@ -56,9 +56,9 @@ class BuildMetadataExtractor:
             stdout, _ = await asyncio.wait_for(
                 proc.communicate(), timeout=timeout,
             )
-        except (asyncio.TimeoutError, FileNotFoundError) as e:
-            logger.warning("gcc -E -dM failed: %s", e)
-            return {"compiler": gcc_bin, "macros": {}, "targetInfo": {}}
+        except (asyncio.TimeoutError, FileNotFoundError):
+            logger.warning("gcc macro extraction failed")
+            return {"compiler": self._compiler_identity(gcc_bin), "macros": {}, "targetInfo": {}}
 
         raw = stdout.decode()
         macros = self._parse_macros(raw)
@@ -67,10 +67,18 @@ class BuildMetadataExtractor:
         compiler_version = await self._get_version(gcc_bin)
 
         return {
-            "compiler": f"{gcc_bin} {compiler_version}" if compiler_version else gcc_bin,
+            "compiler": self._compiler_identity(gcc_bin, compiler_version),
             "macros": macros,
             "targetInfo": self._derive_target_info(macros),
         }
+
+    def _compiler_identity(self, gcc_bin: str, version: str | None = None) -> str:
+        """Public compiler evidence uses executable identity, never host-local paths."""
+        raw = str(gcc_bin or "").strip()
+        name = raw.replace("\\", "/").rstrip("/").rsplit("/", 1)[-1] if raw else "gcc"
+        if not name:
+            name = "gcc"
+        return f"{name} {version}" if version else name
 
     def _parse_macros(self, raw: str) -> dict[str, str]:
         """#define 출력을 파싱. 관심 매크로만 반환."""

@@ -1,7 +1,10 @@
 """ScanbuildRunner 파서 단위 테스트."""
 
+import asyncio
+import logging
+import plistlib
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -114,7 +117,93 @@ class TestNormalizePath:
         assert normalize_path("src/main.c", Path("/tmp/scan")) == "src/main.c"
 
 
+class TestParsePlistResults:
+    def test_malformed_plist_log_does_not_echo_filename_or_parser_error(self, runner, tmp_path, caplog):
+        output_dir = tmp_path / "scan-build-output"
+        output_dir.mkdir()
+        secret_name = "SECRET_SCAN_BUILD_PLIST_NAME_SHOULD_NOT_LEAK.plist"
+        secret_content = "SECRET_SCAN_BUILD_PLIST_CONTENT_SHOULD_NOT_LEAK"
+        (output_dir / secret_name).write_text(secret_content, encoding="utf-8")
+        valid_plist = output_dir / "valid.plist"
+        with valid_plist.open("wb") as handle:
+            plistlib.dump(
+                {
+                    "files": ["/tmp/scan/src/main.c"],
+                    "diagnostics": [
+                        {
+                            "description": "Null pointer dereference",
+                            "category": "Logic error",
+                            "check_name": "core.NullDereference",
+                            "location": {"file": 0, "line": 17, "col": 5},
+                            "path": [],
+                        }
+                    ],
+                },
+                handle,
+            )
+        caplog.set_level(logging.WARNING, logger="aegis-sast-runner")
+
+        findings = runner._parse_plist_results(output_dir, Path("/tmp/scan"))
+
+        assert len(findings) == 1
+        assert findings[0].location.file == "src/main.c"
+        assert "Failed to parse scan-build plist" in caplog.text
+        assert "SECRET_SCAN_BUILD_PLIST_NAME_SHOULD_NOT_LEAK" not in caplog.text
+        assert "SECRET_SCAN_BUILD_PLIST_CONTENT_SHOULD_NOT_LEAK" not in caplog.text
+        assert "Invalid file" not in caplog.text
+
+
 class TestFileProgressCallback:
+    @pytest.mark.asyncio
+    async def test_per_file_failure_log_does_not_echo_exception_text(self, runner, caplog):
+        """파일별 실패 로그는 raw source file이나 exception text를 남기지 않는다."""
+        secret_source = "src/SECRET_SCANBUILD_SOURCE_FILE_SHOULD_NOT_LEAK.c"
+
+        async def _mock_single(bin_name, scan_dir, f, profile, timeout):
+            del bin_name, scan_dir, f, profile, timeout
+            raise RuntimeError("SECRET_SCAN_BUILD_ERROR_SHOULD_NOT_LEAK")
+
+        caplog.set_level(logging.WARNING, logger="aegis-sast-runner")
+
+        with (
+            patch.object(runner, "_run_single", side_effect=_mock_single),
+            patch.object(runner, "check_available", return_value=(True, "scan-build-18")),
+        ):
+            findings = await runner.run(
+                scan_dir=Path("/tmp/scan"),
+                source_files=[secret_source],
+                profile=None,
+                timeout=60,
+            )
+
+        assert findings == []
+        assert runner._last_failed == 1
+        assert "scan-build failed" in caplog.text
+        assert "SECRET_SCANBUILD_SOURCE_FILE_SHOULD_NOT_LEAK" not in caplog.text
+        assert "SECRET_SCAN_BUILD_ERROR_SHOULD_NOT_LEAK" not in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_per_file_timeout_log_does_not_echo_source_file(self, runner, caplog):
+        """파일별 timeout 로그는 raw source file을 남기지 않는다."""
+        source_file = "src/SECRET_SCANBUILD_TIMEOUT_SOURCE_SHOULD_NOT_LEAK.c"
+        proc = AsyncMock()
+        proc.kill = MagicMock()
+        proc.communicate = AsyncMock(side_effect=[asyncio.TimeoutError(), (b"", b"")])
+        caplog.set_level(logging.WARNING, logger="aegis-sast-runner")
+
+        with patch("asyncio.create_subprocess_exec", return_value=proc):
+            result = await runner._run_single(
+                "scan-build",
+                Path("/tmp/scan"),
+                source_file,
+                profile=None,
+                timeout=10,
+            )
+
+        assert result is None
+        assert "scan-build timed out" in caplog.text
+        assert "SECRET_SCANBUILD_TIMEOUT_SOURCE_SHOULD_NOT_LEAK" not in caplog.text
+
     @pytest.mark.asyncio
     async def test_on_file_progress_called(self, runner):
         """파일 완료 시 on_file_progress 콜백이 호출되고 done/total이 정확한지 확인."""

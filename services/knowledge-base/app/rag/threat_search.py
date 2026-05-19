@@ -4,6 +4,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 
+from app.config import redact_url_for_log
 from qdrant_client import QdrantClient
 
 logger = logging.getLogger(__name__)
@@ -46,7 +47,7 @@ class ThreatSearch:
         if qdrant_url:
             self._client = QdrantClient(url=qdrant_url, api_key=qdrant_api_key)
             self._mode = "server"
-            logger.info("ThreatSearch 초기화: server mode, url=%s", qdrant_url)
+            logger.info("ThreatSearch 초기화: server mode, url=%s", redact_url_for_log(qdrant_url))
         elif qdrant_path:
             self._client = QdrantClient(path=qdrant_path)
             self._mode = "file"

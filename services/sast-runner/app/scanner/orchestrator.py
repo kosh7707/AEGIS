@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import time
 from collections.abc import Awaitable, Callable
 from pathlib import Path
@@ -67,6 +68,35 @@ def _parse_version(ver_str: str | None) -> tuple[int, ...] | None:
 _TOOL_CACHE_TTL = 300  # 도구 가용성 캐시 유효 시간 (초)
 
 
+def expected_executable_path_status(value: Any) -> str:
+    """Raw executable paths are internal; expose only configured/not-configured."""
+    if value is not None and str(value).strip():
+        return "configured"
+    return "not-configured"
+
+
+def configured_path_status(value: Any) -> str:
+    """Public metadata should expose path presence, not host-local path values."""
+    if value is not None and str(value).strip():
+        return "configured"
+    return "not-configured"
+
+
+def sanitize_tool_availability(info: dict[str, Any]) -> dict[str, Any]:
+    """Return public-safe tool availability metadata without raw executable paths."""
+    sanitized = dict(info)
+    raw_path = sanitized.pop("expectedExecutablePath", None)
+    sanitized["expectedExecutablePathStatus"] = expected_executable_path_status(raw_path)
+    return sanitized
+
+
+def sanitize_tool_availability_map(tools: dict[str, dict]) -> dict[str, dict]:
+    return {
+        name: sanitize_tool_availability(info)
+        for name, info in tools.items()
+    }
+
+
 class ScanOrchestrator:
     """6개 SAST 도구를 병렬로 실행하고 결과를 합산한다."""
 
@@ -107,12 +137,12 @@ class ScanOrchestrator:
         tool_info: dict[str, dict[str, Any]] = {}
         for name, (avail, ver), runner in zip(names, results, runners):
             probe = getattr(runner, "_last_probe", None) or {}
-            tool_info[name] = {
+            tool_info[name] = sanitize_tool_availability({
                 "available": avail,
                 "version": ver,
                 "probeReason": probe.get("probeReason"),
                 "expectedExecutablePath": probe.get("expectedExecutablePath"),
-            }
+            })
 
         # 최소 버전 경고
         for name, info in tool_info.items():
@@ -336,10 +366,10 @@ class ScanOrchestrator:
 
         for tool_name, result in zip(task_map.keys(), results):
             if isinstance(result, Exception):
-                logger.warning("Tool %s failed: %s", tool_name, str(result))
+                logger.warning("Tool %s failed", tool_name)
                 tool_results[tool_name] = ToolExecutionResult(
                     status="failed", findings_count=0, elapsed_ms=0,
-                    skip_reason=str(result), version=tool_versions.get(tool_name),
+                    skip_reason="tool-execution-failed", version=tool_versions.get(tool_name),
                 )
             else:
                 findings_list, elapsed = result
@@ -404,6 +434,7 @@ class ScanOrchestrator:
         all_findings, filter_stats = _filter_user_code_findings(
             all_findings, tp_paths,
         )
+        all_findings = _sanitize_public_finding_paths(all_findings, scan_dir)
         all_findings = enrich_findings_evidence(all_findings)
         logger.info(
             "Findings filter: sdk=%d, thirdParty=%d removed, %d cross-boundary kept (before=%d, after=%d)",
@@ -457,11 +488,12 @@ class ScanOrchestrator:
         for tool in required:
             if tool in skipped:
                 info = available_tools.get(tool, {})
+                safe_info = sanitize_tool_availability(info)
                 failures.append({
                     "toolId": tool,
                     "reasonCode": skipped[tool],
                     "version": info.get("version"),
-                    "expectedExecutablePath": info.get("expectedExecutablePath"),
+                    "expectedExecutablePathStatus": safe_info.get("expectedExecutablePathStatus"),
                 })
 
         if not failures:
@@ -601,6 +633,7 @@ class ScanOrchestrator:
                 "resolution_mode": None,
                 "resolved_from": None,
                 "sdk_root_path": None,
+                "sdk_root_path_status": None,
                 "degrade_reasons": [],
             }
 
@@ -627,7 +660,12 @@ class ScanOrchestrator:
             "include_paths_added": enriched_paths - original_paths,
             "resolution_mode": resolution_mode,
             "resolved_from": resolved_from,
-            "sdk_root_path": descriptor.sdk_root_path if descriptor else None,
+            "sdk_root_path": None,
+            "sdk_root_path_status": (
+                configured_path_status(descriptor.sdk_root_path)
+                if descriptor
+                else "not-configured"
+            ),
             "degrade_reasons": [],
         }
 
@@ -646,8 +684,8 @@ class ScanOrchestrator:
         merged = existing + [p for p in sdk_paths if p not in existing]
 
         logger.info(
-            "SDK '%s' resolved %d include paths (total: %d)",
-            profile.sdk_id, len(sdk_paths), len(merged),
+            "SDK resolved %d include paths (total: %d)",
+            len(sdk_paths), len(merged),
         )
         return profile.model_copy(update={"include_paths": merged})
 
@@ -802,6 +840,60 @@ def _filter_user_code_findings(
         "third_party_removed": tp_removed,
         "cross_boundary": cross_boundary,
     }
+
+
+def _sanitize_public_finding_paths(
+    findings: list[SastFinding],
+    scan_dir: Path,
+) -> list[SastFinding]:
+    """Redact host-local absolute paths after internal filtering is complete."""
+    return [_sanitize_public_finding_path(finding, scan_dir) for finding in findings]
+
+
+def _sanitize_public_finding_path(finding: SastFinding, scan_dir: Path) -> SastFinding:
+    location = finding.location.model_copy(
+        update={"file": _public_path_identity(finding.location.file, scan_dir)},
+    )
+    data_flow = None
+    if finding.data_flow is not None:
+        data_flow = [
+            step.model_copy(update={"file": _public_path_identity(step.file, scan_dir)})
+            for step in finding.data_flow
+        ]
+    return finding.model_copy(update={"location": location, "data_flow": data_flow})
+
+
+def _public_path_identity(path: str, scan_dir: Path) -> str:
+    """Return public-safe file identity for finding/dataFlow evidence."""
+    value = str(path or "").strip()
+    if not value:
+        return "<external>/<unknown>"
+
+    if not _is_public_absolute_path(value):
+        return value
+
+    try:
+        rel = Path(value).resolve(strict=False).relative_to(
+            scan_dir.resolve(strict=False),
+        )
+        return rel.as_posix()
+    except (OSError, RuntimeError, ValueError):
+        return _external_path_identity(value)
+
+
+def _is_public_absolute_path(path: str) -> bool:
+    if Path(path).is_absolute():
+        return True
+    normalized = path.replace("\\", "/")
+    return bool(re.match(r"^[A-Za-z]:/", normalized)) or normalized.startswith("//")
+
+
+def _external_path_identity(path: str) -> str:
+    normalized = path.replace("\\", "/")
+    basename = Path(normalized).name.strip()
+    if not basename or basename in {".", ".."}:
+        basename = "<unknown>"
+    return f"<external>/{basename}"
 
 
 def _check_cross_boundary(

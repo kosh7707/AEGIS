@@ -83,3 +83,18 @@ def test_new_experiment_modules_have_no_network_llm_or_s5_coupling() -> None:
 
     assert result["status"] == "pass"
     assert result["checkedFiles"] == 6
+
+
+def test_forbidden_runtime_coupling_guard_does_not_echo_path_or_regex(tmp_path: Path) -> None:
+    secret_path = tmp_path / "SECRET_COUPLING_PATH_SHOULD_NOT_LEAK" / "module.py"
+    secret_path.parent.mkdir()
+    secret_path.write_text("import requests\n", encoding="utf-8")
+
+    with pytest.raises(ValueError) as error:
+        assert_no_forbidden_runtime_coupling([secret_path])
+
+    message = str(error.value)
+    assert "forbidden runtime coupling detected" in message
+    assert str(secret_path) not in message
+    assert "SECRET_COUPLING_PATH_SHOULD_NOT_LEAK" not in message
+    assert "requests|httpx|socket" not in message

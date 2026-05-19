@@ -10,6 +10,12 @@ from httpx import ASGITransport, AsyncClient
 
 from app.main import app
 from app.scanner.orchestrator import ALL_TOOLS
+from app.schemas.response import (
+    ExecutionReport,
+    FindingsFilterInfo,
+    SdkResolutionInfo,
+    ToolExecutionResult,
+)
 
 
 @pytest.fixture
@@ -57,6 +63,142 @@ async def test_health_endpoint(client: AsyncClient) -> None:
     assert data["requestSummary"]["localAckState"] is None
 
 
+def _contains_key(value, key: str) -> bool:
+    if isinstance(value, dict):
+        return key in value or any(_contains_key(item, key) for item in value.values())
+    if isinstance(value, list):
+        return any(_contains_key(item, key) for item in value)
+    return False
+
+
+@pytest.mark.asyncio
+async def test_request_validation_error_does_not_echo_raw_body_values(
+    client: AsyncClient,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    secret = "SECRET_422_VALIDATION_SHOULD_NOT_LEAK"
+    request_id = "req-validation-redacted"
+    caplog.set_level("WARNING", logger="aegis-sast-runner")
+
+    resp = await client.post(
+        "/v1/scan",
+        headers={"X-Request-Id": request_id},
+        json={
+            "scanId": "validation-redaction",
+            "projectId": "proj-test",
+            "files": [
+                {
+                    "path": "src/main.c",
+                    "content": {"secret": secret},
+                },
+            ],
+        },
+    )
+
+    assert resp.status_code == 422
+    assert resp.headers["X-Request-Id"] == request_id
+    data = resp.json()
+    assert data["success"] is False
+    assert data["error"] == "request validation failed"
+    assert data["errorDetail"]["code"] == "REQUEST_VALIDATION_FAILED"
+    assert data["errorDetail"]["message"] == "request validation failed"
+    assert data["errorDetail"]["requestId"] == request_id
+    assert data["errorDetail"]["retryable"] is False
+    assert data["validationErrors"]
+    assert data["validationErrors"][0]["loc"] == ["body", "files", 0, "content"]
+    assert _contains_key(data, "input") is False
+    assert _contains_key(data, "ctx") is False
+    assert _contains_key(data, "url") is False
+    assert secret not in resp.text
+    assert secret not in str(data)
+    assert secret not in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_request_validation_error_redacts_dynamic_location_keys(
+    client: AsyncClient,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    secret = "SECRET_ENV_KEY_SHOULD_NOT_LEAK"
+    caplog.set_level("WARNING", logger="aegis-sast-runner")
+
+    resp = await client.post(
+        "/v1/build",
+        headers={"X-Request-Id": "req-validation-loc-redacted"},
+        json={
+            "projectPath": "/tmp",
+            "buildCommand": "make",
+            "buildEnvironment": {
+                secret: {"bad": "value"},
+            },
+        },
+    )
+
+    assert resp.status_code == 422
+    data = resp.json()
+    assert data["errorDetail"]["code"] == "REQUEST_VALIDATION_FAILED"
+    assert data["validationErrors"][0]["loc"] == ["body", "buildEnvironment", "<field>"]
+    assert secret not in resp.text
+    assert secret not in str(data)
+    assert secret not in caplog.text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("path", "payload", "expected_loc"),
+    [
+        (
+            "/v1/build",
+            {
+                "projectPath": "/tmp",
+                "buildCommand": "make",
+                "buildEnvironment": {
+                    "environment": {"secret": "SECRET_MAP_VALUE_SHOULD_NOT_LEAK"},
+                },
+            },
+            ["body", "buildEnvironment", "<field>"],
+        ),
+        (
+            "/v1/scan",
+            {
+                "scanId": "validation-loc-context",
+                "projectId": "proj-test",
+                "files": [{"path": "src/main.c", "content": "int main(void) { return 0; }"}],
+                "buildProfile": {
+                    "defines": {
+                        "compiler": {"secret": "SECRET_MAP_VALUE_SHOULD_NOT_LEAK"},
+                    },
+                },
+            },
+            ["body", "buildProfile", "defines", "<field>"],
+        ),
+    ],
+)
+async def test_request_validation_error_redacts_safe_named_dynamic_map_keys(
+    client: AsyncClient,
+    caplog: pytest.LogCaptureFixture,
+    path: str,
+    payload: dict,
+    expected_loc: list,
+) -> None:
+    secret = "SECRET_MAP_VALUE_SHOULD_NOT_LEAK"
+    caplog.set_level("WARNING", logger="aegis-sast-runner")
+
+    resp = await client.post(
+        path,
+        headers={"X-Request-Id": "req-validation-context-loc-redacted"},
+        json=payload,
+    )
+
+    assert resp.status_code == 422
+    data = resp.json()
+    assert data["errorDetail"]["code"] == "REQUEST_VALIDATION_FAILED"
+    assert expected_loc in [error["loc"] for error in data["validationErrors"]]
+    assert secret not in resp.text
+    assert secret not in str(data)
+    assert secret not in caplog.text
+
+
 @pytest.mark.asyncio
 async def test_health_endpoint_preserves_existing_fields_and_adds_policy(client: AsyncClient) -> None:
     from unittest.mock import AsyncMock, patch
@@ -89,6 +231,39 @@ async def test_health_endpoint_preserves_existing_fields_and_adds_policy(client:
     assert data["activeRequestCount"] == 0
     assert data["requestSummary"]["state"] == "idle"
     assert data["requestSummary"]["localAckState"] is None
+
+
+@pytest.mark.asyncio
+async def test_health_endpoint_redacts_expected_executable_path(client: AsyncClient) -> None:
+    secret_path = "/svc/SECRET_HEALTH_TOOL_PATH_SHOULD_NOT_LEAK/semgrep"
+    router_orchestrator = __import__("app.routers.scan", fromlist=["orchestrator"]).orchestrator
+
+    with patch.object(
+        router_orchestrator,
+        "check_tools",
+        AsyncMock(return_value={
+            "semgrep": {
+                "available": False,
+                "version": None,
+                "probeReason": "environment-drift",
+                "expectedExecutablePath": secret_path,
+            },
+            "cppcheck": {"available": True, "version": "2.13.0", "probeReason": None},
+            "flawfinder": {"available": True, "version": "2.0.19", "probeReason": None},
+            "clang-tidy": {"available": True, "version": "18.1.3", "probeReason": None},
+            "scan-build": {"available": True, "version": "18.1.3", "probeReason": None},
+            "gcc-fanalyzer": {"available": True, "version": "13.3.0", "probeReason": None},
+        }),
+    ):
+        resp = await client.get("/v1/health")
+
+    data = resp.json()
+    assert resp.status_code == 200
+    assert data["semgrep"]["expectedExecutablePathStatus"] == "configured"
+    assert data["tools"]["semgrep"]["expectedExecutablePathStatus"] == "configured"
+    assert "expectedExecutablePath" not in data["semgrep"]
+    assert "expectedExecutablePath" not in data["tools"]["semgrep"]
+    assert secret_path not in str(data)
 
 
 @pytest.mark.asyncio
@@ -189,7 +364,8 @@ async def test_health_endpoint_request_summary_reports_queued_state(
 
 @pytest.mark.asyncio
 async def test_health_endpoint_request_summary_reports_ack_break(client: AsyncClient) -> None:
-    with patch("app.routers.scan.orchestrator.run", AsyncMock(side_effect=RuntimeError("runner exploded"))):
+    secret = "SECRET_HEALTH_INTERNAL_EXCEPTION_SHOULD_NOT_LEAK"
+    with patch("app.routers.scan.orchestrator.run", AsyncMock(side_effect=RuntimeError(secret))):
         resp = await client.post(
             "/v1/scan",
             headers={"X-Request-Id": "scan-health-failed"},
@@ -209,7 +385,8 @@ async def test_health_endpoint_request_summary_reports_ack_break(client: AsyncCl
     assert data["requestSummary"]["state"] == "failed"
     assert data["requestSummary"]["ackStatus"] == "broken"
     assert data["requestSummary"]["localAckState"] == "ack-break"
-    assert data["requestSummary"]["blockedReason"] == "runner exploded"
+    assert data["requestSummary"]["blockedReason"] == "internal error"
+    assert secret not in str(data)
 
 
 @pytest.mark.asyncio
@@ -453,31 +630,40 @@ async def test_scan_no_files_returns_400(client: AsyncClient) -> None:
 
 @pytest.mark.asyncio
 async def test_scan_path_traversal_rejected(client: AsyncClient) -> None:
+    secret_path = "../../../SECRET_SCAN_TRAVERSAL_SHOULD_NOT_LEAK.c"
     resp = await client.post(
         "/v1/scan",
         json={
             "scanId": "test-002",
             "projectId": "proj-test",
-            "files": [{"path": "../../../etc/passwd", "content": "x"}],
+            "files": [{"path": secret_path, "content": "x"}],
         },
     )
     assert resp.status_code == 400
 
     data = resp.json()
+    assert data["error"] == "Path traversal not allowed"
     assert data["errorDetail"]["code"] == "NO_FILES_PROVIDED"
+    assert data["errorDetail"]["message"] == "Path traversal not allowed"
+    assert "SECRET_SCAN_TRAVERSAL_SHOULD_NOT_LEAK" not in str(data)
 
 
 @pytest.mark.asyncio
 async def test_scan_absolute_path_rejected(client: AsyncClient) -> None:
+    secret_path = "/tmp/SECRET_SCAN_ABSOLUTE_SHOULD_NOT_LEAK.c"
     resp = await client.post(
         "/v1/scan",
         json={
             "scanId": "test-003",
             "projectId": "proj-test",
-            "files": [{"path": "/etc/passwd", "content": "x"}],
+            "files": [{"path": secret_path, "content": "x"}],
         },
     )
     assert resp.status_code == 400
+    data = resp.json()
+    assert data["error"] == "Absolute path not allowed"
+    assert data["errorDetail"]["message"] == "Absolute path not allowed"
+    assert "SECRET_SCAN_ABSOLUTE_SHOULD_NOT_LEAK" not in str(data)
 
 
 @pytest.mark.asyncio
@@ -570,6 +756,70 @@ async def test_scan_success_with_mock(
     assert terminal_summary.requestId == "req-mock-001"
     assert terminal_summary.endpoint == "scan"
     assert terminal_summary.state == "completed"
+
+
+@pytest.mark.asyncio
+async def test_scan_logs_redact_sdk_id_identity(
+    client: AsyncClient,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    secret_sdk_id = "SECRET_SDK_ID_SHOULD_NOT_LEAK"
+    execution = ExecutionReport(
+        toolsRun=["cppcheck"],
+        toolResults={
+            "cppcheck": ToolExecutionResult(
+                status="ok",
+                findingsCount=0,
+                elapsedMs=1,
+            ),
+        },
+        sdk=SdkResolutionInfo(
+            resolved=True,
+            sdkId=secret_sdk_id,
+            includePathsAdded=0,
+        ),
+        filtering=FindingsFilterInfo(beforeFilter=0, afterFilter=0),
+        degraded=False,
+        degradeReasons=[],
+    )
+    caplog.set_level("INFO", logger="aegis-sast-runner")
+
+    with (
+        patch("app.routers.scan.sdk_reference_exists", return_value=True),
+        patch(
+            "app.routers.scan.orchestrator.run",
+            AsyncMock(return_value=([], execution)),
+        ),
+    ):
+        resp = await client.post(
+            "/v1/scan",
+            headers={"X-Request-Id": "req-sdk-log-redaction"},
+            json={
+                "scanId": "test-sdk-log-redaction",
+                "projectId": "proj-test",
+                "files": [{"path": "src/main.c", "content": "int main(void) { return 0; }\n"}],
+                "buildProfile": {"sdkId": secret_sdk_id},
+                "options": {"tools": ["cppcheck"]},
+            },
+        )
+
+    assert resp.status_code == 200
+    started = [
+        record for record in caplog.records
+        if record.getMessage() == "Scan started"
+    ][-1]
+    summary = [
+        record for record in caplog.records
+        if record.getMessage() == "Scan execution summary"
+    ][-1]
+
+    assert started.sdkIdProvided is True
+    assert summary.executionSdkIdProvided is True
+    assert not hasattr(started, "sdkId")
+    assert not hasattr(summary, "sdkId")
+    assert secret_sdk_id not in caplog.text
+    assert secret_sdk_id not in repr(started.__dict__)
+    assert secret_sdk_id not in repr(summary.__dict__)
 
 
 @pytest.mark.asyncio
@@ -693,19 +943,37 @@ async def test_scan_error_response_format(client: AsyncClient) -> None:
 @pytest.mark.asyncio
 async def test_discover_targets_no_project_path(client: AsyncClient) -> None:
     """projectPath 없으면 400."""
-    resp = await client.post("/v1/discover-targets", json={})
+    resp = await client.post(
+        "/v1/discover-targets",
+        headers={"X-Request-Id": "req-discover-no-path"},
+        json={},
+    )
     assert resp.status_code == 400
-    assert "projectPath" in resp.json()["error"]
+    data = resp.json()
+    assert data["success"] is False
+    assert data["error"] == "projectPath is required"
+    assert data["errorDetail"]["code"] == "PROJECT_PATH_REQUIRED"
+    assert data["errorDetail"]["message"] == "projectPath is required"
+    assert data["errorDetail"]["requestId"] == "req-discover-no-path"
+    assert data["errorDetail"]["retryable"] is False
 
 
 @pytest.mark.asyncio
 async def test_discover_targets_invalid_path(client: AsyncClient) -> None:
     """존재하지 않는 경로면 400."""
+    secret_path = "/tmp/SECRET_DISCOVER_PROJECT_PATH_SHOULD_NOT_LEAK"
     resp = await client.post(
         "/v1/discover-targets",
-        json={"projectPath": "/nonexistent/path"},
+        json={"projectPath": secret_path},
     )
     assert resp.status_code == 400
+    data = resp.json()
+    assert data["success"] is False
+    assert data["error"] == "projectPath not found"
+    assert data["errorDetail"]["code"] == "PROJECT_PATH_NOT_FOUND"
+    assert data["errorDetail"]["message"] == "projectPath not found"
+    assert data["errorDetail"]["retryable"] is False
+    assert "SECRET_DISCOVER_PROJECT_PATH_SHOULD_NOT_LEAK" not in str(data)
 
 
 @pytest.mark.asyncio
@@ -758,6 +1026,46 @@ async def test_functions_no_input_returns_error(client: AsyncClient) -> None:
     assert resp.status_code == 400
 
 
+@pytest.mark.asyncio
+async def test_functions_invalid_project_path_redacts_project_path(
+    client: AsyncClient,
+) -> None:
+    secret_path = "/tmp/SECRET_FUNCTIONS_PROJECT_PATH_SHOULD_NOT_LEAK"
+
+    resp = await client.post(
+        "/v1/functions",
+        json={"scanId": "test-fn-invalid-path", "projectId": "proj-test", "projectPath": secret_path},
+    )
+
+    assert resp.status_code == 400
+    data = resp.json()
+    assert data["error"] == "projectPath not found"
+    assert data["errorDetail"]["message"] == "projectPath not found"
+    assert "SECRET_FUNCTIONS_PROJECT_PATH_SHOULD_NOT_LEAK" not in str(data)
+
+
+@pytest.mark.asyncio
+async def test_functions_file_path_traversal_redacts_file_path(
+    client: AsyncClient,
+) -> None:
+    secret_path = "../SECRET_FUNCTIONS_TRAVERSAL_SHOULD_NOT_LEAK.c"
+
+    resp = await client.post(
+        "/v1/functions",
+        json={
+            "scanId": "test-fn-path-traversal",
+            "projectId": "proj-test",
+            "files": [{"path": secret_path, "content": "int f(void) { return 0; }"}],
+        },
+    )
+
+    assert resp.status_code == 400
+    data = resp.json()
+    assert data["error"] == "Path traversal not allowed"
+    assert data["errorDetail"]["message"] == "Path traversal not allowed"
+    assert "SECRET_FUNCTIONS_TRAVERSAL_SHOULD_NOT_LEAK" not in str(data)
+
+
 # === /v1/build ===
 
 
@@ -773,13 +1081,19 @@ async def test_build_no_project_path(client: AsyncClient) -> None:
 @pytest.mark.asyncio
 async def test_build_invalid_path(client: AsyncClient) -> None:
     """존재하지 않는 경로면 400."""
+    secret_path = "/tmp/SECRET_BUILD_PROJECT_PATH_SHOULD_NOT_LEAK"
     resp = await client.post(
         "/v1/build",
-        json={"projectPath": "/nonexistent/path"},
+        json={"projectPath": secret_path},
     )
     assert resp.status_code == 400
     data = resp.json()
     assert data["success"] is False
+    assert data["error"] == "projectPath not found"
+    assert data["errorDetail"]["code"] == "PROJECT_PATH_NOT_FOUND"
+    assert data["errorDetail"]["message"] == "projectPath not found"
+    assert data["errorDetail"]["retryable"] is False
+    assert "SECRET_BUILD_PROJECT_PATH_SHOULD_NOT_LEAK" not in str(data)
 
 
 @pytest.mark.asyncio
@@ -793,7 +1107,11 @@ async def test_build_requires_build_command(client: AsyncClient, tmp_path) -> No
     )
     assert resp.status_code == 400
     data = resp.json()
-    assert "buildCommand is required" in data["error"]
+    assert data["success"] is False
+    assert data["error"] == "buildCommand is required"
+    assert data["errorDetail"]["code"] == "BUILD_COMMAND_REQUIRED"
+    assert data["errorDetail"]["message"] == "buildCommand is required"
+    assert data["errorDetail"]["retryable"] is False
 
 
 @pytest.mark.asyncio
@@ -904,6 +1222,42 @@ async def test_build_echoes_provenance_and_structured_evidence(
     assert terminal_summary.state == "completed"
 
 
+@pytest.mark.asyncio
+async def test_build_internal_error_response_summary_and_logs_do_not_echo_exception(
+    client: AsyncClient,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    secret = "SECRET_BUILD_INTERNAL_EXCEPTION_SHOULD_NOT_LEAK"
+    caplog.set_level("ERROR", logger="aegis-sast-runner")
+
+    with (
+        patch("app.routers.scan.Path.is_dir", return_value=True),
+        patch("app.routers.scan.build_runner.build", AsyncMock(side_effect=RuntimeError(secret))),
+    ):
+        resp = await client.post(
+            "/v1/build",
+            headers={"X-Request-Id": "req-build-internal-sanitized"},
+            json={"projectPath": "/tmp/project", "buildCommand": "make"},
+        )
+
+    assert resp.status_code == 500
+    data = resp.json()
+    assert data["error"] == "internal error"
+    assert data["errorDetail"]["code"] == "INTERNAL_ERROR"
+    assert data["errorDetail"]["message"] == "internal error"
+    assert secret not in str(data)
+
+    health = await client.get(
+        "/v1/health",
+        params={"requestId": "req-build-internal-sanitized"},
+    )
+    summary = health.json()["requestSummary"]
+    assert summary["state"] == "failed"
+    assert summary["blockedReason"] == "internal error"
+    assert secret not in str(summary)
+    assert secret not in caplog.text
+
+
 # === /v1/includes ===
 
 
@@ -915,6 +1269,28 @@ async def test_includes_no_input_returns_error(client: AsyncClient) -> None:
         json={"scanId": "test-inc-001", "projectId": "proj-test", "files": []},
     )
     assert resp.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_includes_absolute_file_path_redacts_file_path(
+    client: AsyncClient,
+) -> None:
+    secret_path = "/tmp/SECRET_INCLUDES_ABSOLUTE_SHOULD_NOT_LEAK.c"
+
+    resp = await client.post(
+        "/v1/includes",
+        json={
+            "scanId": "test-inc-absolute-path",
+            "projectId": "proj-test",
+            "files": [{"path": secret_path, "content": "#include <stdio.h>\n"}],
+        },
+    )
+
+    assert resp.status_code == 400
+    data = resp.json()
+    assert data["error"] == "Absolute path not allowed"
+    assert data["errorDetail"]["message"] == "Absolute path not allowed"
+    assert "SECRET_INCLUDES_ABSOLUTE_SHOULD_NOT_LEAK" not in str(data)
 
 
 # === /v1/sdk-registry removed ===
@@ -938,6 +1314,97 @@ async def test_libraries_no_project_path(client: AsyncClient) -> None:
         json={"scanId": "test-lib-001", "projectId": "proj-test", "files": []},
     )
     assert resp.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_scan_invalid_project_path_redacts_project_path(
+    client: AsyncClient,
+) -> None:
+    secret_path = "/tmp/SECRET_SCAN_PROJECT_PATH_SHOULD_NOT_LEAK"
+
+    resp = await client.post(
+        "/v1/scan",
+        json={"scanId": "test-scan-invalid-path", "projectId": "proj-test", "projectPath": secret_path},
+    )
+
+    assert resp.status_code == 400
+    data = resp.json()
+    assert data["error"] == "projectPath not found"
+    assert data["errorDetail"]["message"] == "projectPath not found"
+    assert "SECRET_SCAN_PROJECT_PATH_SHOULD_NOT_LEAK" not in str(data)
+
+
+@pytest.mark.asyncio
+async def test_includes_invalid_project_path_redacts_project_path(
+    client: AsyncClient,
+) -> None:
+    secret_path = "/tmp/SECRET_INCLUDES_PROJECT_PATH_SHOULD_NOT_LEAK"
+
+    resp = await client.post(
+        "/v1/includes",
+        json={"scanId": "test-inc-invalid-path", "projectId": "proj-test", "projectPath": secret_path},
+    )
+
+    assert resp.status_code == 400
+    data = resp.json()
+    assert data["error"] == "projectPath not found"
+    assert data["errorDetail"]["message"] == "projectPath not found"
+    assert "SECRET_INCLUDES_PROJECT_PATH_SHOULD_NOT_LEAK" not in str(data)
+
+
+@pytest.mark.asyncio
+async def test_includes_redacts_absolute_dependency_paths(
+    client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeProcess:
+        async def communicate(self):
+            return (
+                b"main.o: src/main.c /tmp/SECRET_INCLUDE_ROOT/usr/include/stdio.h",
+                b"",
+            )
+
+    async def fake_create_subprocess_exec(*args, **kwargs):
+        return FakeProcess()
+
+    monkeypatch.setattr(
+        "app.scanner.include_resolver.asyncio.create_subprocess_exec",
+        fake_create_subprocess_exec,
+    )
+
+    resp = await client.post(
+        "/v1/includes",
+        json={
+            "scanId": "test-inc-redact-deps",
+            "projectId": "proj-test",
+            "files": [{"path": "src/main.c", "content": "#include <stdio.h>\n"}],
+        },
+    )
+
+    assert resp.status_code == 200
+    data = resp.json()
+    deps = data["includes"]["src/main.c"]
+    assert deps == ["<external>/stdio.h"]
+    assert "SECRET_INCLUDE_ROOT" not in str(data)
+    assert not any(dep.startswith("/") for dep in deps)
+
+
+@pytest.mark.asyncio
+async def test_libraries_invalid_project_path_redacts_project_path(
+    client: AsyncClient,
+) -> None:
+    secret_path = "/tmp/SECRET_LIBRARIES_PROJECT_PATH_SHOULD_NOT_LEAK"
+
+    resp = await client.post(
+        "/v1/libraries",
+        json={"scanId": "test-lib-invalid-path", "projectId": "proj-test", "projectPath": secret_path},
+    )
+
+    assert resp.status_code == 400
+    data = resp.json()
+    assert data["error"] == "projectPath not found"
+    assert data["errorDetail"]["message"] == "projectPath not found"
+    assert "SECRET_LIBRARIES_PROJECT_PATH_SHOULD_NOT_LEAK" not in str(data)
 
 
 # ──────────── NDJSON 스트리밍 모드 ────────────
@@ -1093,17 +1560,21 @@ async def test_scan_ndjson_error_event(client: AsyncClient) -> None:
 
 
 @pytest.mark.asyncio
-async def test_scan_ndjson_internal_error_logs_traceback(
+async def test_scan_ndjson_internal_error_is_value_sanitized(
     client: AsyncClient,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
+    secret = "SECRET_NDJSON_INTERNAL_EXCEPTION_SHOULD_NOT_LEAK"
     caplog.set_level("ERROR", logger="aegis-sast-runner")
 
     with patch("app.routers.scan.orchestrator") as mock_orch:
-        mock_orch.run = AsyncMock(side_effect=RuntimeError("runner exploded"))
+        mock_orch.run = AsyncMock(side_effect=RuntimeError(secret))
         resp = await client.post(
             "/v1/scan",
-            headers={"Accept": "application/x-ndjson"},
+            headers={
+                "Accept": "application/x-ndjson",
+                "X-Request-Id": "req-ndjson-internal-sanitized",
+            },
             json={
                 "scanId": "test-stream-internal-error",
                 "projectId": "proj-test",
@@ -1117,11 +1588,59 @@ async def test_scan_ndjson_internal_error_logs_traceback(
     error_events = [e for e in events if e["type"] == "error"]
     assert len(error_events) == 1
     assert error_events[0]["code"] == "INTERNAL_ERROR"
-    assert "runner exploded" in error_events[0]["message"]
-    assert any(
-        record.exc_info and "NDJSON scan failed unexpectedly" in record.getMessage()
-        for record in caplog.records
+    assert error_events[0]["message"] == "internal error"
+    assert secret not in resp.text
+
+    health = await client.get(
+        "/v1/health",
+        params={"requestId": "req-ndjson-internal-sanitized"},
     )
+    summary = health.json()["requestSummary"]
+    assert summary["state"] == "failed"
+    assert summary["blockedReason"] == "internal error"
+    assert secret not in str(summary)
+    assert secret not in caplog.text
+    assert any("NDJSON scan failed unexpectedly" in record.getMessage() for record in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_scan_sync_internal_error_response_summary_and_logs_do_not_echo_exception(
+    client: AsyncClient,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    secret = "SECRET_SYNC_SCAN_INTERNAL_EXCEPTION_SHOULD_NOT_LEAK"
+    caplog.set_level("ERROR", logger="aegis-sast-runner")
+
+    with patch("app.routers.scan.orchestrator") as mock_orch:
+        mock_orch.run = AsyncMock(side_effect=RuntimeError(secret))
+        resp = await client.post(
+            "/v1/scan",
+            headers={"X-Request-Id": "req-sync-internal-sanitized"},
+            json={
+                "scanId": "test-sync-internal-error",
+                "projectId": "proj-test",
+                "files": [
+                    {"path": "src/main.c", "content": "int main() { return 0; }"},
+                ],
+            },
+        )
+
+    assert resp.status_code == 500
+    data = resp.json()
+    assert data["error"] == "internal error"
+    assert data["errorDetail"]["code"] == "INTERNAL_ERROR"
+    assert data["errorDetail"]["message"] == "internal error"
+    assert secret not in str(data)
+
+    health = await client.get(
+        "/v1/health",
+        params={"requestId": "req-sync-internal-sanitized"},
+    )
+    summary = health.json()["requestSummary"]
+    assert summary["state"] == "failed"
+    assert summary["blockedReason"] == "internal error"
+    assert secret not in str(summary)
+    assert secret not in caplog.text
 
 
 @pytest.mark.asyncio
@@ -1169,18 +1688,22 @@ async def test_scan_with_build_profile_without_sdk_id_succeeds(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("sdk_id", ["nonexistent", "custom"])
+@pytest.mark.parametrize("sdk_id", ["SECRET_SDK_ID_SHOULD_NOT_LEAK", "custom"])
 async def test_scan_with_invalid_sdk_id_returns_domain_error(
     client: AsyncClient,
     tmp_path,
     sdk_id: str,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
+    request_id = "req-invalid-sdk-redacted"
+    caplog.set_level("ERROR", logger="aegis-sast-runner")
     project_dir = tmp_path / "project"
     project_dir.mkdir()
     (project_dir / "main.c").write_text("int main(void) { return 0; }\n", encoding="utf-8")
 
     resp = await client.post(
         "/v1/scan",
+        headers={"X-Request-Id": request_id},
         json={
             "scanId": "test-build-profile-bad-sdk",
             "projectId": "proj-test",
@@ -1199,11 +1722,22 @@ async def test_scan_with_invalid_sdk_id_returns_domain_error(
     data = resp.json()
     assert data["success"] is False
     assert data["errorDetail"]["code"] == "SDK_NOT_FOUND"
-    assert sdk_id in data["errorDetail"]["message"]
+    assert data["errorDetail"]["retryable"] is False
+    assert "registered sdkId" in data["errorDetail"]["message"]
+    assert "non-registered" in data["errorDetail"]["message"]
+    assert sdk_id not in str(data)
+    assert sdk_id not in caplog.text
+
+    health = await client.get("/v1/health", params={"requestId": request_id})
+    summary = health.json()["requestSummary"]
+    assert sdk_id not in str(summary)
+    if summary["state"] != "idle":
+        assert summary["blockedReason"] == data["errorDetail"]["message"]
+        assert sdk_id not in summary["blockedReason"]
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("sdk_id", ["nonexistent", "custom"])
+@pytest.mark.parametrize("sdk_id", ["SECRET_STREAM_SDK_ID_SHOULD_NOT_LEAK", "custom"])
 async def test_scan_ndjson_with_invalid_sdk_id_returns_json_domain_error(
     client: AsyncClient,
     tmp_path,
@@ -1234,19 +1768,30 @@ async def test_scan_ndjson_with_invalid_sdk_id_returns_json_domain_error(
     assert "application/json" in resp.headers.get("content-type", "")
     data = resp.json()
     assert data["errorDetail"]["code"] == "SDK_NOT_FOUND"
+    assert data["errorDetail"]["retryable"] is False
+    assert "registered sdkId" in data["errorDetail"]["message"]
+    assert "non-registered" in data["errorDetail"]["message"]
+    assert sdk_id not in resp.text
+    assert sdk_id not in str(data)
 
 
 @pytest.mark.asyncio
 async def test_scan_invalid_options_tool_returns_caller_error_not_system_instability(
     client: AsyncClient,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
+    secret_tool = "SECRET_SCAN_TOOL_SHOULD_NOT_LEAK"
+    request_id = "req-invalid-scan-tool-redacted"
+    caplog.set_level("ERROR", logger="aegis-sast-runner")
+
     resp = await client.post(
         "/v1/scan",
+        headers={"X-Request-Id": request_id},
         json={
             "scanId": "invalid-tool-id",
             "projectId": "proj-test",
             "files": [{"path": "src/main.c", "content": "int main(void) { return 0; }"}],
-            "options": {"tools": ["not-a-tool"]},
+            "options": {"tools": [secret_tool]},
         },
     )
 
@@ -1254,12 +1799,25 @@ async def test_scan_invalid_options_tool_returns_caller_error_not_system_instabi
     assert resp.status_code == 400
     assert data["success"] is False
     assert data["errorDetail"]["code"] == "SCAN_TOOL_INVALID"
+    assert data["errorDetail"]["retryable"] is False
+    assert "Unknown SAST tool" in data["errorDetail"]["message"]
+    assert "Allowed tools" in data["errorDetail"]["message"]
+    assert secret_tool not in str(data)
+    assert secret_tool not in caplog.text
+
+    health = await client.get("/v1/health", params={"requestId": request_id})
+    summary = health.json()["requestSummary"]
+    assert secret_tool not in str(summary)
+    if summary["state"] != "idle":
+        assert summary["blockedReason"] == data["errorDetail"]["message"]
+        assert secret_tool not in summary["blockedReason"]
 
 
 @pytest.mark.asyncio
 async def test_scan_ndjson_invalid_options_tool_returns_json_domain_error(
     client: AsyncClient,
 ) -> None:
+    secret_tool = "SECRET_STREAM_SCAN_TOOL_SHOULD_NOT_LEAK"
     resp = await client.post(
         "/v1/scan",
         headers={"Accept": "application/x-ndjson"},
@@ -1267,13 +1825,53 @@ async def test_scan_ndjson_invalid_options_tool_returns_json_domain_error(
             "scanId": "invalid-tool-id-stream",
             "projectId": "proj-test",
             "files": [{"path": "src/main.c", "content": "int main(void) { return 0; }"}],
-            "options": {"tools": ["not-a-tool"]},
+            "options": {"tools": [secret_tool]},
         },
     )
 
     assert resp.status_code == 400
     assert "application/json" in resp.headers.get("content-type", "")
-    assert resp.json()["errorDetail"]["code"] == "SCAN_TOOL_INVALID"
+    data = resp.json()
+    assert data["errorDetail"]["code"] == "SCAN_TOOL_INVALID"
+    assert data["errorDetail"]["retryable"] is False
+    assert "Unknown SAST tool" in data["errorDetail"]["message"]
+    assert "Allowed tools" in data["errorDetail"]["message"]
+    assert secret_tool not in resp.text
+    assert secret_tool not in str(data)
+
+
+@pytest.mark.asyncio
+async def test_build_and_analyze_invalid_options_tool_fails_before_build_without_echo(
+    client: AsyncClient,
+    tmp_path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    project_dir = tmp_path / "project"
+    project_dir.mkdir()
+    secret_tool = "SECRET_BUILD_ANALYZE_TOOL_SHOULD_NOT_LEAK"
+    build_mock = AsyncMock()
+    caplog.set_level("ERROR", logger="aegis-sast-runner")
+
+    with patch("app.routers.scan.build_runner.build", build_mock):
+        resp = await client.post(
+            "/v1/build-and-analyze",
+            json={
+                "projectPath": str(project_dir),
+                "buildCommand": "make",
+                "options": {"tools": [secret_tool]},
+            },
+        )
+
+    data = resp.json()
+    assert resp.status_code == 400
+    assert data["success"] is False
+    assert data["errorDetail"]["code"] == "SCAN_TOOL_INVALID"
+    assert data["errorDetail"]["retryable"] is False
+    assert "Unknown SAST tool" in data["errorDetail"]["message"]
+    assert "Allowed tools" in data["errorDetail"]["message"]
+    assert secret_tool not in str(data)
+    assert secret_tool not in caplog.text
+    build_mock.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -1932,14 +2530,42 @@ async def test_build_and_analyze_accepts_provenance(client: AsyncClient) -> None
 
 
 @pytest.mark.asyncio
+async def test_build_and_analyze_invalid_path_redacts_project_path(
+    client: AsyncClient,
+) -> None:
+    secret_path = "/tmp/SECRET_BUILD_ANALYZE_PROJECT_PATH_SHOULD_NOT_LEAK"
+
+    resp = await client.post(
+        "/v1/build-and-analyze",
+        json={"projectPath": secret_path, "buildCommand": "make"},
+    )
+
+    assert resp.status_code == 400
+    data = resp.json()
+    assert data["success"] is False
+    assert data["error"] == "projectPath not found"
+    assert data["errorDetail"]["code"] == "PROJECT_PATH_NOT_FOUND"
+    assert data["errorDetail"]["message"] == "projectPath not found"
+    assert data["errorDetail"]["retryable"] is False
+    assert "SECRET_BUILD_ANALYZE_PROJECT_PATH_SHOULD_NOT_LEAK" not in str(data)
+
+
+@pytest.mark.asyncio
 async def test_build_and_analyze_requires_build_command(client: AsyncClient) -> None:
     with patch("pathlib.Path.is_dir", return_value=True):
         resp = await client.post(
             "/v1/build-and-analyze",
+            headers={"X-Request-Id": "req-build-analyze-no-command"},
             json={"projectPath": "/tmp/project"},
         )
     assert resp.status_code == 400
-    assert "buildCommand is required" in resp.json()["error"]
+    data = resp.json()
+    assert data["success"] is False
+    assert data["error"] == "buildCommand is required"
+    assert data["errorDetail"]["code"] == "BUILD_COMMAND_REQUIRED"
+    assert data["errorDetail"]["message"] == "buildCommand is required"
+    assert data["errorDetail"]["requestId"] == "req-build-analyze-no-command"
+    assert data["errorDetail"]["retryable"] is False
 
 
 @pytest.mark.asyncio

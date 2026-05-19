@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 from app.config import settings
 from app.context import set_request_id
 from app.errors import error_response
+from app.routers import judge_api, source_kg_api
 from app.timeout import parse_timeout, run_sync_with_deadline
 
 logger = logging.getLogger(__name__)
@@ -228,6 +229,8 @@ async def ready(
 
     qdrant_ok = _qdrant_ready
     neo4j_ok = _neo4j_graph is not None
+    source_kg_ledger_ok = source_kg_api._ledger_repository is not None
+    judge_ledger_ok = judge_api._ledger_repository is not None
 
     neo4j_info: dict = {"connected": False}
     if neo4j_ok:
@@ -247,16 +250,18 @@ async def ready(
 
     body = {
         "service": "aegis-knowledge-base",
-        "ready": qdrant_ok and neo4j_ok,
+        "ready": qdrant_ok and neo4j_ok and source_kg_ledger_ok and judge_ledger_ok,
         "components": {
             "qdrant": {"initialized": qdrant_ok},
             "neo4j": neo4j_info,
+            "sourceKgLedger": {"initialized": source_kg_ledger_ok},
+            "judgeLedger": {"initialized": judge_ledger_ok},
         },
     }
     if ontology:
         body["ontology"] = ontology
 
-    if not (qdrant_ok and neo4j_ok):
+    if not (qdrant_ok and neo4j_ok and source_kg_ledger_ok and judge_ledger_ok):
         return error_response(503, "KB_NOT_READY", "Service not fully initialized", retryable=True)
 
     return body

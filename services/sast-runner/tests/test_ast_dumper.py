@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -153,6 +154,38 @@ class TestDumpFunctionsParallel:
         assert "origin" not in funcs_by_name["func_a"]
         assert funcs_by_name["func_core"]["origin"] == "modified-third-party"
         assert funcs_by_name["func_core"]["originalLib"] == "mylib"
+
+
+# ──────────────────── _dump_single failure logging ────────────────────
+
+
+class TestDumpSingleFailureLogging:
+    """_dump_single 실패 로그는 caller/file/exception detail을 노출하지 않는다."""
+
+    @pytest.fixture
+    def dumper(self):
+        return AstDumper()
+
+    @pytest.mark.asyncio
+    async def test_failure_log_uses_category_without_filename_or_exception_text(
+        self, dumper, tmp_path, caplog
+    ):
+        source = tmp_path / "SECRET_AST_FILENAME_SHOULD_NOT_LEAK.c"
+        source.write_text("int main(void) { return 0; }")
+
+        async def mock_exec(*args, **kwargs):
+            raise FileNotFoundError("SECRET_AST_ERROR_SHOULD_NOT_LEAK")
+
+        caplog.set_level(logging.WARNING, logger="aegis-sast-runner")
+
+        with patch("asyncio.create_subprocess_exec", side_effect=mock_exec):
+            result = await dumper._dump_single(source, tmp_path, None, timeout=1)
+
+        assert result is None
+        assert "AST dump failed" in caplog.text
+        assert "AST dump failed for" not in caplog.text
+        assert "SECRET_AST_FILENAME_SHOULD_NOT_LEAK" not in caplog.text
+        assert "SECRET_AST_ERROR_SHOULD_NOT_LEAK" not in caplog.text
 
 
 # ──────────────────── dump_ast 병렬화 ────────────────────

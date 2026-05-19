@@ -11,7 +11,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
-from app.routers import api, code_graph_api, cve_api, project_memory_api
+from app.routers import api, code_graph_api, cve_api, judge_api, project_memory_api, source_kg_api
 
 # ---------------------------------------------------------------------------
 # Mock 서비스
@@ -337,6 +337,8 @@ def _reset_state():
         "code_asm": code_graph_api._code_assembler,
         "nvd": cve_api._nvd_client,
         "mem": project_memory_api._service,
+        "source_kg_repo": source_kg_api._ledger_repository,
+        "judge_repo": judge_api._ledger_repository,
     }
     yield
     api.set_assembler(old["assembler"])
@@ -347,6 +349,8 @@ def _reset_state():
     code_graph_api.set_code_assembler(old["code_asm"])
     cve_api.set_nvd_client(old["nvd"])
     project_memory_api.set_service(old["mem"])
+    source_kg_api.set_ledger_repository(old["source_kg_repo"])
+    judge_api.set_ledger_repository(old["judge_repo"])
 
 
 @pytest.fixture()
@@ -355,6 +359,8 @@ def _init_threat_search():
     api.set_assembler(FakeAssembler())
     api.set_neo4j_graph(FakeNeo4jGraph())
     api.set_qdrant_ready(True)
+    source_kg_api.set_ledger_repository(object())
+    judge_api.set_ledger_repository(object())
 
 
 @pytest.fixture()

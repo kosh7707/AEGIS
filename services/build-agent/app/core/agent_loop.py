@@ -151,7 +151,7 @@ class AgentLoop:
                     )
                     if build_succeeded:
                         directive = (
-                            "빌드가 성공했다 (exitCode=0). "
+                            "빌드가 canonical readiness 조건을 모두 만족해 성공했다. "
                             "더 이상 도구를 호출하지 마라. "
                             "시스템 프롬프트의 출력 형식에 맞는 최종 JSON 보고서를 출력하라. "
                             "buildCommand에 성공한 명령어를, buildScript에 스크립트 경로를 기입하라. "

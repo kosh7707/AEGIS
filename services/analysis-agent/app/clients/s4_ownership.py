@@ -89,6 +89,14 @@ def unwrap_s4_result_payload(data: dict[str, Any]) -> dict[str, Any]:
     return data
 
 
+
+def _response_payload(resp) -> Any:
+    try:
+        return resp.json()
+    except Exception:
+        return getattr(resp, "text", "")[:500]
+
+
 def _is_continue_state(status_data: dict[str, Any]) -> bool:
     state = status_data.get("state")
     ack = status_data.get("localAckState")
@@ -144,7 +152,7 @@ async def post_and_wait_s4_ownership(
     if submit_resp.status_code in _UNSUPPORTED_STATUS:
         raise S4OwnershipUnsupported(f"S4 durable ownership unsupported for {endpoint_path}")
     if submit_resp.status_code == 409:
-        raise S4OwnershipError("S4 request id conflict", status_code=409, payload=submit_resp.text[:500])
+        raise S4OwnershipError("S4 request id conflict", status_code=409, payload=_response_payload(submit_resp))
     if submit_resp.status_code >= 400:
         try:
             error_payload: Any = submit_resp.json()
@@ -172,18 +180,18 @@ async def post_and_wait_s4_ownership(
             timeout=httpx.Timeout(connect=10.0, read=poll_timeout_seconds, write=10.0, pool=10.0),
         )
         if status_resp.status_code == 409:
-            raise S4OwnershipError("S4 request id conflict", status_code=409, payload=status_resp.text[:500])
+            raise S4OwnershipError("S4 request id conflict", status_code=409, payload=_response_payload(status_resp))
         if status_resp.status_code in {404, 410}:
             raise S4OwnershipError(
                 f"S4 ownership unavailable with HTTP {status_resp.status_code}",
                 status_code=status_resp.status_code,
-                payload=status_resp.text[:500],
+                payload=_response_payload(status_resp),
             )
         if status_resp.status_code >= 400:
             raise S4OwnershipError(
                 f"S4 status failed with HTTP {status_resp.status_code}",
                 status_code=status_resp.status_code,
-                payload=status_resp.text[:500],
+                payload=_response_payload(status_resp),
             )
         status_data = status_resp.json()
         state = status_data.get("state")
@@ -210,18 +218,18 @@ async def post_and_wait_s4_ownership(
                 await asyncio.sleep(poll_interval_seconds)
                 continue
             if result_resp.status_code == 409:
-                raise S4OwnershipError("S4 request id conflict", status_code=409, payload=result_resp.text[:500])
+                raise S4OwnershipError("S4 request id conflict", status_code=409, payload=_response_payload(result_resp))
             if result_resp.status_code in {404, 410}:
                 raise S4OwnershipError(
                     f"S4 result unavailable with HTTP {result_resp.status_code}",
                     status_code=result_resp.status_code,
-                    payload=result_resp.text[:500],
+                    payload=_response_payload(result_resp),
                 )
             if result_resp.status_code >= 400:
                 raise S4OwnershipError(
                     f"S4 result failed with HTTP {result_resp.status_code}",
                     status_code=result_resp.status_code,
-                    payload=result_resp.text[:500],
+                    payload=_response_payload(result_resp),
                 )
             result_data = result_resp.json()
             return S4OwnershipResult(

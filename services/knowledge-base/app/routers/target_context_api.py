@@ -30,7 +30,13 @@ from app.projections.ledger_projection import (
     SCOPE_KEY as THREAT_PROJECTION_SCOPE,
 )
 from app.target_context_service import TargetContextStoreError
-from app.timeout import check_deadline, parse_timeout, run_async_with_deadline, run_sync_with_deadline
+from app.timeout import (
+    check_deadline,
+    parse_timeout,
+    run_async_with_deadline,
+    run_sync_durable_write_with_deadline,
+    run_sync_with_deadline,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -493,7 +499,7 @@ async def ingest_target_context(
     _require_target_context_service()
 
     try:
-        ingest_result = await run_sync_with_deadline(
+        ingest_result = await run_sync_durable_write_with_deadline(
             deadline,
             "target-context-ingest",
             _target_context_service.ingest,

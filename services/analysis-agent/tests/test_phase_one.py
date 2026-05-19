@@ -1977,6 +1977,59 @@ async def test_run_sast_records_success_false_payload_as_failure():
     await executor.aclose()
 
 
+@pytest.mark.asyncio
+async def test_run_sast_scan_tool_invalid_is_caller_contract_failure_not_negative_evidence():
+    from app.agent_runtime.schemas.agent import ToolResult
+    from app.core.evidence_catalog import EvidenceCatalog
+    from app.core.phase_one import Phase1Executor
+    from app.core.phase_one_types import Phase1Result
+
+    class InvalidToolSastTool:
+        async def execute(self, arguments):
+            return ToolResult(
+                tool_call_id="sast-1",
+                name="sast.scan",
+                success=True,
+                content=json.dumps({
+                    "success": False,
+                    "statusCode": 400,
+                    "errorDetail": {
+                        "code": "SCAN_TOOL_INVALID",
+                        "message": "unsupported scan tool",
+                        "retryable": False,
+                    },
+                    "findings": [],
+                }),
+            )
+
+    executor = Phase1Executor(
+        sast_tool=InvalidToolSastTool(),
+        sast_endpoint="http://localhost:9000",
+        kb_endpoint="http://localhost:8002",
+    )
+
+    result = await executor._run_sast(
+        Phase1Result(),
+        [],
+        "proj-1",
+        {"sdkResolutionMode": "none"},
+        "req-root",
+        project_path="/uploads/project",
+        sast_tools=["unknown-tool"],
+    )
+
+    assert result.sast_scan_completed is False
+    assert result.sast_failure_detail["code"] == "SCAN_TOOL_INVALID"
+    assert result.sast_failure_detail["statusCode"] == 400
+
+    catalog = EvidenceCatalog()
+    catalog.ingest_phase1_result(result)
+    assert catalog.negative_ref_ids() == set()
+    operational = [catalog.get(ref) for ref in catalog.operational_ref_ids()]
+    assert any("sast_contract_failure" in entry.roles for entry in operational if entry)
+    await executor.aclose()
+
+
 def test_sast_failure_detail_unwraps_ownership_error_detail_payload():
     from app.core.phase_one_exec import _sast_failure_detail
 
@@ -1995,3 +2048,235 @@ def test_sast_failure_detail_unwraps_ownership_error_detail_payload():
     assert detail["code"] == "SDK_NOT_FOUND"
     assert detail["message"] == "SDK profile not registered"
     assert detail["statusCode"] == 400
+
+
+class TestSourceCodeKgIngest:
+    @pytest.mark.asyncio
+    async def test_posts_source_code_kg_payload_with_required_timeout_header(self):
+        executor = Phase1Executor(kb_endpoint="http://localhost:8002")
+        result = Phase1Result(
+            code_functions=[
+                {"name": "postJson", "file": "src/http_client.cpp", "line": 8, "calls": ["popen"]},
+                {"name": "popen", "file": "lib/stdio.c", "line": 3, "calls": []},
+            ],
+            build_compile_commands_path="/uploads/proj/build/compile_commands.json",
+        )
+
+        contract_resp = MagicMock()
+        contract_resp.raise_for_status = MagicMock()
+        contract_resp.json.return_value = {
+            "sourceCodeKgContractVersion": "source-code-kg-ingest-v1",
+            "endpoint": {"path": "/v1/source-code-kg/ingest"},
+        }
+        legacy_resp = MagicMock()
+        legacy_resp.status_code = 200
+        legacy_resp.raise_for_status = MagicMock()
+        legacy_resp.json.return_value = {"status": "ready", "readiness": {"neo4jGraph": True, "vectorIndex": True, "graphRag": True}}
+        source_resp = MagicMock()
+        source_resp.status_code = 200
+        source_resp.raise_for_status = MagicMock()
+        source_resp.json.return_value = {
+            "status": "accepted",
+            "ledgerOnly": True,
+            "productionWrites": {"neo4j": False, "qdrant": False},
+            "counts": {"graphNodes": 2, "graphEdges": 1},
+            "ids": {"repositorySnapshotId": "repo-snap-1"},
+        }
+        executor._kb_client.get = AsyncMock(return_value=contract_resp)
+        executor._kb_client.post = AsyncMock(side_effect=[legacy_resp, source_resp])
+
+        await executor._ingest_code_graph(
+            result,
+            "proj-1",
+            "req-1",
+            revision_hint="abc123def456",
+            provenance={"repositoryUrl": "https://example.invalid/repo.git"},
+        )
+
+        assert executor._kb_client.post.await_count == 2
+        source_call = executor._kb_client.post.await_args_list[1]
+        assert source_call.args[0] == "/v1/source-code-kg/ingest"
+        assert source_call.kwargs["headers"]["X-Timeout-Ms"] == "90000"
+        assert source_call.kwargs["headers"]["X-Request-Id"] == "req-1"
+        payload = source_call.kwargs["json"]
+        assert payload["repositorySnapshot"]["commitHash"] == "abc123def456"
+        assert payload["graphNodes"]
+        assert payload["graphEdges"]
+        assert payload["evidenceSnippets"] == []
+        assert payload["sourceArtifacts"] == []
+        assert result.source_code_kg_status == "accepted"
+        assert result.source_code_kg_contract_available is True
+        await executor.aclose()
+
+    @pytest.mark.asyncio
+    async def test_missing_commit_hash_skips_source_code_kg_post_but_keeps_legacy_ingest(self):
+        executor = Phase1Executor(kb_endpoint="http://localhost:8002")
+        result = Phase1Result(code_functions=[{"name": "f", "file": "src/a.c", "line": 1, "calls": []}])
+
+        legacy_resp = MagicMock()
+        legacy_resp.status_code = 200
+        legacy_resp.raise_for_status = MagicMock()
+        legacy_resp.json.return_value = {"status": "ready", "nodeCount": 1, "vectorCount": 1}
+        executor._kb_client.get = AsyncMock(side_effect=AssertionError("contract should not be fetched without commit hash"))
+        executor._kb_client.post = AsyncMock(return_value=legacy_resp)
+
+        await executor._ingest_code_graph(result, "proj-1", "req-1")
+
+        assert executor._kb_client.post.await_count == 1
+        assert executor._kb_client.post.await_args.args[0] == "/v1/code-graph/proj-1/ingest"
+        assert result.source_code_kg_status == "skipped"
+        assert "REPOSITORY_COMMIT_HASH_MISSING" in result.source_code_kg_diagnostics["reasonCodes"]
+        await executor.aclose()
+
+    @pytest.mark.asyncio
+    async def test_source_code_kg_contract_unavailable_does_not_block_legacy_ingest(self):
+        executor = Phase1Executor(kb_endpoint="http://localhost:8002")
+        result = Phase1Result(code_functions=[{"name": "f", "file": "src/a.c", "line": 1, "calls": []}])
+
+        legacy_resp = MagicMock()
+        legacy_resp.status_code = 200
+        legacy_resp.raise_for_status = MagicMock()
+        legacy_resp.json.return_value = {"status": "ready", "nodeCount": 1, "vectorCount": 1}
+        executor._kb_client.get = AsyncMock(side_effect=httpx.ConnectError("down"))
+        executor._kb_client.post = AsyncMock(return_value=legacy_resp)
+
+        await executor._ingest_code_graph(
+            result,
+            "proj-1",
+            "req-1",
+            revision_hint="abc123def456",
+        )
+
+        assert executor._kb_client.post.await_count == 1
+        assert result.source_code_kg_status == "skipped"
+        assert result.source_code_kg_contract_available is False
+        assert "SOURCE_CODE_KG_CONTRACT_UNAVAILABLE" in result.source_code_kg_diagnostics["reasonCodes"]
+        await executor.aclose()
+
+
+@pytest.mark.asyncio
+async def test_build_and_analyze_success_ingests_source_code_kg_capable_graph_once():
+    """build-and-analyze populates code_functions outside run_individual_tools; flow must still ingest."""
+    from app.core.agent_session import AgentSession
+    from app.schemas.request import TaskRequest
+    from app.agent_runtime.schemas.agent import BudgetState
+
+    request = TaskRequest.model_validate({
+        "taskType": "deep-analyze",
+        "taskId": "test-ba-source-kg-ingest",
+        "context": {
+            "trusted": {
+                "objective": "test",
+                "projectPath": "/uploads/project",
+                "projectId": "proj-1",
+                "buildCommand": "make",
+                "revisionHint": "abc123def456",
+                "provenance": {"repositoryUrl": "https://example.invalid/repo.git"},
+            }
+        },
+    })
+    session = AgentSession(request, BudgetState(max_steps=1, max_completion_tokens=100))
+    executor = Phase1Executor(sast_endpoint="http://localhost:9000", kb_endpoint="http://localhost:8002")
+
+    ba_result = Phase1Result(
+        code_functions=[{"name": "f", "file": "src/a.c", "line": 1, "calls": []}],
+        build_compile_commands_path="/uploads/project/build/compile_commands.json",
+    )
+    executor._fetch_project_memory = AsyncMock(return_value=[])
+    executor._run_build_and_analyze = AsyncMock(return_value=ba_result)
+    executor._run_individual_tools = AsyncMock(side_effect=AssertionError("individual fallback should not run"))
+    executor._ingest_code_graph = AsyncMock()
+    executor._run_cve_lookup = AsyncMock(side_effect=lambda result: result)
+    executor._run_threat_query = AsyncMock(side_effect=lambda result: result)
+    executor._run_dangerous_callers = AsyncMock(side_effect=lambda result, *_args, **_kwargs: result)
+
+    result = await executor.execute(session)
+
+    assert result is ba_result
+    executor._ingest_code_graph.assert_awaited_once()
+    kwargs = executor._ingest_code_graph.await_args.kwargs
+    assert kwargs["revision_hint"] == "abc123def456"
+    assert kwargs["compile_commands_path"] == "/uploads/project/build/compile_commands.json"
+    assert kwargs["provenance"] == {"repositoryUrl": "https://example.invalid/repo.git"}
+    await executor.aclose()
+
+
+@pytest.mark.asyncio
+async def test_quick_context_tool_portfolio_report_is_consumed_as_operational_diagnostic():
+    from app.core.agent_session import AgentSession
+    from app.core.evidence_catalog import EvidenceCatalog
+    from app.schemas.request import TaskRequest
+    from app.agent_runtime.schemas.agent import BudgetState
+
+    request = TaskRequest.model_validate({
+        "taskType": "deep-analyze",
+        "taskId": "test-tool-portfolio-report",
+        "context": {
+            "trusted": {
+                "objective": "test",
+                "projectPath": "/uploads/project",
+                "projectId": "proj-1",
+                "quickContext": {
+                    "sastFindings": [],
+                    "staticEvidenceContract": {
+                        "gates": {
+                            "systemStability": {"status": "pass"},
+                            "evidenceReadiness": {"status": "ready"},
+                            "claimSupportReadiness": {"status": "pass"},
+                        },
+                        "claimBoundaryMatrix": [{"claimId": "absence-of-vulnerability"}],
+                        "toolEvidenceMatrix": [{"toolId": "semgrep", "status": "complete"}],
+                    },
+                    "s4ToolPortfolioReport": {
+                        "schemaVersion": "s4-tool-portfolio-experiment-report-v1",
+                        "systemStabilityGate": {"status": "pass"},
+                        "corpusReadinessGate": {"status": "blocked", "decisionGradeReady": False},
+                        "qualityGate": {"status": "pass", "localQualityAssessment": {"status": "pass"}},
+                        "validationMetrics": {"status": "pass"},
+                        "testMetrics": {"status": "pass"},
+                        "decisionSupport": {"externalCorpusStatus": "available"},
+                    },
+                },
+            }
+        },
+    })
+    session = AgentSession(request, BudgetState(max_steps=1, max_completion_tokens=100))
+    executor = Phase1Executor(sast_endpoint="http://localhost:9000", kb_endpoint="http://localhost:8002")
+    executor._fetch_project_memory = AsyncMock(return_value=[])
+    executor._run_build_and_analyze = AsyncMock(side_effect=AssertionError("should not run"))
+    executor._run_individual_tools = AsyncMock(side_effect=AssertionError("should not run"))
+    executor._run_cve_lookup = AsyncMock(side_effect=lambda result: result)
+    executor._run_threat_query = AsyncMock(side_effect=lambda result: result)
+    executor._run_dangerous_callers = AsyncMock(side_effect=lambda result, *_args, **_kwargs: result)
+
+    result = await executor.execute(session)
+
+    assert result.s4_tool_portfolio_quality_ready is False
+    assert result.s4_tool_portfolio_diagnostics["corpusStatus"] == "blocked"
+    catalog = EvidenceCatalog()
+    catalog.ingest_phase1_result(result)
+    assert catalog.negative_ref_ids() == set()
+    assert any(
+        "s4_tool_portfolio_not_ready" in catalog.get(ref).roles
+        for ref in catalog.operational_ref_ids()
+        if catalog.get(ref)
+    )
+    await executor.aclose()
+
+
+def test_prompt_warns_s4_tool_portfolio_and_source_code_kg_are_not_verdict_evidence():
+    result = Phase1Result(
+        sast_scan_completed=True,
+        s4_tool_portfolio_report={"schemaVersion": "s4-tool-portfolio-experiment-report-v1"},
+        s4_tool_portfolio_quality_ready=False,
+        s4_tool_portfolio_diagnostics={"corpusStatus": "blocked", "reasonCodes": ["CORPUS_READINESS_NOT_AVAILABLE:blocked"]},
+        source_code_kg_status="skipped",
+        source_code_kg_diagnostics={"ready": False, "reasonCodes": ["SOURCE_CODE_KG_CONTRACT_UNAVAILABLE"]},
+    )
+
+    _system, user = build_phase2_prompt(result, {"projectId": "proj-1"})
+
+    assert "S4 Tool Portfolio" in user
+    assert "취약점 부재" in user
+    assert "S5 Source Code KG" in user
+    assert "final security verdict" in user

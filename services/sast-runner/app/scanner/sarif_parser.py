@@ -40,8 +40,8 @@ def parse_sarif(
 
         return findings, rules_run
 
-    except (KeyError, TypeError, IndexError) as exc:
-        raise SarifParseError(f"Failed to parse SARIF output: {exc}") from exc
+    except (KeyError, TypeError, IndexError, AttributeError):
+        raise SarifParseError("Failed to parse SARIF output") from None
 
 
 # ---------------------------------------------------------------------------
@@ -164,5 +164,4 @@ def _extract_metadata(
         meta["shortDescription"] = short_desc
 
     return meta
-
 

@@ -50,9 +50,16 @@ def build_benchmark_slice_report(*, variant01_path: Path, all_variants_path: Pat
 
 
 def _load_artifact(path: Path) -> dict[str, Any]:
-    data = json.loads(path.read_text(encoding="utf-8"))
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        raise ValueError("benchmark artifact could not be read") from None
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        raise ValueError("benchmark artifact is malformed JSON") from None
     if not isinstance(data, dict):
-        raise ValueError(f"benchmark artifact must be an object: {path}")
+        raise ValueError("benchmark artifact must be an object")
     return data
 
 

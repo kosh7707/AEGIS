@@ -10,6 +10,10 @@ from typing import Any
 from app.config import settings
 from app.scanner.library_differ import CloneCache, LibraryDiffer
 from app.scanner.library_identifier import LibraryIdentifier
+from app.scanner.repository_url import (
+    sanitize_repository_url_fields_for_evidence,
+    sanitize_repository_url_for_evidence,
+)
 
 logger = logging.getLogger("aegis-sast-runner")
 
@@ -62,16 +66,17 @@ async def analyze_libraries(
                     entry["diff"] = await _differ.find_closest_version(
                         lib_path, repo_url,
                     )
-            except Exception as exc:
-                logger.warning(
-                    "lib_differ.diff failed for %s: %s", lib["name"], exc,
-                )
+            except Exception:
+                logger.warning("lib_differ.diff failed")
                 entry["diff"] = None
         elif not repo_url:
             entry["diff"] = None
             if include_diff:
                 entry["note"] = "Unknown library — no upstream repo to compare"
 
+        if isinstance(entry.get("diff"), dict):
+            entry["diff"] = sanitize_repository_url_fields_for_evidence(entry["diff"])
+        _sanitize_public_repository_urls(entry)
         results.append(entry)
 
     return results
@@ -80,3 +85,9 @@ async def analyze_libraries(
 async def identify_libraries(project_dir: Path) -> list[dict[str, Any]]:
     """라이브러리 식별만 수행 (diff 없음). origin 태깅용. 이벤트루프 블로킹 방지."""
     return await asyncio.to_thread(_identifier.identify, project_dir)
+
+
+def _sanitize_public_repository_urls(entry: dict[str, Any]) -> None:
+    for key in ("repoUrl", "remoteUrl"):
+        if key in entry:
+            entry[key] = sanitize_repository_url_for_evidence(entry.get(key))

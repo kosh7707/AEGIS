@@ -1,7 +1,9 @@
 """GccAnalyzerRunner 파서 단위 테스트."""
 
+import asyncio
+import logging
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -152,6 +154,100 @@ class TestCheckAvailable:
 
 
 class TestFileProgressCallback:
+    @pytest.mark.asyncio
+    async def test_command_start_log_does_not_echo_compiler_path(self, runner, caplog):
+        """gcc-fanalyzer 시작 로그는 compiler executable path를 남기지 않는다."""
+        secret_compiler = "/tmp/SECRET_GCC_COMPILER_PATH_SHOULD_NOT_LEAK/gcc"
+        caplog.set_level(logging.INFO, logger="aegis-sast-runner")
+
+        async def _mock_single(gcc_bin, scan_dir, f, profile, timeout):
+            del gcc_bin, scan_dir, f, profile, timeout
+            return []
+
+        with (
+            patch.object(runner, "_resolve_gcc", return_value=secret_compiler),
+            patch.object(runner, "_run_single", side_effect=_mock_single),
+        ):
+            findings = await runner.run(
+                scan_dir=Path("/tmp/scan"),
+                source_files=["src/a.c"],
+                profile=None,
+                timeout=60,
+            )
+
+        assert findings == []
+        assert "Running gcc -fanalyzer" in caplog.text
+        assert "SECRET_GCC_COMPILER_PATH_SHOULD_NOT_LEAK" not in caplog.text
+
+    def test_unsupported_sdk_compiler_fallback_log_does_not_echo_compiler_path(self, runner, caplog):
+        """SDK gcc fallback 로그는 unsupported compiler path를 남기지 않는다."""
+        secret_compiler = "/tmp/SECRET_UNSUPPORTED_SDK_GCC_SHOULD_NOT_LEAK/gcc"
+        profile = BuildProfile(
+            sdkId="ti-am335x",
+            compiler="arm-gcc",
+            targetArch="arm",
+            languageStandard="c99",
+            headerLanguage="c",
+        )
+        caplog.set_level(logging.INFO, logger="aegis-sast-runner")
+
+        with (
+            patch("app.scanner.gcc_analyzer_runner.get_sdk_compiler", return_value=secret_compiler),
+            patch.object(GccAnalyzerRunner, "_gcc_supports_analyzer", return_value=False),
+        ):
+            gcc_bin = runner._resolve_gcc(profile)
+
+        assert gcc_bin == "gcc"
+        assert "falling back to host gcc" in caplog.text
+        assert "SECRET_UNSUPPORTED_SDK_GCC_SHOULD_NOT_LEAK" not in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_per_file_failure_log_does_not_echo_exception_text(self, runner, caplog):
+        """파일별 실패 로그는 raw source file이나 exception text를 남기지 않는다."""
+        secret_source = "src/SECRET_GCC_SOURCE_FILE_SHOULD_NOT_LEAK.c"
+
+        async def _mock_single(gcc_bin, scan_dir, f, profile, timeout):
+            del gcc_bin, scan_dir, f, profile, timeout
+            raise RuntimeError("SECRET_GCC_ANALYZER_ERROR_SHOULD_NOT_LEAK")
+
+        caplog.set_level(logging.WARNING, logger="aegis-sast-runner")
+
+        with patch.object(runner, "_run_single", side_effect=_mock_single):
+            findings = await runner.run(
+                scan_dir=Path("/tmp/scan"),
+                source_files=[secret_source],
+                profile=None,
+                timeout=60,
+            )
+
+        assert findings == []
+        assert runner._last_failed == 1
+        assert "gcc -fanalyzer failed" in caplog.text
+        assert "SECRET_GCC_SOURCE_FILE_SHOULD_NOT_LEAK" not in caplog.text
+        assert "SECRET_GCC_ANALYZER_ERROR_SHOULD_NOT_LEAK" not in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_per_file_timeout_log_does_not_echo_source_file(self, runner, caplog):
+        """파일별 timeout 로그는 raw source file을 남기지 않는다."""
+        source_file = "src/SECRET_GCC_TIMEOUT_SOURCE_SHOULD_NOT_LEAK.c"
+        proc = AsyncMock()
+        proc.kill = MagicMock()
+        proc.communicate = AsyncMock(side_effect=[asyncio.TimeoutError(), (b"", b"")])
+        caplog.set_level(logging.WARNING, logger="aegis-sast-runner")
+
+        with patch("asyncio.create_subprocess_exec", return_value=proc):
+            result = await runner._run_single(
+                "gcc",
+                Path("/tmp/scan"),
+                source_file,
+                profile=None,
+                timeout=10,
+            )
+
+        assert result is None
+        assert "gcc -fanalyzer timed out" in caplog.text
+        assert "SECRET_GCC_TIMEOUT_SOURCE_SHOULD_NOT_LEAK" not in caplog.text
+
     @pytest.mark.asyncio
     async def test_on_file_progress_called(self, runner):
         """파일 완료 시 on_file_progress 콜백이 호출되고 done/total이 정확한지 확인."""

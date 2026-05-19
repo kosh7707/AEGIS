@@ -70,8 +70,8 @@ class BuildRunner:
                 accepted_paths.append(path)
 
         logger.info(
-            "Discovered %d build targets in %s (scanned %d candidates)",
-            len(accepted), project_path, len(raw_targets),
+            "Discovered build targets",
+            extra={"targetCount": len(accepted), "candidateCount": len(raw_targets)},
         )
         return accepted
 
@@ -104,8 +104,12 @@ class BuildRunner:
             logger.info("Bear wrapping disabled — raw build execution")
 
         logger.info(
-            "Build started: %s in %s",
-            build_command, project_path,
+            "Build started",
+            extra={
+                "buildCommandProvided": bool(build_command),
+                "projectPathProvided": True,
+                "wrapWithBear": wrap_with_bear,
+            },
         )
 
         proc = await asyncio.create_subprocess_exec(
@@ -424,7 +428,7 @@ class BuildRunner:
             "entries": entries,
             "userEntries": user_entries,
             "exitCode": exit_code,
-            "buildOutput": build_output,
+            "buildOutput": self._sanitize_build_output(build_output),
             "wrapWithBear": wrap_with_bear,
             "timeoutSeconds": timeout,
             "timeoutMode": timeout_mode,
@@ -432,6 +436,11 @@ class BuildRunner:
             "environmentKeys": sorted(environment.keys()) if environment else None,
             "elapsedMs": elapsed_ms,
         }
+
+    def _sanitize_build_output(self, build_output: str | None) -> str | None:
+        if build_output and build_output.strip():
+            return "build output omitted"
+        return None
 
     def _diagnose_failure(
         self,
@@ -442,15 +451,12 @@ class BuildRunner:
         default_summary: str,
         default_hint: str,
     ) -> dict[str, Any]:
-        lines = [line.strip() for line in build_output.splitlines() if line.strip()]
-        excerpt = lines[-1] if lines else None
-
         lib_match = _SHARED_LIBRARY_ERROR_RE.search(build_output)
         if lib_match:
             return self._failure_detail(
                 category="shared-library-load",
                 summary="The supplied build environment could not load a required shared library.",
-                matched_excerpt=lib_match.group(0),
+                matched_excerpt=None,
                 hint="Caller must provide a valid runtime/library environment for the build command.",
                 retryable=False,
             )
@@ -459,7 +465,7 @@ class BuildRunner:
             return self._failure_detail(
                 category="command-not-found",
                 summary="The supplied build command referenced an unavailable executable or script (exit code 127).",
-                matched_excerpt=excerpt,
+                matched_excerpt=None,
                 hint="Caller must provide a valid build command and executable paths.",
                 retryable=False,
             )
@@ -467,7 +473,7 @@ class BuildRunner:
         return self._failure_detail(
             category=default_category,
             summary=default_summary,
-            matched_excerpt=excerpt,
+            matched_excerpt=None,
             hint=default_hint,
             retryable=default_category == "timeout",
         )

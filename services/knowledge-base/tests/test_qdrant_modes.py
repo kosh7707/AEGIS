@@ -1,5 +1,6 @@
 """ThreatSearch 듀얼 모드(file/server) 초기화 테스트."""
 
+import logging
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -46,6 +47,26 @@ def test_server_mode_with_api_key(_mock_qdrant):
     ts = ThreatSearch(qdrant_url="http://localhost:6333", qdrant_api_key="secret")
     MockClient.assert_called_once_with(url="http://localhost:6333", api_key="secret")
     assert ts.mode == "server"
+
+
+def test_server_mode_log_redacts_qdrant_url_userinfo(_mock_qdrant, caplog):
+    """서버 모드 startup log는 Qdrant URL userinfo credential을 노출하지 않는다."""
+
+    MockClient, _ = _mock_qdrant
+    from app.rag.threat_search import ThreatSearch
+
+    raw_url = "https://q_user:q_password@qdrant.internal:6333"
+
+    caplog.set_level(logging.INFO, logger="app.rag.threat_search")
+    ts = ThreatSearch(qdrant_url=raw_url, qdrant_api_key="api-secret")
+
+    MockClient.assert_called_once_with(url=raw_url, api_key="api-secret")
+    assert ts.mode == "server"
+    assert raw_url not in caplog.text
+    assert "q_user" not in caplog.text
+    assert "q_password" not in caplog.text
+    assert "api-secret" not in caplog.text
+    assert "https://***:***@qdrant.internal:6333" in caplog.text
 
 
 def test_no_path_no_url_raises():

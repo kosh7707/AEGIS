@@ -1,16 +1,27 @@
 """CppcheckRunner 파서 단위 테스트."""
 
+import logging
 from pathlib import Path
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
 from app.scanner.cppcheck_runner import CppcheckRunner
 from app.scanner.path_utils import normalize_path
+from app.schemas.request import BuildProfile
 
 
 @pytest.fixture
 def runner():
     return CppcheckRunner()
+
+
+def _make_proc_mock(returncode: int, stdout: bytes = b"", stderr: bytes = b""):
+    proc = AsyncMock()
+    proc.returncode = returncode
+    proc.communicate = AsyncMock(return_value=(stdout, stderr))
+    proc.kill = AsyncMock()
+    return proc
 
 
 SAMPLE_XML = """\
@@ -91,3 +102,27 @@ class TestNormalizePath:
     def test_different_base(self):
         result = normalize_path("/other/path/file.c", Path("/tmp/scan"))
         assert result == "/other/path/file.c"
+
+
+class TestRun:
+    @pytest.mark.asyncio
+    async def test_command_start_log_does_not_echo_raw_command(self, runner, tmp_path, caplog):
+        """Cppcheck 실행 시작 로그는 joined command, scan_dir, include path를 남기지 않는다."""
+        scan_dir = tmp_path / "SECRET_CPPCHECK_SCAN_DIR_SHOULD_NOT_LEAK"
+        scan_dir.mkdir()
+        profile = BuildProfile(
+            includePaths=["SECRET_CPPCHECK_INCLUDE_SHOULD_NOT_LEAK"],
+            languageStandard="c11",
+        )
+        proc = _make_proc_mock(0, stderr=EMPTY_XML.encode())
+        caplog.set_level(logging.INFO, logger="aegis-sast-runner")
+
+        with patch("asyncio.create_subprocess_exec", return_value=proc):
+            result = await runner.run(scan_dir, profile)
+
+        assert result == []
+        assert "Running Cppcheck" in caplog.text
+        assert "SECRET_CPPCHECK_SCAN_DIR_SHOULD_NOT_LEAK" not in caplog.text
+        assert "SECRET_CPPCHECK_INCLUDE_SHOULD_NOT_LEAK" not in caplog.text
+        assert "--xml" not in caplog.text
+        assert "--enable=all" not in caplog.text

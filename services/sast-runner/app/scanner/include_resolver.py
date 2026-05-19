@@ -91,9 +91,14 @@ class IncludeResolver:
         if not raw.strip():
             return None
 
-        return self._parse_deps(raw, file_path)
+        return self._parse_deps(raw, file_path, scan_dir=scan_dir)
 
-    def _parse_deps(self, raw: str, source_file: Path) -> list[str]:
+    def _parse_deps(
+        self,
+        raw: str,
+        source_file: Path,
+        scan_dir: Path | None = None,
+    ) -> list[str]:
         """Makefile 형식 dependency 출력을 파싱.
 
         형식: target.o: source.c header1.h \
@@ -110,9 +115,71 @@ class IncludeResolver:
         deps_str = text[colon_idx + 1:]
         deps = deps_str.split()
 
-        # 첫 번째는 소스 파일 자신 → 제외
+        sanitized: list[str] = []
+        for dep in deps:
+            if self._is_source_dependency(dep, source_file, scan_dir):
+                continue
+            sanitized_dep = self._sanitize_dependency(dep, scan_dir)
+            if sanitized_dep:
+                sanitized.append(sanitized_dep)
+        return sanitized
+
+    def _is_source_dependency(
+        self,
+        dep: str,
+        source_file: Path,
+        scan_dir: Path | None,
+    ) -> bool:
+        """gcc -M 출력에서 분석 대상 source 자체를 제거한다."""
         source_name = source_file.name
-        return [d for d in deps if not d.endswith(source_name)]
+        if dep.endswith(source_name):
+            return True
+
+        if scan_dir is None:
+            return False
+
+        try:
+            source_rel = source_file.resolve(strict=False).relative_to(
+                scan_dir.resolve(strict=False),
+            )
+            dep_rel = Path(dep).resolve(strict=False).relative_to(
+                scan_dir.resolve(strict=False),
+            )
+        except (OSError, RuntimeError, ValueError):
+            return False
+        return dep_rel == source_rel
+
+    def _sanitize_dependency(self, dep: str, scan_dir: Path | None) -> str | None:
+        """Public include evidence must not expose host-local absolute paths."""
+        token = dep.strip()
+        if not token:
+            return None
+
+        if self._is_absolute_dependency(token):
+            if scan_dir is not None:
+                try:
+                    rel = Path(token).resolve(strict=False).relative_to(
+                        scan_dir.resolve(strict=False),
+                    )
+                    return rel.as_posix()
+                except (OSError, RuntimeError, ValueError):
+                    pass
+            return self._external_dependency_identity(token)
+
+        return token
+
+    def _is_absolute_dependency(self, dep: str) -> bool:
+        if Path(dep).is_absolute():
+            return True
+        normalized = dep.replace("\\", "/")
+        return bool(re.match(r"^[A-Za-z]:/", normalized)) or normalized.startswith("//")
+
+    def _external_dependency_identity(self, dep: str) -> str:
+        normalized = dep.replace("\\", "/")
+        name = Path(normalized).name.strip()
+        if not name or name in {".", ".."}:
+            name = "<unknown>"
+        return f"<external>/{name}"
 
     def _resolve_gcc(self, profile: BuildProfile | None) -> str:
         if profile:

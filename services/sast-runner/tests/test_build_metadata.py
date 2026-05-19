@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+import logging
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -242,6 +244,82 @@ class TestExtract:
         assert result["macros"]["__GNUC__"] == "13"
         assert result["targetInfo"]["arch"] == "x86_64"
         assert result["targetInfo"]["endianness"] == "little"
+
+    async def test_extract_success_compiler_identity_redacts_absolute_path(
+        self, extractor
+    ):
+        """성공 metadata compiler 필드는 실행 경로가 아니라 compiler identity만 노출한다."""
+        secret_compiler = (
+            "/tmp/SECRET_SDK_ROOT_SHOULD_NOT_LEAK/sysroots/arm/usr/bin/"
+            "arm-none-eabi-gcc"
+        )
+        proc = AsyncMock()
+        proc.communicate = AsyncMock(
+            return_value=(
+                b"#define __GNUC__ 9\n#define __arm__ 1\n#define __SIZEOF_POINTER__ 4\n",
+                b"",
+            )
+        )
+
+        async def mock_exec(*args, **kwargs):
+            assert args[0] == secret_compiler
+            return proc
+
+        with (
+            patch.object(extractor, "_resolve_gcc", return_value=secret_compiler),
+            patch.object(extractor, "_get_version", new_callable=AsyncMock, return_value="9.2.1"),
+            patch("asyncio.create_subprocess_exec", side_effect=mock_exec),
+        ):
+            result = await extractor.extract(None)
+
+        assert result["compiler"] == "arm-none-eabi-gcc 9.2.1"
+        rendered = json.dumps(result, sort_keys=True)
+        assert "SECRET_SDK_ROOT_SHOULD_NOT_LEAK" not in rendered
+        assert secret_compiler not in rendered
+
+    async def test_extract_failure_log_uses_category_without_exception_text(
+        self, extractor, caplog
+    ):
+        """macro 수집 실패 로그는 raw exception text를 노출하지 않는다."""
+
+        async def mock_exec(*args, **kwargs):
+            raise FileNotFoundError("SECRET_BUILD_METADATA_ERROR_SHOULD_NOT_LEAK")
+
+        caplog.set_level(logging.WARNING, logger="aegis-sast-runner")
+
+        with patch("asyncio.create_subprocess_exec", side_effect=mock_exec):
+            result = await extractor.extract(None)
+
+        assert result["compiler"] == "gcc"
+        assert result["macros"] == {}
+        assert result["targetInfo"] == {}
+        assert "gcc macro extraction failed" in caplog.text
+        assert "SECRET_BUILD_METADATA_ERROR_SHOULD_NOT_LEAK" not in caplog.text
+        assert "gcc -E -dM failed:" not in caplog.text
+
+    async def test_extract_failure_compiler_identity_redacts_windows_like_path(
+        self, extractor
+    ):
+        """실패 metadata compiler 필드도 Windows-like 경로를 identity로 정규화한다."""
+        secret_compiler = (
+            r"C:\SECRET_SDK_ROOT_SHOULD_NOT_LEAK\sysroots\arm\usr\bin"
+            r"\arm-none-eabi-gcc.exe"
+        )
+
+        async def mock_exec(*args, **kwargs):
+            assert args[0] == secret_compiler
+            raise FileNotFoundError("SECRET_BUILD_METADATA_ERROR_SHOULD_NOT_LEAK")
+
+        with (
+            patch.object(extractor, "_resolve_gcc", return_value=secret_compiler),
+            patch("asyncio.create_subprocess_exec", side_effect=mock_exec),
+        ):
+            result = await extractor.extract(None)
+
+        assert result["compiler"] == "arm-none-eabi-gcc.exe"
+        rendered = json.dumps(result, sort_keys=True)
+        assert "SECRET_SDK_ROOT_SHOULD_NOT_LEAK" not in rendered
+        assert secret_compiler not in rendered
 
     async def test_extract_handles_timeout(self, extractor):
         """타임아웃 시 빈 macros/targetInfo 반환."""

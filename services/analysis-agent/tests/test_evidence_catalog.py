@@ -564,3 +564,91 @@ def test_catalog_inferrs_request_source_refs_as_local_and_objectives_as_operatio
     assert catalog.get("eref-objective").evidence_class == "operational"  # type: ignore[union-attr]
     assert "eref-source-main" in catalog.final_ref_ids()
     assert "eref-objective" not in catalog.final_ref_ids()
+
+
+def test_s4_tool_portfolio_not_ready_is_operational_and_suppresses_no_findings_negative():
+    catalog = EvidenceCatalog()
+
+    catalog.ingest_phase1_result(Phase1Result(
+        sast_findings=[],
+        sast_scan_attempted=True,
+        sast_scan_completed=True,
+        sast_static_evidence_ready=True,
+        s4_tool_portfolio_report={"schemaVersion": "s4-tool-portfolio-experiment-report-v1"},
+        s4_tool_portfolio_quality_ready=False,
+        s4_tool_portfolio_diagnostics={
+            "corpusStatus": "blocked",
+            "decisionGradeReady": False,
+            "systemStability": "pass",
+            "localQualityStatus": "pass",
+            "reasonCodes": ["CORPUS_READINESS_NOT_AVAILABLE:blocked"],
+        },
+    ))
+
+    assert catalog.negative_ref_ids() == set()
+    operational = [catalog.get(ref) for ref in catalog.operational_ref_ids()]
+    assert any(entry and "s4_tool_portfolio_not_ready" in entry.roles for entry in operational)
+    assert all(entry and "sast_no_findings" not in entry.roles for entry in operational)
+
+
+def test_source_code_kg_diagnostics_are_operational_only():
+    catalog = EvidenceCatalog()
+
+    catalog.ingest_phase1_result(Phase1Result(
+        source_code_kg_status="skipped",
+        source_code_kg_diagnostics={
+            "ready": False,
+            "reasonCodes": ["REPOSITORY_COMMIT_HASH_MISSING"],
+            "contractVersion": "source-code-kg-ingest-v1",
+        },
+    ))
+
+    assert catalog.negative_ref_ids() == set()
+    operational = [catalog.get(ref) for ref in catalog.operational_ref_ids()]
+    assert len(operational) == 1
+    entry = operational[0]
+    assert entry is not None
+    assert entry.source_tool == "source_code_kg.ingest"
+    assert entry.evidence_class == "operational"
+    assert "source_code_kg_not_ready" in entry.roles
+    assert entry.ref_id not in catalog.final_ref_ids()
+    assert entry.ref_id not in {ref["refId"] for ref in catalog.as_evidence_refs()}
+
+
+def test_s4_tool_portfolio_operational_entry_preserves_sard_acquisition_ids():
+    catalog = EvidenceCatalog()
+    sard = {"status": "mixed", "acquisitionIds": ["sard-vuln-acq", "sard-secure-acq"]}
+
+    catalog.ingest_phase1_result(Phase1Result(
+        s4_tool_portfolio_report={"schemaVersion": "s4-tool-portfolio-experiment-report-v1"},
+        s4_tool_portfolio_quality_ready=False,
+        s4_tool_portfolio_diagnostics={
+            "corpusStatus": "blocked",
+            "decisionGradeReady": False,
+            "sardAggregateStatus": sard,
+            "reasonCodes": ["CORPUS_READINESS_NOT_AVAILABLE:blocked"],
+        },
+    ))
+
+    operational = [catalog.get(ref) for ref in catalog.operational_ref_ids()]
+    entry = next(entry for entry in operational if entry and "s4_tool_portfolio_not_ready" in entry.roles)
+    assert entry.tool_arguments["sardAggregateStatus"] == sard
+
+
+def test_source_code_kg_operational_entry_exposes_coverage_completeness():
+    catalog = EvidenceCatalog()
+
+    catalog.ingest_phase1_result(Phase1Result(
+        source_code_kg_status="accepted",
+        source_code_kg_diagnostics={
+            "ready": True,
+            "coverageComplete": False,
+            "reasonCodes": ["SOURCE_ARTIFACTS_NOT_PRODUCED"],
+            "functionCount": 1,
+        },
+    ))
+
+    operational = [catalog.get(ref) for ref in catalog.operational_ref_ids()]
+    entry = operational[0]
+    assert entry.tool_arguments["coverageComplete"] is False
+    assert "source_code_kg_ingest_status" in entry.roles

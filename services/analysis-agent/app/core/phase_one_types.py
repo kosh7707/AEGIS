@@ -17,6 +17,9 @@ class Phase1Result:
     sast_static_evidence_contract: dict = field(default_factory=dict)
     sast_static_evidence_ready: bool | None = None
     sast_static_evidence_diagnostics: dict = field(default_factory=dict)
+    s4_tool_portfolio_report: dict = field(default_factory=dict)
+    s4_tool_portfolio_quality_ready: bool | None = None
+    s4_tool_portfolio_diagnostics: dict = field(default_factory=dict)
     code_functions: list[dict] = field(default_factory=list)
     sca_libraries: list[dict] = field(default_factory=list)
     threat_context: list[dict] = field(default_factory=list)
@@ -42,6 +45,12 @@ class Phase1Result:
     code_graph_graph_rag_ready: bool | None = None
     code_graph_warnings: list[str] = field(default_factory=list)
     code_graph_ingest_timed_out: bool = False
+    source_code_kg_contract: dict = field(default_factory=dict)
+    source_code_kg_contract_available: bool | None = None
+    source_code_kg_payload: dict = field(default_factory=dict)
+    source_code_kg_status: str | None = None
+    source_code_kg_diagnostics: dict = field(default_factory=dict)
+    source_code_kg_ingest_timed_out: bool = False
     sast_partial_tools: list[str] = field(default_factory=list)
     sast_timed_out_files: int = 0
     build_compile_commands_path: str | None = None

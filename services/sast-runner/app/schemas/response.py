@@ -39,6 +39,7 @@ class SdkResolutionInfo(BaseModel):
     resolution_mode: str | None = Field(default=None, alias="resolutionMode")
     resolved_from: str | None = Field(default=None, alias="resolvedFrom")
     sdk_root_path: str | None = Field(default=None, alias="sdkRootPath")
+    sdk_root_path_status: str | None = Field(default=None, alias="sdkRootPathStatus")
     degrade_reasons: list[str] = Field(default_factory=list, alias="degradeReasons")
 
     model_config = {"populate_by_name": True, "by_alias": True}

@@ -6,6 +6,7 @@ import asyncio
 import json as _json
 import logging
 import os
+import re
 import shutil
 import tempfile
 import time
@@ -18,6 +19,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from app.config import settings
 from app.context import set_request_id
 from app.errors import (
+    INTERNAL_ERROR_MESSAGE,
     InvalidSdkProfileError,
     InvalidScanToolError,
     NoFilesError,
@@ -34,7 +36,7 @@ from app.scanner.build_runner import BuildRunner
 from app.scanner.evidence import enrich_findings_evidence, project_libraries_evidence
 from app.scanner.static_evidence_contract import build_static_evidence_contract
 from app.scanner.include_resolver import IncludeResolver
-from app.scanner.orchestrator import ALL_TOOLS, ScanOrchestrator
+from app.scanner.orchestrator import ALL_TOOLS, ScanOrchestrator, sanitize_tool_availability_map
 from app.scanner.sca_service import analyze_libraries, identify_libraries
 from app.scanner.sdk_resolver import profile_sdk_id, sdk_reference_exists
 from app.scanner.ruleset_selector import resolve_rulesets
@@ -120,6 +122,9 @@ def _validate_sdk_profile(profile) -> None:
 
     Unknown bare sdkId must fail early and stop; callers that resolve an SDK
     outside the S4 registry must use non-registered + sdkDescriptor instead.
+    The public error message intentionally does not echo the submitted sdkId:
+    sdkId can encode private product, vendor, board, or local environment
+    identity even when it is not a filesystem path.
     """
     if profile is None:
         return
@@ -153,7 +158,7 @@ def _validate_sdk_profile(profile) -> None:
     if sdk_reference_exists(profile):
         return
     raise SdkNotFoundError(
-        f"Unknown sdkId '{sdk_id}'. Use a registered sdkId, "
+        "Unknown sdkId. Use a registered sdkId, "
         "sdkResolutionMode='non-registered' with sdkDescriptor for caller-resolved SDKs, "
         "or sdkResolutionMode='none' / omit sdkId for no-SDK analysis.",
     )
@@ -170,9 +175,7 @@ def _validate_scan_tools(tools: list[str] | None) -> None:
     unknown = sorted(set(tools) - set(ALL_TOOLS))
     if unknown:
         raise InvalidScanToolError(
-            "Unknown SAST tool(s): "
-            + ", ".join(unknown)
-            + ". Allowed tools: "
+            "Unknown SAST tool requested. Allowed tools: "
             + ", ".join(ALL_TOOLS),
         )
 
@@ -215,14 +218,23 @@ def _error_response(
     else:
         response.status_code = 500
         code = "INTERNAL_ERROR"
-        message = str(exc)
+        message = INTERNAL_ERROR_MESSAGE
         retryable = False
 
-    logger.error(
-        "Request failed: %s", message,
-        extra={"requestId": request_id, "code": code},
-        exc_info=not isinstance(exc, SastRunnerError),
-    )
+    if isinstance(exc, SastRunnerError):
+        logger.error(
+            "Request failed: %s", message,
+            extra={"requestId": request_id, "code": code},
+        )
+    else:
+        logger.error(
+            "Request failed unexpectedly",
+            extra={
+                "requestId": request_id,
+                "code": code,
+                "exceptionType": type(exc).__name__,
+            },
+        )
 
     return {
         "success": False,
@@ -232,6 +244,28 @@ def _error_response(
             "message": message,
             "requestId": request_id,
             "retryable": retryable,
+        },
+    }
+
+
+def _direct_validation_error_response(
+    *,
+    request_id: str,
+    response: Response,
+    code: str,
+    message: str,
+    status_code: int = 400,
+) -> dict:
+    """Return the standard S4 error envelope for direct preflight failures."""
+    response.status_code = status_code
+    return {
+        "success": False,
+        "error": message,
+        "errorDetail": {
+            "code": code,
+            "message": message,
+            "requestId": request_id,
+            "retryable": False,
         },
     }
 
@@ -247,7 +281,7 @@ def _prepare_scan_dir(body: ScanRequest) -> tuple[Path, list[str], bool]:
     if body.project_path:
         project_dir = Path(body.project_path)
         if not project_dir.is_dir():
-            raise NoFilesError(f"projectPath not found: {body.project_path}")
+            raise NoFilesError("projectPath not found")
 
         # 프로젝트 디렉토리에서 C/C++ 소스 파일 자동 탐색
         extensions = {".c", ".cpp", ".cc", ".cxx", ".h", ".hpp"}
@@ -275,11 +309,16 @@ def _prepare_scan_dir(body: ScanRequest) -> tuple[Path, list[str], bool]:
 
 
 def _validate_path(file_path: str) -> None:
-    """경로 순회 공격 방지."""
-    if os.path.isabs(file_path):
-        raise NoFilesError(f"Absolute path not allowed: {file_path}")
-    if ".." in Path(file_path).parts:
-        raise NoFilesError(f"Path traversal not allowed: {file_path}")
+    """경로 순회 및 cross-platform absolute/drive-qualified 입력 방지."""
+    normalized_path = file_path.replace("\\", "/")
+    if (
+        os.path.isabs(file_path)
+        or normalized_path.startswith("/")
+        or re.match(r"^[A-Za-z]:", normalized_path)
+    ):
+        raise NoFilesError("Absolute path not allowed")
+    if ".." in Path(file_path).parts or ".." in normalized_path.split("/"):
+        raise NoFilesError("Path traversal not allowed")
 
 
 def _now_ms() -> int:
@@ -347,11 +386,11 @@ def _log_scan_execution_summary(
             "requestId": request_id,
             "scanId": body.scan_id,
             "projectId": body.project_id,
-            "projectPath": body.project_path,
+            "projectPathProvided": bool(body.project_path),
             "filesScanned": len(source_files),
             "compileCommandsProvided": bool(body.compile_commands),
             "sdkResolved": sdk.resolved,
-            "sdkId": sdk.sdk_id,
+            "executionSdkIdProvided": bool(sdk.sdk_id),
             "includePathsAdded": sdk.include_paths_added,
             "findingsCount": findings_count,
             "findingsBeforeFilter": filtering.before_filter,
@@ -385,11 +424,11 @@ def _log_build_execution_summary(
         extra={
             "requestId": request_id,
             "endpoint": endpoint,
-            "projectPath": project_path,
+            "projectPathProvided": bool(project_path),
             "success": bool(result.get("success")),
-            "requestedBuildCommand": evidence.get("requestedBuildCommand"),
-            "effectiveBuildCommand": evidence.get("effectiveBuildCommand"),
-            "compileCommandsPath": evidence.get("compileCommandsPath"),
+            "requestedBuildCommandProvided": bool(evidence.get("requestedBuildCommand")),
+            "effectiveBuildCommandProvided": bool(evidence.get("effectiveBuildCommand")),
+            "compileCommandsPathAvailable": bool(evidence.get("compileCommandsPath")),
             "entries": evidence.get("entries"),
             "userEntries": evidence.get("userEntries"),
             "exitCode": evidence.get("exitCode"),
@@ -461,8 +500,8 @@ async def _run_scan_core(
                     "scanId": scan_id,
                     "filesCount": len(source_files),
                     "rulesets": rulesets,
-                    "projectPath": body.project_path,
-                    "sdkId": bp.sdk_id if bp else None,
+                    "projectPathProvided": bool(body.project_path),
+                    "sdkIdProvided": bool(bp and bp.sdk_id),
                     "languageStandard": bp.language_standard if bp else None,
                     "targetArch": bp.target_arch if bp else None,
                 },
@@ -847,18 +886,21 @@ def _scan_streaming(
             }, ensure_ascii=False) + "\n"
 
         except Exception as exc:
-            request_summary_tracker.mark_failed(request_id, str(exc))
+            request_summary_tracker.mark_failed(request_id, INTERNAL_ERROR_MESSAGE)
             _log_terminal_request_summary(request_id)
             logger.error(
-                "NDJSON scan failed unexpectedly: %s",
-                str(exc),
-                extra={"requestId": request_id, "scanId": body.scan_id},
-                exc_info=True,
+                "NDJSON scan failed unexpectedly",
+                extra={
+                    "requestId": request_id,
+                    "scanId": body.scan_id,
+                    "code": "INTERNAL_ERROR",
+                    "exceptionType": type(exc).__name__,
+                },
             )
             yield _json.dumps({
                 "type": "error",
                 "code": "INTERNAL_ERROR",
-                "message": str(exc),
+                "message": INTERNAL_ERROR_MESSAGE,
                 "retryable": False,
                 "requestId": request_id,
                 "timestamp": _now_ms(),
@@ -1031,13 +1073,16 @@ async def scan(request: Request, body: ScanRequest, response: Response) -> ScanR
         )
 
     except Exception as exc:
-        request_summary_tracker.mark_failed(request_id, str(exc))
+        request_summary_tracker.mark_failed(request_id, INTERNAL_ERROR_MESSAGE)
         _log_terminal_request_summary(request_id)
         logger.error(
-            "Unexpected error: %s",
-            str(exc),
-            extra={"requestId": request_id, "scanId": body.scan_id},
-            exc_info=True,
+            "Unexpected scan failure",
+            extra={
+                "requestId": request_id,
+                "scanId": body.scan_id,
+                "code": "INTERNAL_ERROR",
+                "exceptionType": type(exc).__name__,
+            },
         )
         response.status_code = 500
         return ScanResponse(
@@ -1045,10 +1090,10 @@ async def scan(request: Request, body: ScanRequest, response: Response) -> ScanR
             scanId=body.scan_id,
             status="failed",
             provenance=body.provenance,
-            error=str(exc),
+            error=INTERNAL_ERROR_MESSAGE,
             errorDetail=ErrorDetail(
                 code="INTERNAL_ERROR",
-                message=str(exc),
+                message=INTERNAL_ERROR_MESSAGE,
                 requestId=request_id,
                 retryable=False,
             ),
@@ -1077,7 +1122,11 @@ async def functions(request: Request, body: ScanRequest, response: Response):
 
     logger.info(
         "Functions extraction started",
-        extra={"requestId": request_id, "filesCount": len(source_files), "projectPath": body.project_path},
+        extra={
+            "requestId": request_id,
+            "filesCount": len(source_files),
+            "projectPathProvided": bool(body.project_path),
+        },
     )
 
     try:
@@ -1135,8 +1184,12 @@ async def includes(request: Request, body: ScanRequest, response: Response):
         elapsed_ms = int((time.perf_counter() - t0) * 1000)
         logger.info(
             "Include resolution completed",
-            extra={"requestId": request_id, "filesCount": len(result), "elapsedMs": elapsed_ms,
-                    "projectPath": body.project_path},
+            extra={
+                "requestId": request_id,
+                "filesCount": len(result),
+                "elapsedMs": elapsed_ms,
+                "projectPathProvided": bool(body.project_path),
+            },
         )
         return {"includes": result}
     except Exception as exc:
@@ -1185,10 +1238,13 @@ async def libraries(request: Request, body: ScanRequest, response: Response):
 
     project_dir = Path(body.project_path)
     if not project_dir.is_dir():
-        raise NoFilesError(f"projectPath not found: {body.project_path}")
+        raise NoFilesError("projectPath not found")
 
     t0 = time.perf_counter()
-    logger.info("Library analysis started", extra={"requestId": request_id, "projectPath": body.project_path})
+    logger.info(
+        "Library analysis started",
+        extra={"requestId": request_id, "projectPathProvided": bool(body.project_path)},
+    )
 
     try:
         results = await analyze_libraries(project_dir)
@@ -1229,17 +1285,29 @@ async def build_and_analyze(
     build_command = body.build_command
 
     if not project_path:
-        response.status_code = 400
-        return {"error": "projectPath is required"}
+        return _direct_validation_error_response(
+            request_id=request_id,
+            response=response,
+            code="PROJECT_PATH_REQUIRED",
+            message="projectPath is required",
+        )
 
     project_dir = Path(project_path)
     if not project_dir.is_dir():
-        response.status_code = 400
-        return {"error": f"projectPath not found: {project_path}"}
+        return _direct_validation_error_response(
+            request_id=request_id,
+            response=response,
+            code="PROJECT_PATH_NOT_FOUND",
+            message="projectPath not found",
+        )
 
     if not build_command:
-        response.status_code = 400
-        return {"error": "buildCommand is required"}
+        return _direct_validation_error_response(
+            request_id=request_id,
+            response=response,
+            code="BUILD_COMMAND_REQUIRED",
+            message="buildCommand is required",
+        )
 
     scan_profile = body.scan_profile
     try:
@@ -1266,7 +1334,10 @@ async def build_and_analyze(
                 )
 
             build_timeout = _get_timeout(request)
-            logger.info("Build-and-analyze async ownership started", extra={"requestId": request_id, "projectPath": project_path})
+            logger.info(
+                "Build-and-analyze async ownership started",
+                extra={"requestId": request_id, "projectPathProvided": bool(project_path)},
+            )
             build_result = await build_runner.build(
                 project_dir,
                 build_command,
@@ -1397,7 +1468,10 @@ async def build_and_analyze(
             )
 
         # 1. 빌드 (bear)
-        logger.info("Build-and-analyze started", extra={"requestId": request_id, "projectPath": project_path})
+        logger.info(
+            "Build-and-analyze started",
+            extra={"requestId": request_id, "projectPathProvided": bool(project_path)},
+        )
         build_result = await build_runner.build(
             project_dir,
             build_command,
@@ -1525,7 +1599,7 @@ async def build_and_analyze(
         )
 
     except Exception as exc:
-        request_summary_tracker.mark_failed(request_id, str(exc))
+        request_summary_tracker.mark_failed(request_id, INTERNAL_ERROR_MESSAGE)
         _log_terminal_request_summary(request_id)
         return _error_response(request_id, exc, response)
 
@@ -1546,18 +1620,30 @@ async def build(
 
     project_path = body.project_path
     if not project_path:
-        response.status_code = 400
-        return {"success": False, "error": "projectPath is required"}
+        return _direct_validation_error_response(
+            request_id=request_id,
+            response=response,
+            code="PROJECT_PATH_REQUIRED",
+            message="projectPath is required",
+        )
 
     project_dir = Path(project_path)
     if not project_dir.is_dir():
-        response.status_code = 400
-        return {"success": False, "error": f"projectPath not found: {project_path}"}
+        return _direct_validation_error_response(
+            request_id=request_id,
+            response=response,
+            code="PROJECT_PATH_NOT_FOUND",
+            message="projectPath not found",
+        )
 
     build_command = body.build_command
     if not build_command:
-        response.status_code = 400
-        return {"success": False, "error": "buildCommand is required"}
+        return _direct_validation_error_response(
+            request_id=request_id,
+            response=response,
+            code="BUILD_COMMAND_REQUIRED",
+            message="buildCommand is required",
+        )
 
     wrap_with_bear = body.wrap_with_bear
     build_timeout = _get_timeout(request)
@@ -1622,8 +1708,13 @@ async def build(
 
         logger.info(
             "Build started",
-            extra={"requestId": request_id, "projectPath": project_path, "buildCommand": build_command,
-                    "wrapWithBear": wrap_with_bear, "timeoutS": build_timeout},
+            extra={
+                "requestId": request_id,
+                "projectPathProvided": bool(project_path),
+                "buildCommandProvided": bool(build_command),
+                "wrapWithBear": wrap_with_bear,
+                "timeoutS": build_timeout,
+            },
         )
         result = await build_runner.build(
             project_dir,
@@ -1654,7 +1745,7 @@ async def build(
     except Exception as exc:
         request_summary_tracker.mark_failed(
             request_id,
-            exc.message if isinstance(exc, SastRunnerError) else str(exc),
+            exc.message if isinstance(exc, SastRunnerError) else INTERNAL_ERROR_MESSAGE,
         )
         _log_terminal_request_summary(request_id)
         return _error_response(request_id, exc, response)
@@ -1677,13 +1768,21 @@ async def discover_targets(
 
     project_path = body.project_path
     if not project_path:
-        response.status_code = 400
-        return {"error": "projectPath is required"}
+        return _direct_validation_error_response(
+            request_id=request_id,
+            response=response,
+            code="PROJECT_PATH_REQUIRED",
+            message="projectPath is required",
+        )
 
     project_dir = Path(project_path)
     if not project_dir.is_dir():
-        response.status_code = 400
-        return {"error": f"projectPath not found: {project_path}"}
+        return _direct_validation_error_response(
+            request_id=request_id,
+            response=response,
+            code="PROJECT_PATH_NOT_FOUND",
+            message="projectPath not found",
+        )
 
     try:
         t0 = time.perf_counter()
@@ -1696,7 +1795,7 @@ async def discover_targets(
         "Target discovery completed",
         extra={
             "requestId": request_id,
-            "projectPath": project_path,
+            "projectPathProvided": bool(project_path),
             "targetCount": len(targets),
             "elapsedMs": elapsed_ms,
         },
@@ -1729,7 +1828,7 @@ async def cancel_request(request_id: str) -> JSONResponse:
 @router.get("/health", response_model=HealthResponse)
 async def health(request_id: str | None = Query(default=None, alias="requestId")) -> HealthResponse:
     """서비스 상태 및 도구 가용성 확인."""
-    tools = await orchestrator.check_tools(force=True)
+    tools = sanitize_tool_availability_map(await orchestrator.check_tools(force=True))
     policy = orchestrator.build_health_policy(tools)
 
     return HealthResponse(

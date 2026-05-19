@@ -174,8 +174,8 @@ class AstDumper:
 
             return json.loads(raw)
 
-        except (asyncio.TimeoutError, json.JSONDecodeError, FileNotFoundError) as e:
-            logger.warning("AST dump failed for %s: %s", file_path.name, e)
+        except (asyncio.TimeoutError, json.JSONDecodeError, FileNotFoundError):
+            logger.warning("AST dump failed")
             return None
 
     async def _extract_functions(

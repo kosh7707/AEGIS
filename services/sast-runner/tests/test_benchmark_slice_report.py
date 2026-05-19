@@ -4,6 +4,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from benchmark.benchmark_slice_report import build_benchmark_slice_report
 
 BASELINES_DIR = Path(__file__).parents[1] / "benchmark" / "data" / "baselines"
@@ -102,6 +104,46 @@ def test_benchmark_slice_report_has_no_verdict_risk_or_orchestration_fields() ->
     serialized = json.dumps(report, sort_keys=True)
     for token in ["securityVerdict", "riskScore", "shouldCallS5", "routeTo", "nextService"]:
         assert token not in serialized
+
+
+def test_benchmark_slice_report_rejects_missing_artifact_without_raw_path_echo(tmp_path: Path) -> None:
+    missing_path = tmp_path / "SECRET_BENCHMARK_ARTIFACT_PATH_SHOULD_NOT_LEAK.json"
+
+    with pytest.raises(ValueError) as excinfo:
+        build_benchmark_slice_report(variant01_path=missing_path, all_variants_path=ALL_VARIANTS)
+
+    message = str(excinfo.value)
+    assert "benchmark artifact could not be read" in message
+    assert str(missing_path) not in message
+    assert "SECRET_BENCHMARK_ARTIFACT_PATH_SHOULD_NOT_LEAK" not in message
+    assert excinfo.value.__cause__ is None
+
+
+def test_benchmark_slice_report_rejects_malformed_artifact_without_raw_content_echo(tmp_path: Path) -> None:
+    secret_content = "SECRET_BENCHMARK_ARTIFACT_CONTENT_SHOULD_NOT_LEAK"
+    malformed_path = tmp_path / "malformed.json"
+    malformed_path.write_text("{ " + secret_content, encoding="utf-8")
+
+    with pytest.raises(ValueError) as excinfo:
+        build_benchmark_slice_report(variant01_path=malformed_path, all_variants_path=ALL_VARIANTS)
+
+    message = str(excinfo.value)
+    assert "benchmark artifact is malformed JSON" in message
+    assert secret_content not in message
+    assert excinfo.value.__cause__ is None
+
+
+def test_benchmark_slice_report_rejects_non_object_artifact_without_raw_path_echo(tmp_path: Path) -> None:
+    secret_path = tmp_path / "SECRET_BENCHMARK_NON_OBJECT_PATH_SHOULD_NOT_LEAK.json"
+    secret_path.write_text("[]", encoding="utf-8")
+
+    with pytest.raises(ValueError) as excinfo:
+        build_benchmark_slice_report(variant01_path=secret_path, all_variants_path=ALL_VARIANTS)
+
+    message = str(excinfo.value)
+    assert "benchmark artifact must be an object" in message
+    assert str(secret_path) not in message
+    assert "SECRET_BENCHMARK_NON_OBJECT_PATH_SHOULD_NOT_LEAK" not in message
 
 
 def test_benchmark_slice_report_helper_is_offline_json_only() -> None:

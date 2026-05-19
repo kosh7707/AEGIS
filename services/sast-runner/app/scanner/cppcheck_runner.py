@@ -47,7 +47,13 @@ class CppcheckRunner:
         compile_commands: str | None = None,
     ) -> list[SastFinding]:
         cmd = self._build_command(scan_dir, profile, compile_commands)
-        logger.info("Running Cppcheck: %s", " ".join(cmd))
+        logger.info(
+            "Running Cppcheck",
+            extra={
+                "profileProvided": profile is not None,
+                "compileCommandsProvided": bool(compile_commands),
+            },
+        )
 
         proc = await asyncio.create_subprocess_exec(
             *cmd,

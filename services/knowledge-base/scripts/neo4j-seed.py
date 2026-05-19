@@ -24,6 +24,7 @@ if _service_root not in sys.path:
 
 from app.ledger.repository import SQLiteLedgerRepository
 from app.projections.ledger_projection import NEO4J_THREAT_PROJECTION, SCOPE_KEY, build_projection_bundle
+from app.config import redact_url_for_log
 
 
 def _resolve_ledger_url(ledger_url: str) -> str:
@@ -46,7 +47,7 @@ def main() -> None:
     args = parser.parse_args()
 
     ledger_url = _resolve_ledger_url(args.ledger_url)
-    print(f"[1/4] Ledger 연결: {ledger_url}", flush=True)
+    print(f"[1/4] Ledger 연결: {redact_url_for_log(ledger_url)}", flush=True)
     repo = SQLiteLedgerRepository(ledger_url)
     repo.initialize()
 
@@ -59,7 +60,7 @@ def main() -> None:
         flush=True,
     )
 
-    print(f"[3/4] Neo4j 연결: {args.neo4j_uri}", flush=True)
+    print(f"[3/4] Neo4j 연결: {redact_url_for_log(args.neo4j_uri)}", flush=True)
     import neo4j
     driver = neo4j.GraphDatabase.driver(args.neo4j_uri, auth=(args.neo4j_user, args.neo4j_password))
     driver.verify_connectivity()

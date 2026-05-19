@@ -1,12 +1,22 @@
 """ScanOrchestrator 단위 테스트 — 도구 선택, profile enrichment, 필터링."""
 
+import logging
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
 
 from app.errors import RequiredToolUnavailableError
-from app.scanner.orchestrator import ALL_TOOLS, ScanOrchestrator, _filter_user_code_findings, _is_third_party, _is_user_path, _parse_version
+from app.scanner.evidence import enrich_findings_evidence
+from app.scanner.orchestrator import (
+    ALL_TOOLS,
+    ScanOrchestrator,
+    _filter_user_code_findings,
+    _is_third_party,
+    _is_user_path,
+    _parse_version,
+    _sanitize_public_finding_paths,
+)
 from app.schemas.request import BuildProfile, SdkDescriptor
 from app.schemas.response import (
     ExecutionReport,
@@ -148,6 +158,32 @@ class TestSelectTools:
         assert active["_skipped"]["semgrep"] == "environment-drift"
 
     @pytest.mark.asyncio
+    async def test_check_tools_redacts_expected_executable_path(self, orchestrator):
+        secret_path = "/svc/SECRET_TOOL_PATH_SHOULD_NOT_LEAK/semgrep"
+        for runner in (
+            orchestrator.semgrep,
+            orchestrator.cppcheck,
+            orchestrator.flawfinder,
+            orchestrator.clangtidy,
+            orchestrator.scanbuild,
+            orchestrator.gcc_analyzer,
+        ):
+            runner.check_available = AsyncMock(return_value=(True, "1.0.0"))
+        orchestrator.semgrep.check_available = AsyncMock(return_value=(False, None))
+        orchestrator.semgrep._last_probe = {
+            "probeReason": "environment-drift",
+            "expectedExecutablePath": secret_path,
+        }
+
+        tools = await orchestrator.check_tools(force=True)
+
+        assert tools["semgrep"]["available"] is False
+        assert tools["semgrep"]["probeReason"] == "environment-drift"
+        assert tools["semgrep"]["expectedExecutablePathStatus"] == "configured"
+        assert "expectedExecutablePath" not in tools["semgrep"]
+        assert secret_path not in str(tools)
+
+    @pytest.mark.asyncio
     async def test_gcc_fanalyzer_sdk_recheck(self, orchestrator):
         """호스트 gcc unavailable이지만 SDK 컴파일러로 재확인 → 활성화."""
         available = self._available_all()
@@ -239,6 +275,17 @@ class TestPolicyHelpers:
 
         assert exc_info.value.code == "REQUIRED_TOOL_UNAVAILABLE"
         assert missing_tool in exc_info.value.message
+        failure = exc_info.value.tool_failures[0]
+        assert failure["expectedExecutablePathStatus"] == "configured"
+        assert "expectedExecutablePath" not in failure
+        assert f"/svc/bin/{missing_tool}" not in str(failure)
+        preflight_record = next(
+            record for record in caplog.records
+            if record.getMessage() == "Required SAST tool preflight failed"
+        )
+        assert preflight_record.failures[0]["expectedExecutablePathStatus"] == "configured"
+        assert "expectedExecutablePath" not in preflight_record.failures[0]
+        assert f"/svc/bin/{missing_tool}" not in str(preflight_record.failures)
         for runner in (semgrep, cppcheck, flawfinder, clangtidy, scanbuild, gcc_analyzer):
             assert runner.await_count == 0
         assert "Required SAST tool preflight failed" in caplog.text
@@ -495,6 +542,83 @@ class TestFilterUserCodeFindings:
         assert result[1].origin == "cross-boundary"
 
 
+class TestPublicFindingPathSanitization:
+    def test_cross_boundary_external_paths_are_redacted_after_filtering(self):
+        secret_root = "/opt/SECRET_PUBLIC_FINDING_SDK_ROOT"
+        findings = [
+            _make_finding(
+                f"{secret_root}/sysroot/usr/include/api.h",
+                tool="gcc-fanalyzer",
+                data_flow=[
+                    SastDataFlowStep(file="src/main.c", line=10, content="call site"),
+                    SastDataFlowStep(
+                        file=f"{secret_root}/sysroot/usr/include/api.h",
+                        line=42,
+                        content="external sink",
+                    ),
+                ],
+            ),
+        ]
+
+        filtered, stats = _filter_user_code_findings(findings, [])
+        public_findings = enrich_findings_evidence(
+            _sanitize_public_finding_paths(filtered, Path("/tmp/scan"))
+        )
+
+        assert stats["cross_boundary"] == 1
+        assert stats["sdk_removed"] == 0
+        assert public_findings[0].origin == "cross-boundary"
+        assert public_findings[0].location.file == "<external>/api.h"
+        assert public_findings[0].data_flow is not None
+        assert public_findings[0].data_flow[0].file == "src/main.c"
+        assert public_findings[0].data_flow[1].file == "<external>/api.h"
+        assert (
+            public_findings[0].metadata or {}
+        )["evidenceResolution"]["location"]["file"] == "<external>/api.h"
+        serialized = public_findings[0].model_dump_json(by_alias=True)
+        assert "SECRET_PUBLIC_FINDING_SDK_ROOT" not in serialized
+
+    @pytest.mark.asyncio
+    async def test_run_redacts_public_cross_boundary_paths_without_breaking_filter_stats(
+        self, orchestrator, tmp_path
+    ):
+        secret_root = "/opt/SECRET_RUN_PUBLIC_FINDING_SDK_ROOT"
+        finding = _make_finding(
+            f"{secret_root}/sysroot/usr/include/api.h",
+            tool="cppcheck",
+            data_flow=[
+                SastDataFlowStep(file="src/main.c", line=10, content="call site"),
+                SastDataFlowStep(
+                    file=f"{secret_root}/sysroot/usr/include/api.h",
+                    line=42,
+                    content="external sink",
+                ),
+            ],
+        )
+
+        with (
+            patch.object(orchestrator, "check_tools", AsyncMock(return_value=_available_all_tools())),
+            patch.object(orchestrator, "_select_tools", AsyncMock(return_value={"cppcheck": True})),
+            patch.object(orchestrator, "_run_cppcheck", AsyncMock(return_value=[finding])),
+        ):
+            findings, execution = await orchestrator.run(
+                tmp_path,
+                ["src/main.c"],
+                None,
+                [],
+                tools=["cppcheck"],
+            )
+
+        assert execution.filtering.cross_boundary_kept == 1
+        assert execution.filtering.sdk_noise_removed == 0
+        assert findings[0].location.file == "<external>/api.h"
+        assert findings[0].data_flow is not None
+        assert findings[0].data_flow[1].file == "<external>/api.h"
+        assert findings[0].origin == "cross-boundary"
+        serialized = [finding.model_dump(by_alias=True) for finding in findings]
+        assert "SECRET_RUN_PUBLIC_FINDING_SDK_ROOT" not in str(serialized)
+
+
 class TestIsThirdParty:
     def test_match(self):
         assert _is_third_party("lib/civetweb/civetweb.c", ["lib/civetweb/"]) is True
@@ -616,6 +740,61 @@ class TestBuildSdkInfo:
         assert info["resolved"] is True
         assert info["include_paths_added"] == 2
 
+    def test_non_registered_sdk_info_redacts_root_path(self, orchestrator, tmp_path):
+        secret_root = str(tmp_path / "SECRET_SDK_ROOT_SHOULD_NOT_LEAK")
+        original = BuildProfile(
+            sdkResolutionMode="non-registered",
+            sdkDescriptor=SdkDescriptor(
+                sdkRootPath=secret_root,
+                sysroot="sysroot",
+                includePaths=[f"{secret_root}/sysroot/usr/include"],
+            ),
+            includePaths=[],
+        )
+        enriched = original.model_copy(update={"include_paths": [f"{secret_root}/sysroot/usr/include"]})
+
+        info = orchestrator._build_sdk_info(original, enriched)
+
+        assert info["resolved"] is True
+        assert info["resolved_from"] == "sdkDescriptor"
+        assert info["include_paths_added"] == 1
+        assert info["sdk_root_path"] is None
+        assert info["sdk_root_path_status"] == "configured"
+        assert "SECRET_SDK_ROOT_SHOULD_NOT_LEAK" not in str(info)
+
+    def test_sdk_enrichment_log_uses_counts_without_sdk_identity_or_paths(
+        self, orchestrator, tmp_path, caplog
+    ):
+        """SDK enrichment 로그는 sdkId/include path를 노출하지 않는다."""
+        secret_sdk_id = "SECRET_SDK_ID_SHOULD_NOT_LEAK"
+        secret_include_path = str(tmp_path / "SECRET_SDK_INCLUDE_PATH_SHOULD_NOT_LEAK")
+        profile = BuildProfile(
+            sdkId=secret_sdk_id,
+            compiler="arm-gcc",
+            targetArch="arm",
+            languageStandard="c99",
+            headerLanguage="c",
+            includePaths=["/user/path"],
+        )
+        caplog.set_level(logging.INFO, logger="aegis-sast-runner")
+
+        with patch(
+            "app.scanner.orchestrator.resolve_sdk_paths",
+            return_value=[secret_include_path],
+        ):
+            enriched = orchestrator._enrich_profile_with_sdk(profile)
+
+        assert enriched is not None
+        assert enriched.include_paths == ["/user/path", secret_include_path]
+        assert "SDK resolved" in caplog.text
+        assert secret_sdk_id not in caplog.text
+        assert secret_include_path not in caplog.text
+        for record in caplog.records:
+            assert secret_sdk_id not in record.getMessage()
+            assert secret_include_path not in record.getMessage()
+            assert secret_sdk_id not in repr(record.__dict__)
+            assert secret_include_path not in repr(record.__dict__)
+
 
 class TestPartialStatus:
     """ToolExecutionResult의 partial 상태 + timedOutFiles 필드 테스트."""
@@ -658,6 +837,45 @@ class TestPartialStatus:
 
 class TestProgressCallback:
     """orchestrator.run()의 on_progress 콜백 호출 검증."""
+
+    @pytest.mark.asyncio
+    async def test_tool_failure_surface_uses_category_without_exception_text(
+        self, orchestrator, caplog
+    ):
+        """도구 예외는 로그/ExecutionReport에 raw exception text를 노출하지 않는다."""
+
+        async def _failing_semgrep(*args, **kwargs):
+            raise RuntimeError("SECRET_TOOL_EXCEPTION_SHOULD_NOT_LEAK")
+
+        caplog.set_level(logging.WARNING, logger="aegis-sast-runner")
+
+        with (
+            patch.object(orchestrator, "_run_semgrep", side_effect=_failing_semgrep),
+            patch.object(orchestrator, "check_tools", return_value={
+                "semgrep": {"available": True, "version": "1.45.0"},
+                "cppcheck": {"available": False, "version": None},
+                "flawfinder": {"available": False, "version": None},
+                "clang-tidy": {"available": False, "version": None},
+                "scan-build": {"available": False, "version": None},
+                "gcc-fanalyzer": {"available": False, "version": None},
+            }),
+        ):
+            findings, execution = await orchestrator.run(
+                scan_dir=Path("/tmp/test"),
+                source_files=["main.c"],
+                profile=None,
+                rulesets=["p/c"],
+                tools=["semgrep"],
+            )
+
+        assert findings == []
+        semgrep = execution.tool_results["semgrep"]
+        assert semgrep.status == "failed"
+        assert semgrep.skip_reason == "tool-execution-failed"
+        assert "Tool semgrep failed" in caplog.text
+        assert "Tool semgrep failed:" not in caplog.text
+        assert "SECRET_TOOL_EXCEPTION_SHOULD_NOT_LEAK" not in caplog.text
+        assert "SECRET_TOOL_EXCEPTION_SHOULD_NOT_LEAK" not in execution.model_dump_json(by_alias=True)
 
     @pytest.mark.asyncio
     async def test_progress_callback_called_per_tool(self, orchestrator):

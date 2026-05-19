@@ -1,6 +1,7 @@
 """sdk_resolver 단위 테스트 — resolve_sdk_paths, get_sdk_compiler, validate_sdk, register/unregister, _infer_arch."""
 
 import json
+import logging
 from pathlib import Path
 from unittest.mock import patch
 
@@ -75,6 +76,15 @@ def _write_registry(base: Path, registry: dict) -> None:
     registry_path.write_text(json.dumps(registry, indent=2), encoding="utf-8")
 
 
+def _assert_log_records_do_not_contain(caplog, *secrets: str) -> None:
+    """Assert neither rendered text nor structured LogRecord fields contain secrets."""
+    for secret in secrets:
+        assert secret not in caplog.text
+        for record in caplog.records:
+            assert secret not in record.getMessage()
+            assert secret not in repr(record.__dict__)
+
+
 # ---------------------------------------------------------------------------
 # _infer_arch
 # ---------------------------------------------------------------------------
@@ -121,6 +131,45 @@ class TestInvalidateCache:
 
 
 # ---------------------------------------------------------------------------
+# _load_sdk_registry logging
+# ---------------------------------------------------------------------------
+
+class TestLoadSdkRegistryLogging:
+    def test_missing_registry_log_uses_category_without_path(self, tmp_path, caplog):
+        """레지스트리 부재 로그는 host-local SDK root 경로를 노출하지 않는다."""
+        secret_root = tmp_path / "SECRET_SDK_ROOT_SHOULD_NOT_LEAK"
+        caplog.set_level(logging.WARNING, logger="aegis-sast-runner")
+
+        with patch.object(sdk_resolver, "_get_sdk_root", return_value=secret_root):
+            registry = sdk_resolver._load_sdk_registry()
+
+        assert registry == {}
+        assert "SDK registry not found" in caplog.text
+        assert "SECRET_SDK_ROOT_SHOULD_NOT_LEAK" not in caplog.text
+        assert "sdk-registry.json" not in caplog.text
+
+    def test_malformed_registry_log_uses_category_without_parser_detail(
+        self, tmp_path, caplog
+    ):
+        """레지스트리 파싱 실패 로그는 parser detail/path를 노출하지 않는다."""
+        secret_root = tmp_path / "SECRET_SDK_ROOT_SHOULD_NOT_LEAK"
+        secret_root.mkdir()
+        (secret_root / "sdk-registry.json").write_text("{", encoding="utf-8")
+        caplog.set_level(logging.ERROR, logger="aegis-sast-runner")
+
+        with patch.object(sdk_resolver, "_get_sdk_root", return_value=secret_root):
+            registry = sdk_resolver._load_sdk_registry()
+
+        assert registry == {}
+        assert "Failed to load SDK registry" in caplog.text
+        assert "SECRET_SDK_ROOT_SHOULD_NOT_LEAK" not in caplog.text
+        assert "sdk-registry.json" not in caplog.text
+        assert "Expecting" not in caplog.text
+        assert "line" not in caplog.text
+        assert "column" not in caplog.text
+
+
+# ---------------------------------------------------------------------------
 # validate_sdk
 # ---------------------------------------------------------------------------
 
@@ -139,10 +188,10 @@ class TestValidateSdk:
 
     def test_path_not_found(self, tmp_path):
         """SDK 경로가 존재하지 않으면 에러."""
-        data = {"path": str(tmp_path / "nonexistent")}
+        data = {"path": str(tmp_path / "SECRET_SDK_PATH_SHOULD_NOT_LEAK")}
         errors = validate_sdk(data)
-        assert len(errors) == 1
-        assert "not found" in errors[0]
+        assert errors == ["SDK path not found"]
+        assert "SECRET_SDK_PATH_SHOULD_NOT_LEAK" not in errors[0]
 
     def test_sysroot_not_found(self, tmp_path):
         """SDK 경로는 있지만 sysroot가 없으면 에러."""
@@ -150,11 +199,11 @@ class TestValidateSdk:
         sdk_dir.mkdir()
         data = {
             "path": str(sdk_dir),
-            "sysroot": "nonexistent-sysroot",
+            "sysroot": "SECRET_SYSROOT_SHOULD_NOT_LEAK",
         }
         errors = validate_sdk(data)
-        assert len(errors) == 1
-        assert "Sysroot not found" in errors[0]
+        assert errors == ["Sysroot not found"]
+        assert "SECRET_SYSROOT_SHOULD_NOT_LEAK" not in errors[0]
 
     def test_env_setup_not_found(self, tmp_path):
         """environment setup 스크립트가 없으면 에러."""
@@ -162,25 +211,26 @@ class TestValidateSdk:
         sdk_dir.mkdir()
         data = {
             "path": str(sdk_dir),
-            "environmentSetup": "nonexistent-setup.sh",
+            "environmentSetup": "SECRET_SETUP_SHOULD_NOT_LEAK.sh",
         }
         errors = validate_sdk(data)
-        assert len(errors) == 1
-        assert "Environment setup script not found" in errors[0]
+        assert errors == ["Environment setup script not found"]
+        assert "SECRET_SETUP_SHOULD_NOT_LEAK" not in errors[0]
 
     def test_compiler_not_found(self, tmp_path):
         """컴파일러 바이너리가 없으면 에러."""
         sdk_dir = tmp_path / "sdk"
-        sysroot = sdk_dir / "sysroot-dir" / "usr" / "bin"
+        sysroot = sdk_dir / "SECRET_SYSROOT_SHOULD_NOT_LEAK" / "usr" / "bin"
         sysroot.mkdir(parents=True)
         data = {
             "path": str(sdk_dir),
-            "sysroot": "sysroot-dir",
-            "compilerPrefix": "arm-none-eabi",
+            "sysroot": "SECRET_SYSROOT_SHOULD_NOT_LEAK",
+            "compilerPrefix": "SECRET_PREFIX_SHOULD_NOT_LEAK",
         }
         errors = validate_sdk(data)
-        assert len(errors) == 1
-        assert "Compiler not found" in errors[0]
+        assert errors == ["Compiler not found"]
+        assert "SECRET_SYSROOT_SHOULD_NOT_LEAK" not in errors[0]
+        assert "SECRET_PREFIX_SHOULD_NOT_LEAK" not in errors[0]
 
     def test_no_optional_fields_no_errors(self, tmp_path):
         """path만 유효하고 선택 필드가 없으면 에러 없음."""
@@ -215,6 +265,24 @@ class TestRegisterUnregister:
             assert reg["new-sdk"]["compiler_prefix"] == "arm-linux-gnueabihf"
             assert reg["new-sdk"]["gcc_version"] == "9.2.0"
 
+    def test_register_sdk_log_uses_category_without_sdk_identity_or_path(
+        self, tmp_path, caplog
+    ):
+        """SDK 등록 로그는 sdkId/설치 경로 대신 category만 남긴다."""
+        _write_registry(tmp_path, {})
+        secret_sdk_id = "SECRET_SDK_ID_SHOULD_NOT_LEAK"
+        secret_path = str(tmp_path / "SECRET_SDK_PATH_SHOULD_NOT_LEAK")
+        caplog.set_level(logging.INFO, logger="aegis-sast-runner")
+
+        with patch.object(sdk_resolver, "_get_sdk_root", return_value=tmp_path):
+            register_sdk(secret_sdk_id, {
+                "path": secret_path,
+                "description": "Test SDK",
+            })
+
+        assert "SDK registered" in caplog.text
+        _assert_log_records_do_not_contain(caplog, secret_sdk_id, secret_path)
+
     def test_register_overwrites_existing(self, tmp_path):
         """동일 SDK ID로 재등록하면 덮어쓰기."""
         initial = {"old-sdk": {"description": "old", "path": "/old", "sysroot": "", "compiler_prefix": "", "gcc_version": "", "environment_setup": ""}}
@@ -242,6 +310,31 @@ class TestRegisterUnregister:
         with patch.object(sdk_resolver, "_get_sdk_root", return_value=tmp_path):
             reg = _get_registry()
             assert "to-remove" not in reg
+
+    def test_unregister_sdk_log_uses_category_without_sdk_identity(
+        self, tmp_path, caplog
+    ):
+        """SDK 삭제 로그는 sdkId 대신 category만 남긴다."""
+        secret_sdk_id = "SECRET_SDK_ID_SHOULD_NOT_LEAK"
+        initial = {
+            secret_sdk_id: {
+                "description": "x",
+                "path": "/x",
+                "sysroot": "",
+                "compiler_prefix": "",
+                "gcc_version": "",
+                "environment_setup": "",
+            }
+        }
+        _write_registry(tmp_path, initial)
+        caplog.set_level(logging.INFO, logger="aegis-sast-runner")
+
+        with patch.object(sdk_resolver, "_get_sdk_root", return_value=tmp_path):
+            result = unregister_sdk(secret_sdk_id)
+
+        assert result is True
+        assert "SDK unregistered" in caplog.text
+        _assert_log_records_do_not_contain(caplog, secret_sdk_id)
 
     def test_unregister_nonexistent(self, tmp_path):
         """존재하지 않는 SDK 삭제 → False."""
@@ -283,6 +376,36 @@ class TestResolveSdkPaths:
         for p in paths:
             assert Path(p).exists()
 
+    def test_resolved_include_paths_log_uses_count_without_sdk_identity(
+        self, tmp_path, caplog
+    ):
+        """SDK include path 성공 로그는 sdkId/root path를 노출하지 않는다."""
+        secret_root = tmp_path / "SECRET_SDK_ROOT_SHOULD_NOT_LEAK"
+        secret_sdk_id = "SECRET_SDK_ID_SHOULD_NOT_LEAK"
+        prefix = "arm-linux-gnueabihf"
+        gcc_ver = "9.2.0"
+        _make_sdk_structure(secret_root, secret_sdk_id, prefix, gcc_ver)
+
+        registry = {
+            secret_sdk_id: {
+                "sysroot": f"sysroots/{prefix}-linux-gnueabi",
+                "compiler_prefix": prefix,
+                "gcc_version": gcc_ver,
+            }
+        }
+        _write_registry(secret_root, registry)
+        profile = BuildProfile(sdkId=secret_sdk_id)
+        caplog.set_level(logging.INFO, logger="aegis-sast-runner")
+
+        with patch.object(sdk_resolver, "_get_sdk_root", return_value=secret_root):
+            paths = resolve_sdk_paths(profile)
+
+        assert paths
+        assert "Resolved" in caplog.text
+        assert "include paths from SDK" in caplog.text
+        assert secret_sdk_id not in caplog.text
+        assert "SECRET_SDK_ROOT_SHOULD_NOT_LEAK" not in caplog.text
+
     def test_sdk_not_in_registry(self, tmp_path):
         """레지스트리에 없는 SDK → 빈 결과 (디렉토리도 없을 때)."""
         _write_registry(tmp_path, {})
@@ -293,6 +416,23 @@ class TestResolveSdkPaths:
             paths = resolve_sdk_paths(profile)
 
         assert paths == []
+
+    def test_missing_sdk_directory_log_uses_category_without_path(self, tmp_path, caplog):
+        """누락된 SDK directory 로그는 sdkId/root path를 노출하지 않는다."""
+        secret_root = tmp_path / "SECRET_SDK_ROOT_SHOULD_NOT_LEAK"
+        secret_root.mkdir()
+        _write_registry(secret_root, {})
+        secret_sdk_id = "SECRET_SDK_ID_SHOULD_NOT_LEAK"
+        profile = BuildProfile(sdkId=secret_sdk_id)
+        caplog.set_level(logging.WARNING, logger="aegis-sast-runner")
+
+        with patch.object(sdk_resolver, "_get_sdk_root", return_value=secret_root):
+            paths = resolve_sdk_paths(profile)
+
+        assert paths == []
+        assert "SDK directory not found" in caplog.text
+        assert secret_sdk_id not in caplog.text
+        assert "SECRET_SDK_ROOT_SHOULD_NOT_LEAK" not in caplog.text
 
     def test_missing_sdk_id_skips_resolution_and_preserves_include_paths(self, tmp_path):
         """sdkId가 없으면 SDK 해석을 건너뛰고 profile includePaths만 유지."""
@@ -373,6 +513,23 @@ class TestProfileSdkId:
             paths = resolve_sdk_paths(profile)
 
         assert paths == []
+
+    def test_missing_sysroot_log_uses_category_without_path(self, tmp_path, caplog):
+        """누락된 SDK sysroot 로그는 base/sysroot path를 노출하지 않는다."""
+        secret_base = tmp_path / "SECRET_SDK_BASE_SHOULD_NOT_LEAK"
+        sdk_info = {
+            "sysroot": "SECRET_SYSROOT_SHOULD_NOT_LEAK",
+            "compiler_prefix": "arm-none-eabi",
+            "gcc_version": "12.0",
+        }
+        caplog.set_level(logging.WARNING, logger="aegis-sast-runner")
+
+        paths = sdk_resolver._resolve_from_registry(secret_base, sdk_info)
+
+        assert paths == []
+        assert "SDK sysroot not found" in caplog.text
+        assert "SECRET_SDK_BASE_SHOULD_NOT_LEAK" not in caplog.text
+        assert "SECRET_SYSROOT_SHOULD_NOT_LEAK" not in caplog.text
 
 
 # ---------------------------------------------------------------------------

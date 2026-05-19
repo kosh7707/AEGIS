@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from app.scanner.library_hasher import compare_hashes, hash_source_files
+from app.scanner.repository_url import sanitize_repository_url_for_evidence
 
 logger = logging.getLogger("aegis-sast-runner")
 
@@ -37,7 +38,7 @@ class DiffResult:
         """API 응답 shape으로 직렬화."""
         d: dict[str, Any] = {
             "matchedVersion": self.matched_version,
-            "repoUrl": self.repo_url,
+            "repoUrl": sanitize_repository_url_for_evidence(self.repo_url),
             "matchRatio": self.match_ratio,
             "identicalFiles": self.identical_files,
             "modifiedFiles": self.modified_files,
@@ -79,7 +80,7 @@ class CloneCache:
                 if age < self._ttl:
                     fetch_ok = await self._git_fetch(cache_dir, timeout)
                     if fetch_ok:
-                        logger.debug("Clone cache HIT for %s (age=%.0fs)", repo_url, age)
+                        logger.debug("Clone cache HIT (age=%.0fs)", age)
                         return cache_dir
                 # stale or fetch failed
                 shutil.rmtree(cache_dir, ignore_errors=True)
@@ -87,7 +88,7 @@ class CloneCache:
             cache_dir.mkdir(parents=True, exist_ok=True)
             ok = await self._git_clone(repo_url, cache_dir, timeout)
             if ok:
-                logger.debug("Clone cache MISS for %s — cloned fresh", repo_url)
+                logger.debug("Clone cache MISS — cloned fresh")
                 return cache_dir
 
             shutil.rmtree(cache_dir, ignore_errors=True)
@@ -248,7 +249,7 @@ class LibraryDiffer:
                 await self._git_checkout(clone_dir, best_tag)
                 result = await self._compute_diff(lib_path, clone_dir, timeout)
                 result["matchedVersion"] = best_tag
-                result["repoUrl"] = repo_url
+                result["repoUrl"] = sanitize_repository_url_for_evidence(repo_url)
                 result["searchedTags"] = len(candidates)
                 return result
 
@@ -387,6 +388,7 @@ class LibraryDiffer:
         brief = stdout.decode()
         modified_files: list[str] = []
         added_files: list[str] = []
+        local_root = local.resolve()
 
         # 소스 코드 확장자만 관심
         source_exts = {".c", ".cpp", ".cc", ".cxx", ".h", ".hpp", ".hxx"}
@@ -394,23 +396,36 @@ class LibraryDiffer:
         skip_paths = {"test/", "tests/", "example/", "examples/", "doc/", "docs/",
                       "benchmark/", "fuzztest/", "unittest/", "perftest/"}
 
+        def _safe_relative_source_path(candidate: Path) -> str | None:
+            try:
+                rel = candidate.resolve().relative_to(local_root)
+            except (OSError, ValueError):
+                return None
+            rel_path = rel.as_posix()
+            if Path(rel_path).suffix.lower() not in source_exts:
+                return None
+            if any(skip in rel_path.lower() for skip in skip_paths):
+                return None
+            return rel_path
+
+        def _parse_only_in_added_file(line: str) -> str | None:
+            if not line.startswith("Only in ") or ": " not in line:
+                return None
+            directory, name = line[len("Only in "):].split(": ", 1)
+            return _safe_relative_source_path(Path(directory) / name)
+
         for line in brief.splitlines():
             if line.startswith("Files") and "differ" in line:
                 parts = line.split(" and ")
                 if len(parts) >= 2:
                     file_path = parts[1].split(" differ")[0].strip()
-                    try:
-                        rel = str(Path(file_path).relative_to(local))
-                    except ValueError:
-                        rel = file_path
-                    # 소스 코드만 + 테스트/예제 경로 제외
-                    if Path(rel).suffix.lower() in source_exts:
-                        if not any(skip in rel.lower() for skip in skip_paths):
-                            modified_files.append(rel)
-            elif "Only in" in line and str(local) in line:
-                # 추가된 파일도 소스 코드만
-                if any(line.endswith(ext) for ext in source_exts):
-                    added_files.append(line)
+                    rel = _safe_relative_source_path(Path(file_path))
+                    if rel is not None:
+                        modified_files.append(rel)
+            elif line.startswith("Only in "):
+                rel = _parse_only_in_added_file(line)
+                if rel is not None:
+                    added_files.append(rel)
 
         # 수정된 파일별 상세 diff (줄 수)
         modifications: list[dict[str, Any]] = []
@@ -435,6 +450,7 @@ class LibraryDiffer:
             "totalFiles": len(list(local.rglob("*")) if local.is_dir() else []),
             "modifiedFiles": len(modified_files),
             "addedFiles": len(added_files),
+            "addedFilesList": added_files,
             "diffStats": {
                 "insertions": total_insertions,
                 "deletions": total_deletions,
