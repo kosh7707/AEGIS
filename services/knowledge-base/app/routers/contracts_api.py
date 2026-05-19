@@ -8,6 +8,7 @@ from app.context import set_request_id
 from app.contracts.acquisition import contract_snapshot
 from app.contracts.analyst import analyst_brief_contract_snapshot
 from app.contracts.judge import judge_contract_snapshot
+from app.contracts.paper_context import paper_context_contract_snapshot
 from app.contracts.source_kg import source_code_kg_contract_snapshot
 
 router = APIRouter(prefix="/v1/contracts", tags=["contracts"])
@@ -43,3 +44,11 @@ async def judge_contract(
 ) -> dict:
     set_request_id(x_request_id)
     return judge_contract_snapshot()
+
+
+@router.get("/paper-context")
+async def paper_context_contract(
+    x_request_id: str | None = Header(None, alias="X-Request-Id"),
+) -> dict:
+    set_request_id(x_request_id)
+    return paper_context_contract_snapshot()

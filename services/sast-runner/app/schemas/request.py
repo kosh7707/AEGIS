@@ -108,3 +108,41 @@ class DiscoverTargetsRequest(BaseModel):
     project_path: str | None = Field(default=None, alias="projectPath")
 
     model_config = {"populate_by_name": True}
+
+
+class PaperCompileContext(BaseModel):
+    type: Literal["compile_commands_json"]
+    path: str
+    ref: str
+
+    model_config = {"populate_by_name": True, "extra": "forbid"}
+
+
+class PaperStaticEvidenceProvenance(BaseModel):
+    paper_run_id: str = Field(alias="paperRunId")
+    build_snapshot_id: str = Field(alias="buildSnapshotId")
+    build_unit_id: str = Field(alias="buildUnitId")
+    dataset_root_ref: str | None = Field(default=None, alias="datasetRootRef")
+    source_root_ref: str = Field(alias="sourceRootRef")
+    compile_context_ref: str = Field(alias="compileContextRef")
+
+    model_config = {"populate_by_name": True, "extra": "forbid"}
+
+
+class PaperStaticEvidenceScope(BaseModel):
+    include_paths: list[str] = Field(default_factory=list, alias="includePaths")
+    exclude_paths: list[str] = Field(default_factory=list, alias="excludePaths")
+    third_party_paths: list[str] = Field(default_factory=list, alias="thirdPartyPaths")
+
+    model_config = {"populate_by_name": True, "extra": "forbid"}
+
+
+class PaperStaticEvidenceRequest(BaseModel):
+    case_id: str = Field(alias="caseId")
+    build_target_id: str = Field(alias="buildTargetId")
+    source_root: str = Field(alias="sourceRoot")
+    compile_context: PaperCompileContext = Field(alias="compileContext")
+    provenance: PaperStaticEvidenceProvenance
+    scope: PaperStaticEvidenceScope = Field(default_factory=PaperStaticEvidenceScope)
+
+    model_config = {"populate_by_name": True, "extra": "forbid"}

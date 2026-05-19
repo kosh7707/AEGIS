@@ -15,6 +15,7 @@ from pathlib import Path
 from fastapi import APIRouter, Request, Response
 from fastapi import Query
 from fastapi.responses import JSONResponse, StreamingResponse
+from pydantic import ValidationError
 
 from app.config import settings
 from app.context import set_request_id
@@ -34,6 +35,11 @@ from app.scanner.ast_dumper import AstDumper
 from app.scanner.build_metadata import BuildMetadataExtractor
 from app.scanner.build_runner import BuildRunner
 from app.scanner.evidence import enrich_findings_evidence, project_libraries_evidence
+from app.scanner.paper_static_evidence import (
+    PaperStaticEvidenceContractError,
+    build_paper_static_evidence_bundle,
+    contains_forbidden_request_field,
+)
 from app.scanner.static_evidence_contract import build_static_evidence_contract
 from app.scanner.include_resolver import IncludeResolver
 from app.scanner.orchestrator import ALL_TOOLS, ScanOrchestrator, sanitize_tool_availability_map
@@ -44,6 +50,7 @@ from app.schemas.request import (
     BuildAndAnalyzeRequest,
     BuildRequest,
     DiscoverTargetsRequest,
+    PaperStaticEvidenceRequest,
     ScanRequest,
     SnapshotProvenance,
 )
@@ -257,6 +264,27 @@ def _direct_validation_error_response(
     status_code: int = 400,
 ) -> dict:
     """Return the standard S4 error envelope for direct preflight failures."""
+    response.status_code = status_code
+    return {
+        "success": False,
+        "error": message,
+        "errorDetail": {
+            "code": code,
+            "message": message,
+            "requestId": request_id,
+            "retryable": False,
+        },
+    }
+
+
+def _paper_static_evidence_error_response(
+    *,
+    request_id: str,
+    response: Response,
+    code: str,
+    message: str,
+    status_code: int = 400,
+) -> dict:
     response.status_code = status_code
     return {
         "success": False,
@@ -921,6 +949,83 @@ def _scan_streaming(
         media_type=_NDJSON_MEDIA,
         headers={"X-Request-Id": request_id},
     )
+
+
+@router.post("/paper/static-evidence")
+async def paper_static_evidence(request: Request, payload: dict, response: Response):
+    """Produce the TraceAudit paper static-evidence bundle.
+
+    This endpoint is intentionally separate from legacy scan compatibility
+    surfaces. It consumes an already-admitted source root + compile context and
+    returns the canonical S4 paper evidence bundle.
+    """
+    request_id = _get_request_id(request)
+    set_request_id(request_id)
+    response.headers["X-Request-Id"] = request_id
+
+    if contains_forbidden_request_field(payload):
+        return _paper_static_evidence_error_response(
+            request_id=request_id,
+            response=response,
+            code="PAPER_STATIC_EVIDENCE_REQUEST_FORBIDDEN_FIELD",
+            message="Forbidden field present in paper static-evidence request.",
+            status_code=400,
+        )
+
+    compile_context = payload.get("compileContext")
+    if isinstance(compile_context, dict) and compile_context.get("type") != "compile_commands_json":
+        return _paper_static_evidence_error_response(
+            request_id=request_id,
+            response=response,
+            code="UNSUPPORTED_COMPILE_CONTEXT_TYPE",
+            message="Unsupported paper static-evidence compile context type.",
+            status_code=400,
+        )
+
+    try:
+        body = PaperStaticEvidenceRequest.model_validate(payload)
+    except ValidationError:
+        return _paper_static_evidence_error_response(
+            request_id=request_id,
+            response=response,
+            code="PAPER_STATIC_EVIDENCE_REQUEST_INVALID",
+            message="Paper static-evidence request is invalid.",
+            status_code=400,
+        )
+
+    if body.compile_context.ref != body.provenance.compile_context_ref:
+        return _paper_static_evidence_error_response(
+            request_id=request_id,
+            response=response,
+            code="COMPILE_CONTEXT_REF_MISMATCH",
+            message="compileContext.ref must match provenance.compileContextRef.",
+            status_code=400,
+        )
+
+    try:
+        rulesets = resolve_rulesets(None, None, settings.default_rulesets)
+        timeout = _get_timeout(request)
+        return await build_paper_static_evidence_bundle(
+            request=body,
+            request_id=request_id,
+            orchestrator=orchestrator,
+            ast_dumper=ast_dumper,
+            include_resolver=include_resolver,
+            identify_libraries_func=identify_libraries,
+            build_static_evidence_contract_func=build_static_evidence_contract,
+            rulesets=rulesets,
+            timeout=timeout,
+        )
+    except PaperStaticEvidenceContractError as exc:
+        return _paper_static_evidence_error_response(
+            request_id=request_id,
+            response=response,
+            code=exc.reason_code,
+            message=exc.message,
+            status_code=exc.status_code,
+        )
+    except Exception as exc:
+        return _error_response(request_id, exc, response)
 
 
 @router.post("/scan", response_model=ScanResponse, response_model_exclude_none=True)

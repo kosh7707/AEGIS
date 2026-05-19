@@ -29,6 +29,7 @@ from app.routers import (
     contracts_api,
     cve_api,
     judge_api,
+    paper_context_api,
     project_memory_api,
     source_kg_api,
     target_context_api,
@@ -162,6 +163,7 @@ async def lifespan(_app: FastAPI):
     target_context_api.set_nvd_client(nvd_client)
     source_kg_api.set_ledger_repository(ledger_repository)
     judge_api.set_ledger_repository(ledger_repository)
+    paper_context_api.set_ledger_repository(ledger_repository)
 
     logger.info("Knowledge Base 초기화 완료")
 
@@ -210,14 +212,16 @@ async def _http_exception_handler(request: Request, exc: HTTPException):
     }
     code = _code_map.get(exc.status_code, "INTERNAL_ERROR")
     reason = None
+    paper_code = None
     if isinstance(exc.detail, dict):
         detail = str(exc.detail.get("message") or exc.detail.get("detail") or exc.detail)
         reason = exc.detail.get("reason")
+        paper_code = exc.detail.get("code")
     else:
         detail = exc.detail if isinstance(exc.detail, str) else str(exc.detail)
     request_id = request.headers.get("x-request-id")
     error_detail = {
-        "code": code,
+        "code": paper_code or code,
         "message": detail,
         "requestId": request_id,
         "retryable": exc.status_code == 503,
@@ -312,13 +316,15 @@ async def _request_validation_exception_handler(request: Request, exc: RequestVa
             for error in errors
         ):
             reason = "ingest_value_too_large"
+    elif request.url.path.startswith("/v1/paper/"):
+        reason = "S5_PAPER_SCHEMA_INVALID"
     return JSONResponse(
         status_code=422,
         content={
             "success": False,
             "error": detail,
             "errorDetail": {
-                "code": "INVALID_INPUT",
+                "code": "S5_PAPER_SCHEMA_INVALID" if request.url.path.startswith("/v1/paper/") else "INVALID_INPUT",
                 "message": detail,
                 "requestId": request_id,
                 "retryable": False,
@@ -342,6 +348,7 @@ app.include_router(code_graph_api.router)
 app.include_router(contracts_api.router)
 app.include_router(cve_api.router)
 app.include_router(judge_api.router)
+app.include_router(paper_context_api.router)
 app.include_router(project_memory_api.router)
 app.include_router(source_kg_api.router)
 app.include_router(target_context_api.router)

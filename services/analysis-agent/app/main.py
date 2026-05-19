@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from app.agent_runtime.observability import setup_logging
 from app.routers import tasks
+from app.paper import api as paper_api
 
 _SERVICE_NAME = "aegis-analysis-agent"
 _log_dir = setup_logging(_SERVICE_NAME, service_id="s3-agent")
@@ -63,6 +64,7 @@ app.add_middleware(
 )
 
 app.include_router(tasks.router)
+app.include_router(paper_api.router)
 
 
 if __name__ == "__main__":
