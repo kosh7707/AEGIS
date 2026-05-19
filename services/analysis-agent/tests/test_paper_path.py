@@ -7,7 +7,7 @@ import pytest
 
 from app.paper import api as paper_api
 from app.paper.errors import PaperContractError, PaperOperationalError
-from app.paper.s5_client import S5PaperClient, build_prepare_code_kb_request, validate_prepare_alias_consistency
+from app.paper.s5_client import S5PaperClient, build_generic_threat_request, build_prepare_code_kb_request, validate_prepare_alias_consistency
 
 
 @pytest.fixture(autouse=True)
@@ -459,6 +459,39 @@ def test_s5_request_builder_sets_generic_visibility_and_forbidden_classes(tmp_pa
     assert request["schemaVersion"] == "s5-prepare-code-kb-request-v1"
     assert request["requestId"]
     assert request["idempotencyKey"]
+
+
+def test_s5_prepare_request_forwards_source_kg_inputs(tmp_path, paper_source):
+    body = make_case_body(tmp_path, paper_source)
+    body["s5SourceKgIngestRequest"] = {
+        "schemaVersion": "s5-source-code-kg-ingest-request-v1",
+        "repositorySnapshot": {"repositoryId": "fixture-repo"},
+        "graphNodes": [{"sourceGraphNodeId": "node-main", "nodeKind": "function"}],
+    }
+    body["s5SourceKgSelectors"] = {
+        "repositorySnapshotId": "src-snapshot-001",
+        "graphNodeIds": ["node-main"],
+    }
+    from app.paper.models import PaperCaseCreateRequest
+
+    case = PaperCaseCreateRequest.model_validate(body)
+    request = build_prepare_code_kb_request(case)
+
+    assert request["sourceContext"]["sourceKgIngestRequest"] == body["s5SourceKgIngestRequest"]
+    assert request["sourceContext"]["sourceKgSelectors"] == body["s5SourceKgSelectors"]
+
+
+def test_s5_generic_threat_request_omits_source_kg_producer_refs(tmp_path, paper_source):
+    body = make_case_body(tmp_path, paper_source)
+    from app.paper.models import PaperCaseCreateRequest
+
+    case = PaperCaseCreateRequest.model_validate(body)
+    finding = s4_bundle()["findings"][0]
+    request = build_generic_threat_request(case, finding=finding)
+
+    assert "producerInputRefs" not in request
+    assert request["schemaVersion"] == "s5-retrieve-generic-threat-context-request-v1"
+    assert request["visibilityMode"] == "generic"
 
 
 def test_s5_prepare_alias_mismatch_fails_closed(tmp_path, paper_source):

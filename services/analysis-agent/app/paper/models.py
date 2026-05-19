@@ -65,6 +65,8 @@ class PaperCaseCreateRequest(BaseModel):
     sourceRoot: str
     compileContextRef: str
     compileCommandsPath: str
+    s5SourceKgIngestRequest: dict[str, Any] | None = None
+    s5SourceKgSelectors: dict[str, Any] | None = None
     buildSnapshotId: str
     buildUnitId: str
     scope: Scope = Field(default_factory=Scope)

@@ -41,16 +41,21 @@ def build_prepare_code_kb_request(case: PaperCaseCreateRequest) -> dict[str, Any
         request_id=f"{case.caseId}:s5:prepare-code-kb:attempt-1",
         idempotency_key=f"{case.caseId}:{case.buildTargetId}:s5:prepare-code-kb:v1",
     )
+    source_context: dict[str, Any] = {
+        "sourceRoot": case.sourceRoot,
+        "compileCommandsPath": case.compileCommandsPath,
+        "language": "c/cpp",
+        "scope": case.scope.model_dump(mode="json"),
+    }
+    if case.s5SourceKgIngestRequest is not None:
+        source_context["sourceKgIngestRequest"] = case.s5SourceKgIngestRequest
+    if case.s5SourceKgSelectors is not None:
+        source_context["sourceKgSelectors"] = case.s5SourceKgSelectors
     body.update(
         {
             "sourceRootRef": case.sourceRootRef,
             "compileContextRef": case.compileContextRef,
-            "sourceContext": {
-                "sourceRoot": case.sourceRoot,
-                "compileCommandsPath": case.compileCommandsPath,
-                "language": "c/cpp",
-                "scope": case.scope.model_dump(mode="json"),
-            },
+            "sourceContext": source_context,
         }
     )
     return body
@@ -107,6 +112,7 @@ def build_generic_threat_request(case: PaperCaseCreateRequest, *, finding: dict[
         request_id=f"{case.caseId}:{finding_id}:s5:generic-threat:attempt-1",
         idempotency_key=f"{case.caseId}:{finding_id}:s5:generic-threat:v1",
     )
+    body.pop("producerInputRefs", None)
     body.update(
         {
             "findingId": finding_id,
