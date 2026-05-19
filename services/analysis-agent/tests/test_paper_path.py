@@ -508,3 +508,272 @@ async def test_s5_live_post_sends_timeout_header_and_maps_409(monkeypatch):
     assert captured["headers"]["X-Timeout-Ms"] == "1234"
     assert captured["headers"]["X-Request-Id"] == "req-1"
     assert captured["url"] == "http://s5.local/v1/paper/code-kb/prepare"
+
+
+def s4_bundle_two_findings(case_id="case-multi", build_target_id="target-001"):
+    bundle = s4_bundle(case_id=case_id, build_target_id=build_target_id)
+    first = bundle["findings"][0]
+    second = json.loads(json.dumps(first))
+    second["findingId"] = "s4-finding-002"
+    second["message"] = "Potential unchecked format string"
+    second["ruleId"] = "CWE-134"
+    second["cweCandidates"] = ["CWE-134"]
+    second["trace"]["rawObjectRef"] = "findings[1]"
+    bundle["findings"].append(second)
+    bundle["surfaceStatus"]["findings"]["count"] = 2
+    second_ev = json.loads(json.dumps(bundle["evidence"][0]))
+    second_ev["evidenceId"] = "s4-evidence-002"
+    second_ev["findingId"] = "s4-finding-002"
+    second_ev["text"] = "Semgrep reported unchecked format string."
+    second_ev["trace"]["rawObjectRef"] = "evidence[1]"
+    bundle["evidence"].append(second_ev)
+    bundle["surfaceStatus"]["evidence"]["count"] = 2
+    return bundle
+
+
+def write_multi_case_body(tmp_path: Path, paper_source):
+    source, compile_commands = paper_source
+    artifacts = tmp_path / "producer-multi"
+    artifacts.mkdir(exist_ok=True)
+    case_id = "case-multi"
+    s4_path = write_json(artifacts / "multi-s4.json", s4_bundle_two_findings(case_id=case_id))
+    s5_prepare_path = write_json(artifacts / "multi-s5-prepare.json", s5_prepare(case_id=case_id))
+    context_paths = {}
+    threat_paths = {}
+    llm_paths = {}
+    for idx, finding_id in enumerate(["s4-finding-001", "s4-finding-002"], start=1):
+        ctx = s5_context(case_id=case_id, finding_id=finding_id, text=f"unique code context for {finding_id}")
+        ctx["rows"][0]["itemId"] = f"s5-code-row-00{idx}"
+        threat = s5_threat(case_id=case_id, finding_id=finding_id)
+        threat["rows"][0]["itemId"] = f"s5-threat-row-00{idx}"
+        threat["rows"][0]["text"] = f"unique threat context for {finding_id}"
+        context_paths[finding_id] = write_json(artifacts / f"multi-{finding_id}-context.json", ctx)
+        threat_paths[finding_id] = write_json(artifacts / f"multi-{finding_id}-threat.json", threat)
+        llm_paths[finding_id] = write_json(artifacts / f"multi-{finding_id}-llm.json", llm_tp(finding_id=finding_id))
+    return {
+        "paperRunId": "paper-run-001",
+        "paperRunRoot": str(tmp_path / "paper-run"),
+        "caseId": case_id,
+        "buildTargetId": "target-001",
+        "targetManifestRef": "manifest:target-001",
+        "datasetRootRef": "dataset-root:build-targets-v1",
+        "sourceRootRef": "source-root:case-001:target-001",
+        "sourceRoot": str(source),
+        "compileContextRef": "compile-context:case-001:target-001",
+        "compileCommandsPath": str(compile_commands),
+        "buildSnapshotId": "build-snapshot-001",
+        "buildUnitId": "build-unit-001",
+        "producerArtifacts": {
+            "s4StaticEvidencePath": s4_path,
+            "s5CodeKbPath": s5_prepare_path,
+            "s5FindingContextByFindingId": context_paths,
+            "s5GenericThreatContextByFindingId": threat_paths,
+            "llmTriageByFindingId": llm_paths,
+        },
+    }
+
+
+def test_multi_finding_case_isolates_s5_rows_for_llm_and_packets(client, tmp_path, paper_source):
+    body = write_multi_case_body(tmp_path, paper_source)
+    assert client.post("/v1/paper/analysis-cases", json=body).status_code == 201
+    response = client.post("/v1/paper/analysis-cases/case-multi/start")
+    assert response.status_code == 200, response.text
+    case_root = Path(body["paperRunRoot"]) / "cases" / "case-multi"
+    transcripts = [json.loads(line) for line in (case_root / "llm-transcript.raw.jsonl").read_text().splitlines()]
+    by_finding = {row["findingId"]: row for row in transcripts}
+    assert "unique code context for s4-finding-001" in by_finding["s4-finding-001"]["request"]["prompt"]
+    assert "unique code context for s4-finding-002" not in by_finding["s4-finding-001"]["request"]["prompt"]
+    assert "unique code context for s4-finding-002" in by_finding["s4-finding-002"]["request"]["prompt"]
+    b2_f1 = json.loads((case_root / "audit-packets/findings/s4-finding-001/b2.json").read_text())
+    b4_f1 = json.loads((case_root / "audit-packets/findings/s4-finding-001/b4.json").read_text())
+    b2_texts = [row["text"] for row in b2_f1["evidenceRows"]]
+    b4_texts = [row["text"] for row in b4_f1["ledgerRows"]]
+    assert b2_texts == b4_texts
+    assert any("s4-finding-001" in text for text in b2_texts)
+    assert not any("s4-finding-002" in text for text in b2_texts)
+
+
+def test_s5_prepare_not_ready_fails_start_as_operational_error(client, tmp_path, paper_source):
+    not_ready = s5_prepare()
+    not_ready["surfaceStatus"] = "not_available"
+    not_ready["stageReadiness"] = "not_ready"
+    not_ready["readiness"] = {"codeKbReady": False, "sourceKgReady": False, "contextSelectable": False}
+    not_ready["diagnostics"] = [
+        {
+            "code": "S5_PAPER_CODE_KB_NOT_READY",
+            "message": "Code KB is not available.",
+            "consumerPolicy": "diagnostic_only_not_security_evidence",
+            "negativeEvidenceAllowed": False,
+        }
+    ]
+    body = make_case_body(tmp_path, paper_source)
+    prep_path = Path(body["producerArtifacts"]["s5CodeKbPath"])
+    write_json(prep_path, not_ready)
+    assert client.post("/v1/paper/analysis-cases", json=body).status_code == 201
+    response = client.post("/v1/paper/analysis-cases/case-001/start")
+    assert response.status_code == 502
+    assert response.json()["errorDetail"]["code"] == "PAPER_OPERATIONAL_ERROR"
+
+
+@pytest.mark.parametrize("surface_status", ["partial", "failed", "skipped", "not_available", "error"])
+def test_s4_diagnostic_surface_status_requires_resolved_diagnostic_ref(client, tmp_path, paper_source, surface_status):
+    partial = s4_bundle()
+    partial["surfaceStatus"]["functions"]["status"] = surface_status
+    partial["surfaceStatus"]["functions"]["reasonCodes"] = ["BOUNDED_DIAGNOSTIC"]
+    body = make_case_body(tmp_path, paper_source, s4=partial)
+    assert client.post("/v1/paper/analysis-cases", json=body).status_code == 201
+    response = client.post("/v1/paper/analysis-cases/case-001/start")
+    assert response.status_code == 422
+    assert "requires diagnosticRefs" in response.json()["error"]
+
+
+@pytest.mark.parametrize("surface_status", ["partial", "failed", "skipped", "not_available", "error"])
+def test_s4_diagnostic_surface_status_is_consumable_with_diagnostic_ref(client, tmp_path, paper_source, surface_status):
+    partial = s4_bundle(diagnostics=True)
+    partial["surfaceStatus"]["functions"]["status"] = surface_status
+    partial["surfaceStatus"]["functions"]["reasonCodes"] = ["BOUNDED_DIAGNOSTIC"]
+    partial["surfaceStatus"]["functions"]["diagnosticRefs"] = ["s4:diagnostic:001"]
+    body = make_case_body(tmp_path, paper_source, s4=partial)
+    assert client.post("/v1/paper/analysis-cases", json=body).status_code == 201
+    response = client.post("/v1/paper/analysis-cases/case-001/start")
+    assert response.status_code == 200, response.text
+
+
+def test_s4_surface_status_unresolved_diagnostic_ref_fails(client, tmp_path, paper_source):
+    bad = s4_bundle(diagnostics=True)
+    bad["surfaceStatus"]["functions"]["status"] = "partial"
+    bad["surfaceStatus"]["functions"]["diagnosticRefs"] = ["s4:diagnostic:missing"]
+    body = make_case_body(tmp_path, paper_source, s4=bad)
+    assert client.post("/v1/paper/analysis-cases", json=body).status_code == 201
+    response = client.post("/v1/paper/analysis-cases/case-001/start")
+    assert response.status_code == 422
+    assert "unresolved" in response.json()["error"]
+
+
+def test_s4_surface_status_rejects_non_string_diagnostic_ref(client, tmp_path, paper_source):
+    bad = s4_bundle(diagnostics=True)
+    bad["surfaceStatus"]["functions"]["status"] = "partial"
+    bad["surfaceStatus"]["functions"]["diagnosticRefs"] = [None]
+    body = make_case_body(tmp_path, paper_source, s4=bad)
+    assert client.post("/v1/paper/analysis-cases", json=body).status_code == 201
+    response = client.post("/v1/paper/analysis-cases/case-001/start")
+    assert response.status_code == 422
+    assert "non-empty strings" in response.json()["error"]
+
+
+def test_s4_diagnostics_require_non_empty_diagnostic_id(client, tmp_path, paper_source):
+    bad = s4_bundle(diagnostics=True)
+    bad["diagnostics"][0]["diagnosticId"] = None
+    bad["surfaceStatus"]["functions"]["status"] = "partial"
+    bad["surfaceStatus"]["functions"]["diagnosticRefs"] = [None]
+    body = make_case_body(tmp_path, paper_source, s4=bad)
+    assert client.post("/v1/paper/analysis-cases", json=body).status_code == 201
+    response = client.post("/v1/paper/analysis-cases/case-001/start")
+    assert response.status_code == 422
+    assert "diagnosticId" in response.json()["error"]
+
+
+def test_s5_ready_with_diagnostics_is_usable_when_context_selectable(client, tmp_path, paper_source):
+    partial_ready = s5_prepare()
+    partial_ready["surfaceStatus"] = "partial"
+    partial_ready["stageReadiness"] = "ready_with_diagnostics"
+    partial_ready["readiness"] = {"codeKbReady": True, "sourceKgReady": True, "contextSelectable": True}
+    partial_ready["diagnostics"] = [
+        {
+            "code": "S5_PAPER_CODE_KB_PARTIAL",
+            "message": "Code KB is usable with bounded diagnostics.",
+            "consumerPolicy": "diagnostic_only_not_security_evidence",
+            "negativeEvidenceAllowed": False,
+        }
+    ]
+    body = make_case_body(tmp_path, paper_source)
+    write_json(Path(body["producerArtifacts"]["s5CodeKbPath"]), partial_ready)
+    assert client.post("/v1/paper/analysis-cases", json=body).status_code == 201
+    response = client.post("/v1/paper/analysis-cases/case-001/start")
+    assert response.status_code == 200, response.text
+
+
+def test_s5_ready_with_diagnostics_requires_context_selectable(client, tmp_path, paper_source):
+    partial_not_selectable = s5_prepare()
+    partial_not_selectable["surfaceStatus"] = "partial"
+    partial_not_selectable["stageReadiness"] = "ready_with_diagnostics"
+    partial_not_selectable["readiness"] = {"codeKbReady": True, "sourceKgReady": True, "contextSelectable": False}
+    partial_not_selectable["diagnostics"] = [
+        {
+            "code": "S5_PAPER_CODE_KB_PARTIAL",
+            "message": "Code KB is not selectable.",
+            "consumerPolicy": "diagnostic_only_not_security_evidence",
+            "negativeEvidenceAllowed": False,
+        }
+    ]
+    body = make_case_body(tmp_path, paper_source)
+    write_json(Path(body["producerArtifacts"]["s5CodeKbPath"]), partial_not_selectable)
+    assert client.post("/v1/paper/analysis-cases", json=body).status_code == 201
+    response = client.post("/v1/paper/analysis-cases/case-001/start")
+    assert response.status_code == 502
+
+
+def test_s5_produced_ready_requires_context_selectable(client, tmp_path, paper_source):
+    contradiction = s5_prepare()
+    contradiction["surfaceStatus"] = "produced"
+    contradiction["stageReadiness"] = "ready"
+    contradiction["readiness"] = {"codeKbReady": True, "sourceKgReady": True, "contextSelectable": False}
+    body = make_case_body(tmp_path, paper_source)
+    write_json(Path(body["producerArtifacts"]["s5CodeKbPath"]), contradiction)
+    assert client.post("/v1/paper/analysis-cases", json=body).status_code == 201
+    response = client.post("/v1/paper/analysis-cases/case-001/start")
+    assert response.status_code == 502
+
+
+@pytest.mark.asyncio
+async def test_live_s7_chat_request_uses_generation_controls_and_openai_response(monkeypatch, tmp_path, paper_source):
+    from app.paper.llm_client import LlmTriageClient
+    from app.paper.models import PaperCaseCreateRequest
+
+    body = make_case_body(tmp_path, paper_source)
+    body["producerArtifacts"]["llmTriageByFindingId"] = {}
+    case = PaperCaseCreateRequest.model_validate(body)
+    captured = {}
+
+    class FakeResponse:
+        status_code = 200
+        text = "ok"
+        def json(self):
+            return {
+                "choices": [
+                    {
+                        "message": {
+                            "content": json.dumps(llm_unknown())
+                        }
+                    }
+                ]
+            }
+
+    class FakeClient:
+        def __init__(self, timeout):
+            captured["timeout"] = timeout
+        async def __aenter__(self):
+            return self
+        async def __aexit__(self, *args):
+            return None
+        async def post(self, url, json, headers):
+            captured["url"] = url
+            captured["json"] = json
+            captured["headers"] = headers
+            return FakeResponse()
+
+    monkeypatch.setattr("app.paper.llm_client.settings.llm_mode", "real")
+    monkeypatch.setattr("app.paper.llm_client.httpx.AsyncClient", FakeClient)
+    result, request = await LlmTriageClient(endpoint="http://s7.local", timeout_seconds=123).triage_finding(
+        case,
+        finding={"findingId": "s4-finding-001", "ruleId": "CWE-120"},
+        evidence_rows=[{"evidenceRef": "s3-evidence:s4:finding:s4-finding-001", "text": "finding text"}],
+    )
+    assert result["verdict"] == "UNKNOWN"
+    assert captured["url"] == "http://s7.local/v1/chat"
+    assert captured["headers"]["X-AEGIS-Strict-JSON"] == "true"
+    assert captured["headers"]["X-Timeout-Seconds"] == "123"
+    for field in ["max_tokens", "temperature", "top_p", "top_k", "min_p", "presence_penalty", "repetition_penalty"]:
+        assert field in captured["json"]
+    assert captured["json"]["chat_template_kwargs"]["enable_thinking"] is False
+    assert request["mode"] == "live"

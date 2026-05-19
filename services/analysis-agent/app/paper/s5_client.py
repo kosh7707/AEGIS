@@ -153,6 +153,14 @@ class S5PaperClient:
         else:
             data = await self._post("/v1/paper/code-kb/prepare", body)
         self._validate_common(data, case)
+        if not _prepare_response_is_context_selectable(data):
+            raise PaperOperationalError(
+                "S5 code KB is not ready for finding-context retrieval",
+                detail={
+                    "surfaceStatus": data.get("surfaceStatus"),
+                    "stageReadiness": data.get("stageReadiness"),
+                },
+            )
         return data, body
 
     async def retrieve_finding_context(self, case: PaperCaseCreateRequest, *, finding: dict[str, Any], code_kb_ref: str, source_kg_ref: str) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -198,6 +206,20 @@ class S5PaperClient:
         status = data.get("surfaceStatus")
         if status not in {"produced", "partial", "not_available", "error"}:
             raise PaperContractError("S5 prepare response surfaceStatus is unknown")
+        readiness = data.get("stageReadiness")
+        if readiness not in {"ready", "ready_with_diagnostics", "not_ready"}:
+            raise PaperContractError("S5 prepare response stageReadiness is unknown")
         for diag in data.get("diagnostics", []) or []:
             if diag.get("negativeEvidenceAllowed") is not False:
                 raise PaperContractError("S5 diagnostics must set negativeEvidenceAllowed=false")
+
+
+def _prepare_response_is_context_selectable(data: dict[str, Any]) -> bool:
+    status = data.get("surfaceStatus")
+    readiness = data.get("stageReadiness")
+    context_selectable = bool((data.get("readiness") or {}).get("contextSelectable"))
+    if status == "produced" and readiness == "ready" and context_selectable:
+        return True
+    if status == "partial" and readiness == "ready_with_diagnostics" and context_selectable:
+        return True
+    return False

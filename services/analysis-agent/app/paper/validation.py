@@ -46,7 +46,7 @@ S4_REQUIRED_SURFACES = {
     "claimBoundaryMatrix",
     "claimBoundaries",
 }
-S4_SURFACE_STATUSES = {"produced", "empty", "not_available", "error"}
+S4_SURFACE_STATUSES = {"produced", "empty", "partial", "not_available", "error", "failed", "skipped"}
 S5_SURFACE_STATUSES = {"produced", "no_hit", "partial", "not_available", "error"}
 FORBIDDEN_KEYS = {
     "verdict",
@@ -113,23 +113,43 @@ def validate_s4_bundle(bundle: dict[str, Any], *, case_id: str, build_target_id:
         raise PaperContractError("S4 bundleStatus must be produced|failed")
     if bundle.get("success") is not True or bundle.get("bundleStatus") != "produced":
         raise PaperContractError("S4 bundle is non-consumable", detail={"bundleStatus": bundle.get("bundleStatus")})
+    for array_name in ["findings", "evidence", "sourceFiles", "functions", "includeEdges", "libraries", "toolRuns", "diagnostics", "claimBoundaryMatrix"]:
+        if not isinstance(bundle.get(array_name), list):
+            raise PaperContractError(f"S4 {array_name} must be an array")
+    diagnostic_ids: set[str] = set()
+    for i, diagnostic in enumerate(bundle["diagnostics"]):
+        if not isinstance(diagnostic, dict):
+            raise PaperContractError(f"S4 diagnostics[{i}] must be an object")
+        diagnostic_id = diagnostic.get("diagnosticId")
+        if not isinstance(diagnostic_id, str) or not diagnostic_id.strip():
+            raise PaperContractError(f"S4 diagnostics[{i}].diagnosticId must be a non-empty string")
+        if diagnostic_id in diagnostic_ids:
+            raise PaperContractError(f"S4 duplicate diagnosticId: {diagnostic_id}")
+        diagnostic_ids.add(diagnostic_id)
     status = bundle.get("surfaceStatus") or {}
     missing_surfaces = sorted(S4_REQUIRED_SURFACES - set(status))
     if missing_surfaces:
         raise PaperContractError(f"S4 surfaceStatus missing required surfaces: {missing_surfaces}")
+    diagnostic_statuses = {"partial", "failed", "skipped", "not_available", "error"}
     for surface, value in status.items():
         if not isinstance(value, dict):
             raise PaperContractError(f"S4 surfaceStatus.{surface} must be an object")
-        if value.get("status") not in S4_SURFACE_STATUSES:
+        surface_status = value.get("status")
+        if surface_status not in S4_SURFACE_STATUSES:
             raise PaperContractError(f"S4 surfaceStatus.{surface}.status is unknown")
         for required in ["count", "consumerPolicy", "reasonCodes", "diagnosticRefs"]:
             if required not in value:
                 raise PaperContractError(f"S4 surfaceStatus.{surface} missing {required}")
         if not isinstance(value["diagnosticRefs"], list):
             raise PaperContractError(f"S4 surfaceStatus.{surface}.diagnosticRefs must be an array")
-    for array_name in ["findings", "evidence", "sourceFiles", "functions", "includeEdges", "libraries", "toolRuns", "diagnostics", "claimBoundaryMatrix"]:
-        if not isinstance(bundle.get(array_name), list):
-            raise PaperContractError(f"S4 {array_name} must be an array")
+        invalid_refs = [ref for ref in value["diagnosticRefs"] if not isinstance(ref, str) or not ref.strip()]
+        if invalid_refs:
+            raise PaperContractError(f"S4 surfaceStatus.{surface}.diagnosticRefs must contain non-empty strings")
+        if surface_status in diagnostic_statuses and not value["diagnosticRefs"]:
+            raise PaperContractError(f"S4 surfaceStatus.{surface}.{surface_status} requires diagnosticRefs")
+        unresolved = [ref for ref in value["diagnosticRefs"] if ref not in diagnostic_ids]
+        if unresolved:
+            raise PaperContractError(f"S4 surfaceStatus.{surface}.diagnosticRefs unresolved: {unresolved}")
     for surface in ["findings", "evidence", "sourceFiles", "functions", "includeEdges", "libraries", "toolRuns"]:
         _validate_s4_rows(bundle[surface], surface)
     if not isinstance(bundle.get("targetMetadata"), dict) or "trace" not in bundle["targetMetadata"]:

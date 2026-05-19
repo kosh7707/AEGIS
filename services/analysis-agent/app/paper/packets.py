@@ -5,15 +5,16 @@ from typing import Any
 from .errors import PaperContractError
 
 
-def _rows_for_finding(ledger_rows: list[dict[str, Any]], finding_id: str) -> list[dict[str, Any]]:
+def rows_for_finding(ledger_rows: list[dict[str, Any]], finding_id: str) -> list[dict[str, Any]]:
     primary_ref = f"s3-evidence:s4:finding:{finding_id}"
     rows = []
     for row in ledger_rows:
+        related = row.get("relatedFindingId")
         if row.get("evidenceRef") == primary_ref:
             rows.append(row)
-        elif row.get("producer") == "s5" and not row.get("diagnostic"):
+        elif row.get("producer") == "s5" and related == finding_id:
             rows.append(row)
-        elif row.get("diagnostic"):
+        elif row.get("diagnostic") and related in {None, finding_id}:
             rows.append(row)
     return rows
 
@@ -25,7 +26,7 @@ def render_packets(*, case_id: str, findings: list[dict[str, Any]], ledger_rows:
     for finding in findings:
         fid = finding["findingId"]
         triage = triage_by_finding.get(fid)
-        rows = _rows_for_finding(ledger_rows, fid)
+        rows = rows_for_finding(ledger_rows, fid)
         evidence_dump = [{"text": r.get("text"), "evidenceType": r.get("evidenceType"), "diagnostic": r.get("diagnostic", False)} for r in rows]
         ledger_dump = [
             {

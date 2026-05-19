@@ -105,8 +105,7 @@ async def start_analysis_case(case_id: str) -> JSONResponse:
         summary = await runner.run(request)
         record = _get_record(case_id)
         record.status = CaseStage.PAPER_EXPORT_READY
-        for stage in record.stages:
-            stage.status = StageProgress.DONE
+        _apply_stage_results(record, summary)
         record.summary = summary
         _RECORDS[case_id] = record
         return JSONResponse(content=PaperCaseStatusResponse(**record.model_dump()).model_dump(mode="json"))
@@ -142,3 +141,17 @@ def _get_record(case_id: str) -> CaseRecord:
     if case_id not in _RECORDS:
         raise PaperNotFoundError(f"unknown paper case: {case_id}")
     return _RECORDS[case_id]
+
+
+def _apply_stage_results(record: CaseRecord, summary: dict[str, Any]) -> None:
+    results = {item.get("stage"): item for item in summary.get("stageResults", []) if isinstance(item, dict)}
+    for stage in record.stages:
+        result = results.get(stage.stage.value)
+        if result:
+            stage.status = StageProgress(result.get("status", stage.status.value))
+            stage.artifactRef = result.get("artifactRef")
+            stage.diagnostic = result.get("diagnostic")
+    if record.status == CaseStage.PAPER_EXPORT_READY:
+        export_stage = next((stage for stage in record.stages if stage.stage == CaseStage.PAPER_EXPORT_READY), None)
+        if export_stage and export_stage.status != StageProgress.DONE:
+            raise PaperError("runner reported PAPER_EXPORT_READY without a completed export stage")

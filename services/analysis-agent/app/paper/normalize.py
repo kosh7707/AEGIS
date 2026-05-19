@@ -24,6 +24,7 @@ def normalize_s4(bundle: dict[str, Any]) -> tuple[dict[str, Any], list[EvidenceL
                 producerRunId=producer_run,
                 rawObjectRef=finding.get("trace", {}).get("rawObjectRef"),
                 sourceId=finding_id,
+                relatedFindingId=finding_id,
                 evidenceType="s4_finding",
                 text=text,
                 surfaceStatus="produced",
@@ -80,6 +81,7 @@ def normalize_s5_rows(response: dict[str, Any], *, evidence_type: str) -> tuple[
     case_id = response["caseId"]
     build_target_id = response["buildTargetId"]
     producer_run = response.get("s5ProducerRunId")
+    finding_id = response.get("findingId")
     ledger: list[EvidenceLedgerRow] = []
     rows = response.get("rows", []) or []
     for row in rows:
@@ -93,6 +95,7 @@ def normalize_s5_rows(response: dict[str, Any], *, evidence_type: str) -> tuple[
                 producerRunId=producer_run,
                 rawObjectRef=item_id,
                 sourceId=item_id,
+                relatedFindingId=finding_id,
                 evidenceType=evidence_type,
                 text=row.get("text", ""),
                 surfaceStatus=row.get("surfaceStatus"),
@@ -111,6 +114,7 @@ def normalize_s5_rows(response: dict[str, Any], *, evidence_type: str) -> tuple[
                 producerRunId=producer_run,
                 rawObjectRef=diag_id,
                 sourceId=diag_id,
+                relatedFindingId=finding_id,
                 evidenceType="s5_diagnostic",
                 text=diagnostic.get("message", "S5 producer diagnostic"),
                 surfaceStatus=diagnostic.get("surfaceStatus"),

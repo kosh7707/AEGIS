@@ -101,6 +101,13 @@ class StageRecord(BaseModel):
     diagnostic: str | None = None
 
 
+class StageResult(BaseModel):
+    stage: CaseStage
+    status: StageProgress
+    artifactRef: str | None = None
+    diagnostic: str | None = None
+
+
 class CaseRecord(BaseModel):
     caseId: str
     buildTargetId: str
@@ -173,6 +180,7 @@ class EvidenceLedgerRow(BaseModel):
     producerRunId: str | None = None
     rawObjectRef: str | None = None
     sourceId: str | None = None
+    relatedFindingId: str | None = None
     evidenceType: str
     text: str = ""
     surfaceStatus: str | None = None
