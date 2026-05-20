@@ -47,6 +47,21 @@ class _JsonFormatter(logging.Formatter):
         return json.dumps(log_record, ensure_ascii=False)
 
 
+def _default_log_dir() -> Path:
+    """Return the repository-level canonical log directory.
+
+    ``observability.md`` and ``log-analyzer`` expect S3 logs at
+    ``<AEGIS>/logs/aegis-analysis-agent.jsonl``.  This module lives one level
+    deeper than other service logging modules
+    (``services/analysis-agent/app/agent_runtime``), so a plain four-parent
+    walk lands on ``<AEGIS>/services`` and silently writes to the wrong cache
+    surface.  Keep this path centralized to avoid another split-brain log
+    location.
+    """
+
+    return Path(__file__).resolve().parents[4] / "logs"
+
+
 def setup_logging(
     service_name: str,
     log_dir: Path | None = None,
@@ -61,10 +76,7 @@ def setup_logging(
     """
     global _log_dir
     if log_dir is None:
-        log_dir = Path(os.environ.get(
-            "LOG_DIR",
-            str(Path(__file__).resolve().parent.parent.parent.parent / "logs"),
-        ))
+        log_dir = Path(os.environ.get("LOG_DIR", str(_default_log_dir())))
     log_dir.mkdir(parents=True, exist_ok=True)
     _log_dir = log_dir
 
@@ -86,10 +98,7 @@ def get_log_dir() -> Path:
     """Returns the configured log directory."""
     if _log_dir is not None:
         return _log_dir
-    d = Path(os.environ.get(
-        "LOG_DIR",
-        str(Path(__file__).resolve().parent.parent.parent.parent / "logs"),
-    ))
+    d = Path(os.environ.get("LOG_DIR", str(_default_log_dir())))
     d.mkdir(parents=True, exist_ok=True)
     return d
 
