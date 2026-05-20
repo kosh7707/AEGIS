@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import asyncio
+import ast
+import copy
 import json
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
@@ -99,6 +102,15 @@ def _paper_request(root: Path) -> dict:
         },
         "scope": {"includePaths": [], "excludePaths": [], "thirdPartyPaths": []},
     }
+
+
+async def _wait_for_owned_result(client, request_id: str) -> dict:
+    for _ in range(30):
+        response = await client.get(f"/v1/requests/{request_id}/result")
+        if response.status_code == 200:
+            return response.json()
+        await asyncio.sleep(0.02)
+    raise AssertionError(f"owned paper static-evidence result was not ready: {request_id}")
 
 
 def _minimal_bundle() -> dict:
@@ -289,7 +301,12 @@ def _minimal_bundle() -> dict:
         "libraries": [],
         "toolRuns": tool_runs,
         "targetMetadata": {
-            "trace": {**base_trace, "surface": "targetMetadata", "rawObjectRef": "targetMetadata"},
+            "trace": {
+                **base_trace,
+                "surface": "targetMetadata",
+                "surfaceId": "surface:targetMetadata",
+                "rawObjectRef": "targetMetadata",
+            },
             "language": "c/cpp",
             "sourceRootRef": "source-root:case-001:target-001",
             "compileContext": {
@@ -304,6 +321,54 @@ def _minimal_bundle() -> dict:
         "claimBoundaryMatrix": claim_matrix,
         "claimBoundaries": claim_boundaries,
     }
+
+
+def _minimal_failed_bundle() -> dict:
+    bundle = _minimal_bundle()
+    diagnostic = {
+        "diagnosticId": "diag:0000:producer_internal_error",
+        "severity": "error",
+        "category": "producer-invariant",
+        "reasonCode": "PRODUCER_INTERNAL_ERROR",
+        "surface": "staticEvidenceContract",
+        "message": "S4 static-evidence producer failed after request admission.",
+        "consumerPolicy": "producer_diagnostic_not_security_evidence",
+        "trace": {
+            **bundle["sourceFiles"][0]["trace"],
+            "surface": "diagnostics",
+            "surfaceId": "surface:diagnostics",
+            "rawObjectRef": "diagnostics[0]",
+        },
+    }
+    bundle["success"] = False
+    bundle["bundleStatus"] = "failed"
+    bundle["diagnostics"] = [diagnostic]
+    for surface in ("findings", "evidence", "functions", "includeEdges", "libraries", "toolRuns"):
+        bundle[surface] = []
+        bundle["surfaceStatus"][surface] = {
+            "status": "failed",
+            "count": 0,
+            "consumerPolicy": "producer_diagnostic_not_security_evidence",
+            "reasonCodes": ["PRODUCER_INTERNAL_ERROR"],
+            "diagnosticRefs": [diagnostic["diagnosticId"]],
+        }
+    bundle["targetMetadata"] = {}
+    bundle["surfaceStatus"]["targetMetadata"] = {
+        "status": "failed",
+        "count": 0,
+        "consumerPolicy": "producer_diagnostic_not_security_evidence",
+        "reasonCodes": ["PRODUCER_INTERNAL_ERROR"],
+        "diagnosticRefs": [diagnostic["diagnosticId"]],
+    }
+    bundle["staticEvidenceContract"] = {}
+    bundle["surfaceStatus"]["staticEvidenceContract"] = {
+        "status": "failed",
+        "count": 0,
+        "consumerPolicy": "producer_diagnostic_not_security_evidence",
+        "reasonCodes": ["PRODUCER_INTERNAL_ERROR"],
+        "diagnosticRefs": [diagnostic["diagnosticId"]],
+    }
+    return bundle
 
 
 def _assert_validation_passes(report: dict) -> None:
@@ -325,6 +390,27 @@ def test_paper_bundle_validator_accepts_minimal_contract_valid_bundle() -> None:
     from app.scanner.paper_static_evidence import validate_paper_static_evidence_bundle
 
     _assert_validation_passes(validate_paper_static_evidence_bundle(_minimal_bundle()))
+
+
+def test_paper_bundle_validator_accepts_diagnostic_backed_failed_bundle_without_current_six_rows() -> None:
+    from app.scanner.paper_static_evidence import validate_paper_static_evidence_bundle
+
+    bundle = _minimal_failed_bundle()
+
+    _assert_validation_passes(validate_paper_static_evidence_bundle(bundle))
+
+
+def test_paper_bundle_validator_rejects_failed_bundle_without_diagnostics() -> None:
+    from app.scanner.paper_static_evidence import validate_paper_static_evidence_bundle
+
+    bundle = _minimal_failed_bundle()
+    bundle["diagnostics"] = []
+    for entry in bundle["surfaceStatus"].values():
+        entry["diagnosticRefs"] = []
+
+    report = validate_paper_static_evidence_bundle(bundle)
+
+    assert "FAILED_BUNDLE_DIAGNOSTICS_REQUIRED" in _reason_codes(report)
 
 
 @pytest.mark.parametrize(
@@ -353,6 +439,76 @@ def test_paper_contract_validator_fails_closed_on_schema_and_semantic_violations
 
     assert report["contractValidation"]["status"] == "fail"
     assert reason_code in _reason_codes(report)
+
+
+@pytest.mark.parametrize(
+    ("mutator", "reason_code"),
+    [
+        (lambda bundle: bundle["sourceFiles"][0].__setitem__("trace", {}), "ROW_TRACE_MISSING"),
+        (lambda bundle: bundle["diagnostics"][0].__setitem__("trace", {}), "ROW_TRACE_MISSING"),
+        (lambda bundle: bundle["diagnostics"][0].__setitem__("category", "raw-exception"), "DIAGNOSTIC_CATEGORY_INVALID"),
+        (lambda bundle: bundle["diagnostics"][0].__setitem__("reasonCode", "RAW_TRACEBACK"), "DIAGNOSTIC_REASON_INVALID"),
+        (lambda bundle: bundle["diagnostics"][0].__setitem__("message", "Traceback File /home/secret/project/main.c"), "DIAGNOSTIC_MESSAGE_UNSAFE"),
+    ],
+)
+def test_paper_contract_validator_requires_strict_trace_and_sanitized_diagnostics(
+    mutator,
+    reason_code: str,
+) -> None:
+    from app.scanner.paper_static_evidence import validate_paper_static_evidence_bundle
+
+    bundle = _minimal_failed_bundle()
+    mutator(bundle)
+
+    report = validate_paper_static_evidence_bundle(bundle)
+
+    assert reason_code in _reason_codes(report)
+
+
+@pytest.mark.parametrize(
+    ("mutator", "reason_code"),
+    [
+        (lambda bundle: bundle["surfaceStatus"]["sourceFiles"].__setitem__("count", 99), "SURFACE_COUNT_MISMATCH"),
+        (lambda bundle: bundle["surfaceStatus"]["targetMetadata"].__setitem__("count", 0), "SURFACE_COUNT_MISMATCH"),
+        (lambda bundle: bundle["surfaceStatus"]["staticEvidenceContract"].__setitem__("count", 0), "SURFACE_COUNT_MISMATCH"),
+    ],
+)
+def test_paper_contract_validator_reconciles_surface_status_counts(mutator, reason_code: str) -> None:
+    from app.scanner.paper_static_evidence import validate_paper_static_evidence_bundle
+
+    bundle = _minimal_bundle()
+    mutator(bundle)
+
+    report = validate_paper_static_evidence_bundle(bundle)
+
+    assert reason_code in _reason_codes(report)
+
+
+@pytest.mark.parametrize(
+    "forbidden_key",
+    [
+        "integrity",
+        "integrityStatus",
+        "artifactIntegrity",
+        "reproducibility",
+        "reproducibleBuild",
+        "finalVerdict",
+        "securityVerdict",
+        "provenSafe",
+        "isSafe",
+    ],
+)
+def test_paper_contract_validator_blocks_integrity_reproducibility_and_final_verdict_aliases(
+    forbidden_key: str,
+) -> None:
+    from app.scanner.paper_static_evidence import validate_paper_static_evidence_bundle
+
+    bundle = _minimal_bundle()
+    bundle["producer"][forbidden_key] = "verified"
+
+    report = validate_paper_static_evidence_bundle(bundle)
+
+    assert "FORBIDDEN_SEMANTIC_FIELD" in _reason_codes(report)
 
 
 def test_paper_contract_validator_fails_claim_boundary_mirror_mismatch() -> None:
@@ -544,6 +700,35 @@ def test_file_backed_writer_emits_raw_and_validation_artifacts(tmp_path: Path) -
     _assert_validation_passes(report)
 
 
+def test_file_backed_writer_emits_validation_for_live_equivalent_bundle(tmp_path: Path) -> None:
+    from app.scanner.paper_static_evidence import validate_paper_static_evidence_bundle, write_paper_static_evidence_artifacts
+
+    live_equivalent = _minimal_bundle()
+    live_equivalent["evidence"] = [
+        {
+            "evidenceId": "ev:0000",
+            "evidenceType": "sast-finding-message",
+            "producer": "s4",
+            "findingId": None,
+            "sourceFileId": "src:0000",
+            "text": "first deterministic reviewer-visible row",
+            "consumerPolicy": "local_static_structure_only",
+            "diagnosticRefs": [],
+            "trace": {**live_equivalent["sourceFiles"][0]["trace"], "surface": "evidence", "rawObjectRef": "evidence[0]"},
+        },
+    ]
+    live_equivalent["surfaceStatus"]["evidence"]["status"] = "produced"
+    live_equivalent["surfaceStatus"]["evidence"]["count"] = 1
+
+    expected_report = validate_paper_static_evidence_bundle(live_equivalent)
+    report = write_paper_static_evidence_artifacts(tmp_path, live_equivalent)
+
+    assert json.loads((tmp_path / "s4-static-evidence.raw.json").read_text()) == live_equivalent
+    assert json.loads((tmp_path / "s4-static-evidence.validation.json").read_text()) == expected_report
+    assert report == expected_report
+    _assert_validation_passes(report)
+
+
 def test_current_six_liveness_gate_is_separate_system_stability_gate() -> None:
     from app.scanner.paper_static_evidence import CURRENT_SIX_TOOLS, validate_current_six_liveness
 
@@ -667,6 +852,43 @@ async def test_live_endpoint_generic_orchestrator_failure_does_not_claim_static_
 
 
 @pytest.mark.asyncio
+async def test_live_endpoint_returns_failed_bundle_for_post_admission_static_contract_failure(
+    client,
+    tmp_path: Path,
+) -> None:
+    root = _make_source_root(tmp_path)
+    execution = _execution_report()
+
+    with (
+        patch("app.routers.scan.orchestrator.run", AsyncMock(return_value=([], execution))),
+        patch("app.routers.scan.ast_dumper.dump_functions", AsyncMock(return_value={"functions": []})),
+        patch("app.routers.scan.include_resolver.resolve", AsyncMock(return_value=[])),
+        patch("app.routers.scan.identify_libraries", AsyncMock(return_value=[])),
+        patch("app.routers.scan.build_static_evidence_contract", side_effect=RuntimeError("SECRET /home/kosh/project traceback")),
+    ):
+        response = await client.post(
+            "/v1/paper/static-evidence",
+            headers={"X-Request-Id": "req-post-admission-failed-bundle"},
+            json=_paper_request(root),
+        )
+
+    assert response.status_code == 200
+    bundle = response.json()
+    assert bundle["success"] is False
+    assert bundle["bundleStatus"] == "failed"
+    assert bundle["s4RequestId"] == "req-post-admission-failed-bundle"
+    assert bundle["diagnostics"]
+    assert bundle["surfaceStatus"]["staticEvidenceContract"]["status"] == "failed"
+    assert bundle["surfaceStatus"]["staticEvidenceContract"]["diagnosticRefs"]
+    assert "SECRET" not in json.dumps(bundle)
+    assert "/home/kosh" not in json.dumps(bundle)
+
+    from app.scanner.paper_static_evidence import validate_paper_static_evidence_bundle
+
+    _assert_validation_passes(validate_paper_static_evidence_bundle(bundle))
+
+
+@pytest.mark.asyncio
 async def test_live_endpoint_rejects_forbidden_request_field_with_paper_reason_code(client, tmp_path: Path) -> None:
     root = _make_source_root(tmp_path)
     payload = _paper_request(root)
@@ -707,10 +929,156 @@ async def test_live_endpoint_rejects_unsupported_compile_context_type_with_speci
     assert response.json()["errorDetail"]["code"] == "UNSUPPORTED_COMPILE_CONTEXT_TYPE"
 
 
+@pytest.mark.asyncio
+async def test_paper_static_evidence_respond_async_uses_durable_ownership(client, tmp_path: Path) -> None:
+    from app.runtime.request_ownership import request_ownership_store
+
+    await request_ownership_store.reset()
+    root = _make_source_root(tmp_path)
+    gate = asyncio.Event()
+
+    async def _slow_bundle(**_kwargs):
+        await gate.wait()
+        bundle = _minimal_bundle()
+        bundle["s4RequestId"] = "owned-paper-static"
+        return bundle
+
+    try:
+        with patch(
+            "app.routers.scan.build_paper_static_evidence_bundle",
+            AsyncMock(side_effect=_slow_bundle),
+        ):
+            submit = await client.post(
+                "/v1/paper/static-evidence",
+                headers={"X-Request-Id": "owned-paper-static", "Prefer": "respond-async"},
+                json=_paper_request(root),
+            )
+            assert submit.status_code == 202
+            assert submit.headers["Preference-Applied"] == "respond-async"
+            submitted = submit.json()
+            assert submitted["endpoint"] == "paper-static-evidence"
+            assert submitted["resultReady"] is False
+            assert submitted["statusUrl"] == "/v1/requests/owned-paper-static"
+            assert submitted["resultUrl"] == "/v1/requests/owned-paper-static/result"
+
+            for _ in range(20):
+                status = await client.get("/v1/requests/owned-paper-static")
+                status_payload = status.json()
+                if status_payload["state"] == "running":
+                    break
+                await asyncio.sleep(0.02)
+            else:
+                raise AssertionError("owned paper request did not expose running state")
+            assert status_payload["resultReady"] is False
+            assert status_payload["requestSummary"]["state"] == "running"
+
+            health = await client.get("/v1/health", params={"requestId": "owned-paper-static"})
+            health_payload = health.json()
+            assert health_payload["activeRequestCount"] == 1
+            health_summary = health_payload["requestSummary"]
+            assert health_summary["requestId"] == "owned-paper-static"
+            assert health_summary["endpoint"] == "paper-static-evidence"
+            assert health_summary["state"] == "running"
+            assert health_summary["ackStatus"] == "active"
+
+            gate.set()
+            result = await _wait_for_owned_result(client, "owned-paper-static")
+            terminal_health = await client.get("/v1/health", params={"requestId": "owned-paper-static"})
+
+        assert result["state"] == "completed"
+        assert result["result"]["success"] is True
+        assert result["result"]["bundleStatus"] == "produced"
+        terminal_summary = terminal_health.json()["requestSummary"]
+        assert terminal_summary["endpoint"] == "paper-static-evidence"
+        assert terminal_summary["state"] == "completed"
+        assert terminal_health.json()["activeRequestCount"] == 0
+    finally:
+        await request_ownership_store.reset()
+
+
+@pytest.mark.asyncio
+async def test_paper_static_evidence_respond_async_contract_error_is_retrievable_failure(
+    client,
+    tmp_path: Path,
+) -> None:
+    from app.runtime.request_ownership import request_ownership_store
+    from app.scanner.paper_static_evidence import PaperStaticEvidenceContractError
+
+    await request_ownership_store.reset()
+    root = _make_source_root(tmp_path)
+
+    try:
+        with patch(
+            "app.routers.scan.build_paper_static_evidence_bundle",
+            AsyncMock(
+                side_effect=PaperStaticEvidenceContractError(
+                    "SOURCE_ROOT_UNREADABLE",
+                    "Source root is unreadable.",
+                ),
+            ),
+        ):
+            submit = await client.post(
+                "/v1/paper/static-evidence",
+                headers={"X-Request-Id": "owned-paper-contract-error", "Prefer": "respond-async"},
+                json=_paper_request(root),
+            )
+            assert submit.status_code == 202
+            result = await _wait_for_owned_result(client, "owned-paper-contract-error")
+
+        assert result["state"] == "failed"
+        assert result["result"]["success"] is False
+        assert result["result"]["errorDetail"]["code"] == "SOURCE_ROOT_UNREADABLE"
+        assert result["result"]["errorDetail"]["requestId"] == "owned-paper-contract-error"
+    finally:
+        await request_ownership_store.reset()
+
+
+@pytest.mark.asyncio
+async def test_paper_static_evidence_respond_async_preflight_reject_does_not_create_owned_request(
+    client,
+    tmp_path: Path,
+) -> None:
+    from app.runtime.request_ownership import request_ownership_store
+
+    await request_ownership_store.reset()
+    root = _make_source_root(tmp_path)
+    payload = _paper_request(root)
+    payload["compileContext"]["type"] = "unsupported"
+
+    try:
+        response = await client.post(
+            "/v1/paper/static-evidence",
+            headers={"X-Request-Id": "owned-paper-invalid", "Prefer": "respond-async"},
+            json=payload,
+        )
+        status = await client.get("/v1/requests/owned-paper-invalid")
+
+        assert response.status_code == 400
+        assert response.json()["errorDetail"]["code"] == "UNSUPPORTED_COMPILE_CONTEXT_TYPE"
+        assert status.status_code == 404
+    finally:
+        await request_ownership_store.reset()
+
+
 def test_b2_b4_rendering_order_uses_same_evidence_rows() -> None:
     from app.scanner.paper_static_evidence import paper_reviewer_visible_rows
 
     bundle = _minimal_bundle()
+    diag_one = {
+        "diagnosticId": "diag:0000:surface_production_failed",
+        "severity": "warning",
+        "category": "surface-error",
+        "reasonCode": "SURFACE_PRODUCTION_FAILED",
+        "surface": "functions",
+        "message": "first deterministic diagnostic row",
+        "consumerPolicy": "producer_diagnostic_not_security_evidence",
+        "trace": {**bundle["sourceFiles"][0]["trace"], "surface": "diagnostics", "surfaceId": "surface:diagnostics", "rawObjectRef": "diagnostics[0]"},
+    }
+    diag_two = copy.deepcopy(diag_one)
+    diag_two["diagnosticId"] = "diag:0001:surface_production_failed"
+    diag_two["message"] = "second deterministic diagnostic row"
+    diag_two["trace"]["rawObjectRef"] = "diagnostics[1]"
+    bundle["diagnostics"] = [diag_one, diag_two]
     bundle["evidence"] = [
         {
             "evidenceId": "ev:0000",
@@ -718,19 +1086,201 @@ def test_b2_b4_rendering_order_uses_same_evidence_rows() -> None:
             "producer": "s4",
             "findingId": None,
             "sourceFileId": "src:0000",
-            "text": "same reviewer-visible text",
+            "text": "first reviewer-visible evidence",
             "consumerPolicy": "local_static_structure_only",
             "diagnosticRefs": [],
             "trace": {**bundle["sourceFiles"][0]["trace"], "surface": "evidence", "rawObjectRef": "evidence[0]"},
         },
+        {
+            "evidenceId": "ev:0001",
+            "evidenceType": "sast-finding-message",
+            "producer": "s4",
+            "findingId": None,
+            "sourceFileId": "src:0000",
+            "text": "second reviewer-visible evidence",
+            "consumerPolicy": "local_static_structure_only",
+            "diagnosticRefs": [],
+            "trace": {**bundle["sourceFiles"][0]["trace"], "surface": "evidence", "rawObjectRef": "evidence[1]"},
+        },
     ]
     bundle["surfaceStatus"]["evidence"]["status"] = "produced"
-    bundle["surfaceStatus"]["evidence"]["count"] = 1
+    bundle["surfaceStatus"]["evidence"]["count"] = 2
 
     b2_rows = paper_reviewer_visible_rows(bundle, packet_condition="B2")
     b4_rows = paper_reviewer_visible_rows(bundle, packet_condition="B4")
 
-    assert b2_rows == b4_rows == ["same reviewer-visible text"]
+    assert b2_rows == b4_rows == [
+        "first reviewer-visible evidence",
+        "second reviewer-visible evidence",
+        "first deterministic diagnostic row",
+        "second deterministic diagnostic row",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_paper_static_evidence_observability_preserves_request_id_and_logs_lifecycle(
+    client,
+    tmp_path: Path,
+    caplog,
+) -> None:
+    root = _make_source_root(tmp_path)
+
+    async def _bundle(**kwargs):
+        bundle = _minimal_bundle()
+        bundle["s4RequestId"] = kwargs["request_id"]
+        return bundle
+
+    caplog.set_level("INFO", logger="aegis-sast-runner")
+    with patch("app.routers.scan.build_paper_static_evidence_bundle", AsyncMock(side_effect=_bundle)):
+        response = await client.post(
+            "/v1/paper/static-evidence",
+            headers={"X-Request-Id": "req-paper-observability"},
+            json=_paper_request(root),
+        )
+
+    assert response.status_code == 200
+    assert response.headers["X-Request-Id"] == "req-paper-observability"
+    assert response.json()["s4RequestId"] == "req-paper-observability"
+    lifecycle = [
+        record for record in caplog.records
+        if record.name == "aegis-sast-runner" and record.getMessage().startswith("paper static-evidence")
+    ]
+    assert [record.getMessage() for record in lifecycle] == [
+        "paper static-evidence request start",
+        "paper static-evidence request end",
+    ]
+    end = lifecycle[-1]
+    assert end.requestId == "req-paper-observability"
+    assert end.caseId == "case-001"
+    assert end.buildTargetId == "target-001"
+    assert end.paperRunId == "paper-run-001"
+    assert end.status == 200
+    assert isinstance(end.elapsedMs, int)
+    assert end.bundleStatus == "produced"
+
+
+@pytest.mark.asyncio
+async def test_paper_static_evidence_observability_generates_request_id_when_missing(
+    client,
+    tmp_path: Path,
+) -> None:
+    root = _make_source_root(tmp_path)
+
+    async def _bundle(**kwargs):
+        bundle = _minimal_bundle()
+        bundle["s4RequestId"] = kwargs["request_id"]
+        return bundle
+
+    with patch("app.routers.scan.build_paper_static_evidence_bundle", AsyncMock(side_effect=_bundle)):
+        response = await client.post("/v1/paper/static-evidence", json=_paper_request(root))
+
+    generated = response.headers["X-Request-Id"]
+    assert response.status_code == 200
+    assert generated.startswith("req-")
+    assert response.json()["s4RequestId"] == generated
+
+
+@pytest.mark.asyncio
+async def test_paper_static_evidence_observability_logs_preflight_error_without_raw_input(
+    client,
+    tmp_path: Path,
+    caplog,
+) -> None:
+    root = _make_source_root(tmp_path)
+    payload = _paper_request(root)
+    payload["checksum"] = "sha256:SECRET-/home/kosh/private"
+
+    caplog.set_level("INFO", logger="aegis-sast-runner")
+    response = await client.post(
+        "/v1/paper/static-evidence",
+        headers={"X-Request-Id": "req-paper-preflight-error"},
+        json=payload,
+    )
+
+    assert response.status_code == 400
+    body = response.json()
+    assert body["success"] is False
+    assert body["errorDetail"]["requestId"] == "req-paper-preflight-error"
+    assert "SECRET" not in json.dumps(body)
+    assert "/home/kosh" not in json.dumps(body)
+    assert "SECRET" not in caplog.text
+    assert "/home/kosh" not in caplog.text
+    error = [
+        record for record in caplog.records
+        if record.getMessage() == "paper static-evidence request error"
+    ][-1]
+    assert error.requestId == "req-paper-preflight-error"
+    assert error.status == 400
+    assert error.code == "PAPER_STATIC_EVIDENCE_REQUEST_FORBIDDEN_FIELD"
+    assert isinstance(error.elapsedMs, int)
+
+
+@pytest.mark.asyncio
+async def test_paper_static_evidence_observability_logs_async_acceptance(
+    client,
+    tmp_path: Path,
+    caplog,
+) -> None:
+    from app.runtime.request_ownership import request_ownership_store
+
+    await request_ownership_store.reset()
+    root = _make_source_root(tmp_path)
+    try:
+        caplog.set_level("INFO", logger="aegis-sast-runner")
+        with patch("app.routers.scan.build_paper_static_evidence_bundle", AsyncMock(return_value=_minimal_bundle())):
+            response = await client.post(
+                "/v1/paper/static-evidence",
+                headers={"X-Request-Id": "req-paper-async-observability", "Prefer": "respond-async"},
+                json=_paper_request(root),
+            )
+            result = await _wait_for_owned_result(client, "req-paper-async-observability")
+
+        assert response.status_code == 202
+        accepted = [
+            record for record in caplog.records
+            if record.getMessage() == "paper static-evidence request accepted"
+        ][-1]
+        assert accepted.requestId == "req-paper-async-observability"
+        assert accepted.status == 202
+        assert accepted.caseId == "case-001"
+        assert accepted.paperRunId == "paper-run-001"
+        assert isinstance(accepted.elapsedMs, int)
+        assert result["state"] == "completed"
+    finally:
+        await request_ownership_store.reset()
+
+
+@pytest.mark.asyncio
+async def test_paper_static_evidence_422_generates_request_id_and_sanitized_common_envelope(
+    client,
+    caplog,
+) -> None:
+    caplog.set_level("WARNING", logger="aegis-sast-runner")
+
+    response = await client.post("/v1/paper/static-evidence", json=["not-a-dict", "SECRET"])
+
+    generated = response.headers["X-Request-Id"]
+    body = response.json()
+    assert response.status_code == 422
+    assert generated.startswith("req-")
+    assert body["success"] is False
+    assert body["errorDetail"]["code"] == "REQUEST_VALIDATION_FAILED"
+    assert body["errorDetail"]["requestId"] == generated
+    assert "SECRET" not in json.dumps(body)
+    assert "SECRET" not in caplog.text
+
+
+def test_paper_static_evidence_route_has_no_outbound_http_client_calls() -> None:
+    router_path = Path(__file__).resolve().parents[1] / "app" / "routers" / "scan.py"
+    tree = ast.parse(router_path.read_text(encoding="utf-8"), filename=str(router_path))
+    function = next(
+        node for node in ast.walk(tree)
+        if isinstance(node, ast.AsyncFunctionDef) and node.name == "paper_static_evidence"
+    )
+    source = ast.get_source_segment(router_path.read_text(encoding="utf-8"), function) or ""
+
+    forbidden_tokens = ("httpx.", "requests.", "aiohttp.", "AsyncClient(", "HTTPConnection(")
+    assert not any(token in source for token in forbidden_tokens)
 
 
 @pytest.mark.integration

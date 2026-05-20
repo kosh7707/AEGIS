@@ -318,11 +318,16 @@ def _prepare_chat_forward(
     return body, llm_endpoint
 
 
-def _chat_timeout_from_header(raw_value: str | None) -> float:
-    try:
-        return min(float(raw_value or TimeoutDefaults.CHAT_DEFAULT_SECONDS), TimeoutDefaults.CHAT_MAX_SECONDS)
-    except (ValueError, TypeError):
-        return TimeoutDefaults.CHAT_DEFAULT_SECONDS
+def _chat_timeout_from_header(raw_value: str | None) -> float | None:
+    """Deprecated compatibility parser for caller timeout headers.
+
+    TraceAudit/live DGX calls must not fail solely because model inference took
+    longer than a caller-side read ceiling while the gateway and backend are
+    still alive. Keep parsing only to tolerate existing callers; `/v1/chat`
+    uses an unbounded read timeout below and reserves timeout failures for
+    connect/write/pool transport establishment/resource problems.
+    """
+    return None
 
 
 def _async_chat_backend_timeout() -> httpx.Timeout:
@@ -1187,7 +1192,9 @@ async def chat_proxy(req: Request) -> Response:
 
     fwd_headers = _build_forward_headers(request_id)
 
-    # 호출자 타임아웃: X-Timeout-Seconds 헤더로 전달, 미전달 시 기본 1800초
+    # No caller-side read timeout: if the backend service is alive and still
+    # generating, `/v1/chat` must keep waiting. Bound only connect/write/pool
+    # resource waits so real transport failures remain observable.
     caller_timeout = _chat_timeout_from_header(req.headers.get("x-timeout-seconds"))
     req_timeout = httpx.Timeout(
         connect=settings.llm_connect_timeout,

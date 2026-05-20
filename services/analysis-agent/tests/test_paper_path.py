@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 
 import pytest
 
+from app.agent_runtime.context import reset_request_id, set_request_id
 from app.paper import api as paper_api
 from app.paper.errors import PaperContractError, PaperOperationalError
 from app.paper.s4_client import S4PaperClient
@@ -344,12 +346,14 @@ def make_case_body(tmp_path: Path, paper_source, *, case_id="case-001", s4=None,
 
 def test_create_list_and_start_finding_case_reaches_paper_export_ready(client, tmp_path, paper_source):
     body = make_case_body(tmp_path, paper_source)
-    created = client.post("/v1/paper/analysis-cases", json=body)
+    created = client.post("/v1/paper/analysis-cases", json=body, headers={"X-Request-Id": "req-paper-start"})
     assert created.status_code == 201
+    assert created.headers["X-Request-Id"] == "req-paper-start"
     assert created.json()["status"] == "CASE_REGISTERED"
 
     listed = client.get("/v1/paper/analysis-cases", params={"paperRunId": "paper-run-001"})
     assert listed.status_code == 200
+    assert listed.headers["X-Request-Id"].startswith("req-")
     assert len(listed.json()["cases"]) == 1
 
     started = client.post("/v1/paper/analysis-cases/case-001/start")
@@ -363,9 +367,78 @@ def test_create_list_and_start_finding_case_reaches_paper_export_ready(client, t
     assert "case-export-manifest.json" in artifacts["files"]
     assert "audit-packets/case-level/b4-aegis-full-packet.json" in artifacts["files"]
     state_trace = Path(body["paperRunRoot"]) / "cases" / "case-001" / "state-trace.jsonl"
-    stages = [json.loads(line)["stage"] for line in state_trace.read_text().splitlines()]
+    trace_rows = [json.loads(line) for line in state_trace.read_text().splitlines()]
+    stages = [row["stage"] for row in trace_rows]
     for expected in ["CASE_REGISTERED", "BUILD_CONTEXT_READY", "SETUP_RUNNING", "S4_STATIC_EVIDENCE_READY", "S5_CODE_KB_READY", "S5_FINDING_CONTEXT_READY", "S3_TRIAGE_COMPLETED", "PAPER_EXPORT_READY"]:
         assert expected in stages
+    setup_done_index = next(
+        i for i, row in enumerate(trace_rows)
+        if row["stage"] == "SETUP_RUNNING" and row["status"] == "done"
+    )
+    finding_context_index = next(i for i, row in enumerate(trace_rows) if row["stage"] == "S5_FINDING_CONTEXT_READY")
+    assert setup_done_index < finding_context_index
+
+
+def test_paper_runner_emits_stage_service_logs(client, tmp_path, paper_source, caplog):
+    caplog.set_level(logging.INFO)
+    body = make_case_body(tmp_path, paper_source)
+    assert client.post("/v1/paper/analysis-cases", json=body, headers={"X-Request-Id": "req-stage"}).status_code == 201
+    response = client.post("/v1/paper/analysis-cases/case-001/start", headers={"X-Request-Id": "req-stage"})
+    assert response.status_code == 200
+
+    stage_logs = [
+        record for record in caplog.records
+        if getattr(record, "_extra", {}).get("event") == "paper_stage"
+    ]
+    assert any(getattr(record, "_extra", {}).get("stage") == "S4_STATIC_EVIDENCE_READY" for record in stage_logs)
+    assert any(getattr(record, "_extra", {}).get("stage") == "PAPER_EXPORT_READY" for record in stage_logs)
+    for record in stage_logs:
+        extra = getattr(record, "_extra", {})
+        assert extra["caseId"] == "case-001"
+        assert extra["buildTargetId"] == "target-001"
+        assert extra["paperRunId"] == "paper-run-001"
+
+
+def test_paper_error_and_validation_responses_include_request_id(client, tmp_path, paper_source):
+    body = make_case_body(tmp_path, paper_source)
+    assert client.post("/v1/paper/analysis-cases", json=body, headers={"X-Request-Id": "req-create"}).status_code == 201
+
+    not_found = client.get("/v1/paper/analysis-cases/missing-case", headers={"X-Request-Id": "req-missing"})
+    assert not_found.status_code == 404
+    assert not_found.headers["X-Request-Id"] == "req-missing"
+    assert not_found.json()["errorDetail"]["requestId"] == "req-missing"
+
+    invalid = client.post(
+        "/v1/paper/analysis-cases",
+        json={"caseId": "case-bad", "sourceRoot": "SECRET_SOURCE_ROOT_SHOULD_NOT_LEAK"},
+        headers={"X-Request-Id": "req-invalid"},
+    )
+    assert invalid.status_code == 422
+    assert invalid.headers["X-Request-Id"] == "req-invalid"
+    payload = invalid.json()
+    assert payload["success"] is False
+    assert payload["errorDetail"]["code"] == "REQUEST_VALIDATION_FAILED"
+    assert payload["errorDetail"]["requestId"] == "req-invalid"
+    assert "SECRET_SOURCE_ROOT_SHOULD_NOT_LEAK" not in invalid.text
+
+
+def test_paper_error_detail_cannot_override_reserved_fields():
+    token = set_request_id("req-reserved")
+    try:
+        response = paper_api._error_response(
+            paper_api.PaperError(
+                "boom",
+                detail={"code": "EVIL", "requestId": "evil", "retryable": True, "safe": "ok"},
+            )
+        )
+    finally:
+        reset_request_id(token)
+
+    payload = json.loads(response.body)
+    assert payload["errorDetail"]["code"] == "PAPER_ERROR"
+    assert payload["errorDetail"]["requestId"] == "req-reserved"
+    assert payload["errorDetail"]["retryable"] is False
+    assert payload["errorDetail"]["safe"] == "ok"
 
 
 def test_zero_finding_case_reaches_paper_export_ready_without_s5_or_llm(client, tmp_path, paper_source):
@@ -429,6 +502,56 @@ def test_s5_no_hit_carries_as_diagnostic_without_verdict_promotion(client, tmp_p
     assert any(row["producer"] == "s5" and row["diagnostic"] is True for row in ledger)
 
 
+def test_tp_cannot_cite_s5_diagnostic_ref_as_security_evidence(client, tmp_path, paper_source):
+    diagnostic_ref = "s3-diagnostic:s5:s5_finding_context:s4-finding-001:S5_PAPER_CONTEXT_NO_HIT:0"
+    bad_llm = llm_tp()
+    bad_llm["citedEvidenceRefs"] = [diagnostic_ref]
+    bad_llm["claimEvidenceLinks"] = [
+        {
+            "claim": "No S5 hit means this is exploitable.",
+            "stance": "supports",
+            "evidenceRefs": [diagnostic_ref],
+        }
+    ]
+    body = make_case_body(
+        tmp_path,
+        paper_source,
+        s5_ctx=s5_context(no_hit=True),
+        s5_threat_data=s5_threat(no_hit=True),
+        llm=bad_llm,
+    )
+    assert client.post("/v1/paper/analysis-cases", json=body).status_code == 201
+    response = client.post("/v1/paper/analysis-cases/case-001/start")
+    assert response.status_code == 200, response.text
+    assert response.json()["summary"]["triageCounts"]["UNKNOWN"] == 1
+    triage_path = Path(body["paperRunRoot"]) / "cases" / "case-001" / "triage-envelope.jsonl"
+    row = json.loads(triage_path.read_text().splitlines()[0])
+    assert row["findingId"] == "s4-finding-001"
+    assert row["verdict"] == "UNKNOWN"
+    assert any("diagnostic refs cannot support" in claim for claim in row["unsupportedClaims"])
+
+
+def test_tp_cannot_cite_non_produced_s4_surface_row_as_security_evidence(client, tmp_path, paper_source):
+    partial_s4 = s4_bundle(diagnostics=True)
+    partial_s4["surfaceStatus"]["evidence"]["status"] = "partial"
+    partial_s4["surfaceStatus"]["evidence"]["reasonCodes"] = ["BOUNDED_PARTIAL"]
+    partial_s4["surfaceStatus"]["evidence"]["diagnosticRefs"] = ["s4:diagnostic:001"]
+    bad_llm = llm_tp()
+    bad_llm["citedEvidenceRefs"] = ["s3-evidence:s4:evidence:s4-evidence-001"]
+    bad_llm["claimEvidenceLinks"] = [
+        {
+            "claim": "A partial producer surface proves this finding.",
+            "stance": "supports",
+            "evidenceRefs": ["s3-evidence:s4:evidence:s4-evidence-001"],
+        }
+    ]
+    body = make_case_body(tmp_path, paper_source, s4=partial_s4, llm=bad_llm)
+    assert client.post("/v1/paper/analysis-cases", json=body).status_code == 201
+    response = client.post("/v1/paper/analysis-cases/case-001/start")
+    assert response.status_code == 200, response.text
+    assert response.json()["summary"]["triageCounts"]["UNKNOWN"] == 1
+
+
 def test_s5_forbidden_leakage_fails_closed(client, tmp_path, paper_source):
     leaky = s5_context(text="This mentions CVE-2024-12345 directly.")
     body = make_case_body(tmp_path, paper_source, s5_ctx=leaky)
@@ -445,8 +568,145 @@ def test_tp_without_evidence_refs_is_rejected(client, tmp_path, paper_source):
     body = make_case_body(tmp_path, paper_source, llm=bad_llm)
     assert client.post("/v1/paper/analysis-cases", json=body).status_code == 201
     response = client.post("/v1/paper/analysis-cases/case-001/start")
+    assert response.status_code == 200
+    assert response.json()["summary"]["triageCounts"]["UNKNOWN"] == 1
+    triage_path = Path(body["paperRunRoot"]) / "cases" / "case-001" / "triage-envelope.jsonl"
+    row = json.loads(triage_path.read_text().splitlines()[0])
+    assert row["verdict"] == "UNKNOWN"
+    assert row["unsupportedClaims"]
+    assert any("recovered" in note.lower() for note in row["boundaryNotes"])
+
+
+def test_s4_producer_rows_are_absorbed_into_evidence_ledger_and_packets(client, tmp_path, paper_source):
+    body = make_case_body(tmp_path, paper_source)
+    assert client.post("/v1/paper/analysis-cases", json=body).status_code == 201
+    response = client.post("/v1/paper/analysis-cases/case-001/start")
+    assert response.status_code == 200, response.text
+
+    case_root = Path(body["paperRunRoot"]) / "cases" / "case-001"
+    ledger = [json.loads(line) for line in (case_root / "evidence-ledger.jsonl").read_text().splitlines()]
+    refs = {row["evidenceRef"] for row in ledger}
+    assert "s3-evidence:s4:evidence:s4-evidence-001" in refs
+    assert "s3-evidence:s4:sourceFiles:s4-source-file-001" in refs
+    assert "s3-evidence:s4:toolRuns:s4-tool-run-semgrep" in refs
+    assert "s3-evidence:s4:targetMetadata:targetMetadata" in refs
+    assert "s3-evidence:s4:staticEvidenceContract:staticEvidenceContract" in refs
+    assert "s3-evidence:s4:claimBoundaryMatrix:claimBoundaryMatrix" in refs
+    assert "s3-evidence:s4:claimBoundaries:claimBoundaries" in refs
+    b4 = json.loads((case_root / "audit-packets/findings/s4-finding-001/b4.json").read_text())
+    b4_texts = [row["text"] for row in b4["ledgerRows"]]
+    assert "Semgrep reported unchecked copy." in b4_texts
+    assert any(text.startswith("Source file src/main.c") for text in b4_texts)
+
+
+def test_s5_wrong_finding_response_fails_closed(client, tmp_path, paper_source):
+    body = make_case_body(tmp_path, paper_source, s5_ctx=s5_context(finding_id="other-finding"))
+    assert client.post("/v1/paper/analysis-cases", json=body).status_code == 201
+    response = client.post("/v1/paper/analysis-cases/case-001/start")
     assert response.status_code == 422
-    assert "TP/FP" in response.json()["error"]
+    assert "findingId mismatch" in response.json()["error"]
+
+
+def test_s4_non_produced_finding_surface_cannot_ground_tp(client, tmp_path, paper_source):
+    partial_s4 = s4_bundle(diagnostics=True)
+    partial_s4["surfaceStatus"]["findings"]["status"] = "partial"
+    partial_s4["surfaceStatus"]["findings"]["reasonCodes"] = ["BOUNDED_PARTIAL"]
+    partial_s4["surfaceStatus"]["findings"]["diagnosticRefs"] = ["s4:diagnostic:001"]
+    body = make_case_body(tmp_path, paper_source, s4=partial_s4, llm=llm_tp())
+    assert client.post("/v1/paper/analysis-cases", json=body).status_code == 201
+    response = client.post("/v1/paper/analysis-cases/case-001/start")
+    assert response.status_code == 200, response.text
+    assert response.json()["summary"]["triageCounts"]["UNKNOWN"] == 1
+
+
+def test_s5_top_level_non_produced_status_makes_rows_diagnostic(client, tmp_path, paper_source):
+    partial_ctx = s5_context()
+    partial_ctx["surfaceStatus"] = "partial"
+    partial_ctx["diagnostics"] = [
+        {
+            "code": "S5_PARTIAL",
+            "message": "S5 returned partial context.",
+            "severity": "warning",
+            "surfaceStatus": "partial",
+            "consumerPolicy": "diagnostic_only_not_security_evidence",
+            "negativeEvidenceAllowed": False,
+            "visibleLeakageClass": "generic",
+            "relatedItemIds": [],
+            "metadata": {},
+        }
+    ]
+    bad_llm = llm_tp()
+    bad_llm["citedEvidenceRefs"] = ["s3-diagnostic:s5:s5_finding_context:s5-code-row-001"]
+    bad_llm["claimEvidenceLinks"] = [
+        {
+            "claim": "Partial S5 context proves the finding.",
+            "stance": "supports",
+            "evidenceRefs": ["s3-diagnostic:s5:s5_finding_context:s5-code-row-001"],
+        }
+    ]
+    body = make_case_body(tmp_path, paper_source, s5_ctx=partial_ctx, llm=bad_llm)
+    assert client.post("/v1/paper/analysis-cases", json=body).status_code == 201
+    response = client.post("/v1/paper/analysis-cases/case-001/start")
+    assert response.status_code == 200, response.text
+    assert response.json()["summary"]["triageCounts"]["UNKNOWN"] == 1
+
+
+def test_s5_forbidden_leakage_in_visible_keys_fails_closed(client, tmp_path, paper_source):
+    leaky = s5_context()
+    leaky["rows"][0]["sourceEvidence"]["CVE-2024-12345"] = "hidden case-specific key"
+    body = make_case_body(tmp_path, paper_source, s5_ctx=leaky)
+    assert client.post("/v1/paper/analysis-cases", json=body).status_code == 201
+    response = client.post("/v1/paper/analysis-cases/case-001/start")
+    assert response.status_code == 422
+    assert "forbidden leakage" in response.json()["error"]
+
+
+def test_finalizer_cannot_cite_cross_finding_known_evidence_ref(client, tmp_path, paper_source):
+    body = write_multi_case_body(tmp_path, paper_source)
+    artifacts = Path(body["producerArtifacts"]["llmTriageByFindingId"]["s4-finding-001"]).parent
+    wrong_ref_llm = llm_tp(finding_id="s4-finding-001")
+    wrong_ref_llm["citedEvidenceRefs"] = ["s3-evidence:s4:finding:s4-finding-002"]
+    wrong_ref_llm["claimEvidenceLinks"] = [
+        {
+            "claim": "The other finding supports this finding.",
+            "stance": "supports",
+            "evidenceRefs": ["s3-evidence:s4:finding:s4-finding-002"],
+        }
+    ]
+    body["producerArtifacts"]["llmTriageByFindingId"]["s4-finding-001"] = write_json(
+        artifacts / "multi-s4-finding-001-cross-ref-llm.json",
+        wrong_ref_llm,
+    )
+    assert client.post("/v1/paper/analysis-cases", json=body).status_code == 201
+    response = client.post("/v1/paper/analysis-cases/case-multi/start")
+    assert response.status_code == 200, response.text
+    case_root = Path(body["paperRunRoot"]) / "cases" / "case-multi"
+    triage = [json.loads(line) for line in (case_root / "triage-envelope.jsonl").read_text().splitlines()]
+    by_finding = {row["findingId"]: row for row in triage}
+    assert by_finding["s4-finding-001"]["verdict"] == "UNKNOWN"
+    assert by_finding["s4-finding-002"]["verdict"] == "TP"
+
+
+def test_b2_public_text_hides_evidence_refs_in_recovery_messages(client, tmp_path, paper_source):
+    bad_llm = llm_tp()
+    bad_llm["citedEvidenceRefs"] = ["s3-evidence:s4:finding:not-real"]
+    bad_llm["claimEvidenceLinks"] = [
+        {
+            "claim": "Bad ref should be hidden in public packet.",
+            "stance": "supports",
+            "evidenceRefs": ["s3-evidence:s4:finding:not-real"],
+        }
+    ]
+    body = make_case_body(tmp_path, paper_source, llm=bad_llm)
+    assert client.post("/v1/paper/analysis-cases", json=body).status_code == 201
+    response = client.post("/v1/paper/analysis-cases/case-001/start")
+    assert response.status_code == 200, response.text
+    case_root = Path(body["paperRunRoot"]) / "cases" / "case-001"
+    b2 = json.loads((case_root / "audit-packets/findings/s4-finding-001/b2.json").read_text())
+    public_text = json.dumps(b2, sort_keys=True)
+    assert "s3-evidence:" not in public_text
+    assert "s3-diagnostic:" not in public_text
+    assert "[hidden-evidence-ref]" in public_text
 
 
 def test_s5_request_builder_sets_generic_visibility_and_forbidden_classes(tmp_path, paper_source):
@@ -507,7 +767,7 @@ def test_s5_prepare_alias_mismatch_fails_closed(tmp_path, paper_source):
 
 
 @pytest.mark.asyncio
-async def test_s4_live_post_uses_wait_while_alive_transport_policy(monkeypatch, tmp_path, paper_source):
+async def test_s4_live_post_prefers_durable_ownership(monkeypatch, tmp_path, paper_source):
     captured = {}
 
     class FakeResponse:
@@ -519,6 +779,119 @@ async def test_s4_live_post_uses_wait_while_alive_transport_policy(monkeypatch, 
 
     class FakeClient:
         def __init__(self, timeout):
+            captured["client_timeout"] = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        async def post(self, url, json, headers, timeout=None):
+            captured["url"] = url
+            captured["json"] = json
+            captured["headers"] = headers
+            captured["post_timeout"] = timeout
+            return FakeResponse()
+
+    monkeypatch.setattr("app.paper.s4_client.httpx.AsyncClient", FakeClient)
+    from app.paper.models import PaperCaseCreateRequest
+
+    body = make_case_body(tmp_path, paper_source)
+    body["producerArtifacts"]["s4StaticEvidencePath"] = None
+    case = PaperCaseCreateRequest.model_validate(body)
+    token = set_request_id("req-s3-parent")
+    try:
+        await S4PaperClient(endpoint="http://s4.local").produce_static_evidence(case)
+    finally:
+        reset_request_id(token)
+
+    assert captured["url"] == "http://s4.local/v1/paper/static-evidence"
+    assert captured["client_timeout"].read is None
+    assert captured["client_timeout"].connect == 10.0
+    assert captured["headers"]["Prefer"] == "respond-async"
+    assert captured["headers"]["X-Request-Id"].startswith("req-s3-parent:s4:v1-paper-static-evidence:paper-static-evidence:")
+    assert captured["post_timeout"].read == 30.0
+    assert "X-Timeout-Ms" not in captured["headers"]
+
+
+@pytest.mark.asyncio
+async def test_s4_live_post_polls_durable_ownership_result(monkeypatch, tmp_path, paper_source):
+    captured = {"get_urls": []}
+
+    class FakeResponse:
+        def __init__(self, status_code, payload):
+            self.status_code = status_code
+            self._payload = payload
+            self.text = "{}"
+
+        def json(self):
+            return self._payload
+
+    class FakeClient:
+        def __init__(self, timeout):
+            captured["client_timeout"] = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        async def post(self, url, json, headers, timeout=None):
+            captured["post_url"] = url
+            captured["post_headers"] = headers
+            return FakeResponse(202, {
+                "requestId": "req-owned",
+                "state": "queued",
+                "statusUrl": "/v1/requests/req-owned",
+                "resultUrl": "/v1/requests/req-owned/result",
+            })
+
+        async def get(self, url, headers, timeout=None):
+            captured["get_urls"].append(url)
+            captured["get_headers"] = headers
+            if url.endswith("/v1/requests/req-owned"):
+                return FakeResponse(200, {"requestId": "req-owned", "state": "completed", "resultReady": True})
+            if url.endswith("/v1/requests/req-owned/result"):
+                return FakeResponse(200, {"requestId": "req-owned", "result": s4_bundle()})
+            raise AssertionError(f"unexpected URL {url}")
+
+    monkeypatch.setattr("app.paper.s4_client.httpx.AsyncClient", FakeClient)
+    from app.paper.models import PaperCaseCreateRequest
+
+    body = make_case_body(tmp_path, paper_source)
+    body["producerArtifacts"]["s4StaticEvidencePath"] = None
+    case = PaperCaseCreateRequest.model_validate(body)
+    token = set_request_id("req-s3-parent")
+    try:
+        data, _request = await S4PaperClient(endpoint="http://s4.local").produce_static_evidence(case)
+    finally:
+        reset_request_id(token)
+
+    assert data["schemaVersion"] == "s4-paper-static-evidence-bundle-v1"
+    assert captured["post_url"] == "http://s4.local/v1/paper/static-evidence"
+    assert captured["post_headers"]["Prefer"] == "respond-async"
+    assert captured["get_urls"] == [
+        "http://s4.local/v1/requests/req-owned",
+        "http://s4.local/v1/requests/req-owned/result",
+    ]
+    assert captured["get_headers"]["X-Request-Id"].startswith("req-s3-parent:s4:v1-paper-static-evidence:paper-static-evidence:")
+
+
+@pytest.mark.asyncio
+async def test_s4_live_post_requires_durable_ownership(monkeypatch, tmp_path, paper_source):
+    captured = {"post_count": 0}
+
+    class FakeResponse:
+        status_code = 404
+        text = "unsupported"
+
+        def json(self):
+            return {"errorDetail": {"code": "REQUEST_NOT_FOUND"}}
+
+    class FakeClient:
+        def __init__(self, timeout):
             captured["timeout"] = timeout
 
         async def __aenter__(self):
@@ -527,9 +900,8 @@ async def test_s4_live_post_uses_wait_while_alive_transport_policy(monkeypatch, 
         async def __aexit__(self, *args):
             return None
 
-        async def post(self, url, json, headers):
-            captured["url"] = url
-            captured["json"] = json
+        async def post(self, url, json, headers, timeout=None):
+            captured["post_count"] += 1
             captured["headers"] = headers
             return FakeResponse()
 
@@ -539,17 +911,16 @@ async def test_s4_live_post_uses_wait_while_alive_transport_policy(monkeypatch, 
     body = make_case_body(tmp_path, paper_source)
     body["producerArtifacts"]["s4StaticEvidencePath"] = None
     case = PaperCaseCreateRequest.model_validate(body)
-    await S4PaperClient(endpoint="http://s4.local").produce_static_evidence(case)
 
-    assert captured["url"] == "http://s4.local/v1/paper/static-evidence"
-    assert captured["timeout"].read is None
-    assert captured["timeout"].connect == 10.0
-    assert captured["headers"]["X-AEGIS-Timeout-Policy"] == "wait-while-alive"
-    assert "X-Timeout-Ms" not in captured["headers"]
+    with pytest.raises(PaperOperationalError):
+        await S4PaperClient(endpoint="http://s4.local").produce_static_evidence(case)
+
+    assert captured["post_count"] == 1
+    assert captured["headers"]["Prefer"] == "respond-async"
 
 
 @pytest.mark.asyncio
-async def test_s5_live_post_uses_wait_while_alive_policy_and_maps_409(monkeypatch):
+async def test_s5_live_post_uses_x_request_id_and_maps_409(monkeypatch, caplog):
     captured = {}
 
     class FakeResponse:
@@ -570,23 +941,36 @@ async def test_s5_live_post_uses_wait_while_alive_policy_and_maps_409(monkeypatc
             return FakeResponse()
 
     monkeypatch.setattr("app.paper.s5_client.httpx.AsyncClient", FakeClient)
-    client = S5PaperClient(endpoint="http://s5.local", timeout_ms=1234)
-    with pytest.raises(PaperOperationalError):
-        await client._post(
-            "/v1/paper/code-kb/prepare",
-            {
-                "requestId": "req-1",
-                "idempotencyKey": "idem-1",
-                "visibilityMode": "generic",
-                "forbiddenLeakageClasses": ["cve_id", "fix_commit", "advisory", "exploit_writeup", "patch_text"],
-            },
-        )
+    client = S5PaperClient(endpoint="http://s5.local")
+    caplog.set_level(logging.INFO)
+    token = set_request_id("req-parent-s3")
+    try:
+        with pytest.raises(PaperOperationalError):
+            await client._post(
+                "/v1/paper/code-kb/prepare",
+                {
+                    "requestId": "req-1",
+                    "idempotencyKey": "idem-1",
+                    "visibilityMode": "generic",
+                    "forbiddenLeakageClasses": ["cve_id", "fix_commit", "advisory", "exploit_writeup", "patch_text"],
+                },
+            )
+    finally:
+        reset_request_id(token)
     assert captured["timeout"].read is None
     assert captured["timeout"].connect == 10.0
-    assert captured["headers"]["X-AEGIS-Timeout-Policy"] == "wait-while-alive"
+    assert "X-AEGIS-Timeout-Policy" not in captured["headers"]
     assert "X-Timeout-Ms" not in captured["headers"]
+    # S5 paper contract requires X-Request-Id to match body requestId.
+    # S3 logs carry parent requestId and this operation request id separately.
     assert captured["headers"]["X-Request-Id"] == "req-1"
     assert captured["url"] == "http://s5.local/v1/paper/code-kb/prepare"
+    s5_logs = [
+        record for record in caplog.records
+        if getattr(record, "_extra", {}).get("target") == "s5-kb"
+    ]
+    assert any(getattr(record, "_extra", {}).get("operationRequestId") == "req-1" for record in s5_logs)
+    assert any(getattr(record, "_extra", {}).get("status") == 409 for record in s5_logs)
 
 
 def s4_bundle_two_findings(case_id="case-multi", build_target_id="target-001"):
@@ -670,6 +1054,275 @@ def test_multi_finding_case_isolates_s5_rows_for_llm_and_packets(client, tmp_pat
     assert b2_texts == b4_texts
     assert any("s4-finding-001" in text for text in b2_texts)
     assert not any("s4-finding-002" in text for text in b2_texts)
+
+
+def _contains_forbidden_packet_key(value, forbidden: set[str]) -> bool:
+    if isinstance(value, dict):
+        return any(key in forbidden or _contains_forbidden_packet_key(child, forbidden) for key, child in value.items())
+    if isinstance(value, list):
+        return any(_contains_forbidden_packet_key(child, forbidden) for child in value)
+    return False
+
+
+def test_b1_b2_packets_do_not_expose_ledger_refs_or_claim_links(client, tmp_path, paper_source):
+    body = make_case_body(tmp_path, paper_source)
+    assert client.post("/v1/paper/analysis-cases", json=body).status_code == 201
+    response = client.post("/v1/paper/analysis-cases/case-001/start")
+    assert response.status_code == 200, response.text
+
+    case_root = Path(body["paperRunRoot"]) / "cases" / "case-001"
+    forbidden = {
+        "evidenceRef",
+        "evidenceRefs",
+        "citedEvidenceRefs",
+        "claimEvidenceLinks",
+        "claimLinks",
+        "s4Trace",
+        "producerTrace",
+        "rawObjectRef",
+    }
+    for condition in ["b1", "b2"]:
+        packet = json.loads((case_root / f"audit-packets/findings/s4-finding-001/{condition}.json").read_text())
+        assert not _contains_forbidden_packet_key(packet, forbidden)
+        case_packet_name = "b1-raw-llm-rationale.json" if condition == "b1" else "b2-evidence-dump-no-ledger.json"
+        case_packet = json.loads((case_root / "audit-packets/case-level" / case_packet_name).read_text())
+        assert not _contains_forbidden_packet_key(case_packet, forbidden)
+    b4 = json.loads((case_root / "audit-packets/findings/s4-finding-001/b4.json").read_text())
+    assert _contains_forbidden_packet_key(b4, {"evidenceRef", "citedEvidenceRefs", "claimEvidenceLinks", "claimLinks"})
+
+
+def test_file_backed_finalizer_still_records_deterministic_s5_tool_acquisition(client, tmp_path, paper_source):
+    body = make_case_body(tmp_path, paper_source)
+    assert client.post("/v1/paper/analysis-cases", json=body).status_code == 201
+    response = client.post("/v1/paper/analysis-cases/case-001/start")
+    assert response.status_code == 200, response.text
+
+    case_root = Path(body["paperRunRoot"]) / "cases" / "case-001"
+    transcripts = [json.loads(line) for line in (case_root / "llm-transcript.raw.jsonl").read_text().splitlines()]
+    tool_results = transcripts[0]["acquisition"]["toolResults"]
+    assert {row["tool"] for row in tool_results if row["success"]} >= {"retrieve_finding_context", "retrieve_generic_threat_context"}
+    assert all(row["deterministicFallback"] for row in tool_results if row["success"])
+    assert (case_root / "s5-finding-context-requests.jsonl").read_text().strip()
+    assert (case_root / "s5-generic-threat-context-requests.jsonl").read_text().strip()
+
+
+def test_wrong_finding_tool_call_does_not_suppress_required_s5_fallback(client, tmp_path, paper_source, monkeypatch):
+    body = make_case_body(tmp_path, paper_source)
+    assert client.post("/v1/paper/analysis-cases", json=body).status_code == 201
+
+    async def wrong_finding_acquisition(self, case, *, finding, evidence_rows, acquisition_messages=None, round_index=1):
+        return (
+            {
+                "toolCalls": [
+                    {
+                        "id": "bad-call",
+                        "name": "retrieve_finding_context",
+                        "arguments": {"findingId": "other-finding"},
+                    }
+                ],
+                "content": None,
+            },
+            {"mode": "test-wrong-finding"},
+        )
+
+    monkeypatch.setattr("app.paper.llm_client.LlmTriageClient.acquire_for_finding", wrong_finding_acquisition)
+
+    response = client.post("/v1/paper/analysis-cases/case-001/start")
+    assert response.status_code == 200, response.text
+    case_root = Path(body["paperRunRoot"]) / "cases" / "case-001"
+    transcripts = [json.loads(line) for line in (case_root / "llm-transcript.raw.jsonl").read_text().splitlines()]
+    tool_results = transcripts[0]["acquisition"]["toolResults"]
+    assert any(row["tool"] == "retrieve_finding_context" and row["error"] == "finding_id_mismatch" for row in tool_results)
+    assert any(row["tool"] == "retrieve_finding_context" and row["success"] and row["deterministicFallback"] for row in tool_results)
+    assert any(row["tool"] == "retrieve_generic_threat_context" and row["success"] and row["deterministicFallback"] for row in tool_results)
+
+
+def test_wrong_finding_finalizer_row_recovers_to_current_finding_unknown(client, tmp_path, paper_source, monkeypatch):
+    body = make_case_body(tmp_path, paper_source)
+    body["producerArtifacts"]["llmTriageByFindingId"] = {}
+    assert client.post("/v1/paper/analysis-cases", json=body).status_code == 201
+
+    async def no_acquisition(self, case, *, finding, evidence_rows, acquisition_messages=None, round_index=1):
+        return ({"toolCalls": [], "content": None}, {"mode": "test-no-acquisition"})
+
+    async def wrong_finding_finalizer(self, case, *, finding, evidence_rows, acquisition_notes=None):
+        return (
+            {
+                "findingId": "other-finding",
+                "verdict": "TP",
+                "rationale": "Wrong finding id but valid current evidence ref.",
+                "citedEvidenceRefs": ["s3-evidence:s4:finding:s4-finding-001"],
+                "claimEvidenceLinks": [
+                    {
+                        "claim": "wrong id claim",
+                        "stance": "supports",
+                        "evidenceRefs": ["s3-evidence:s4:finding:s4-finding-001"],
+                    }
+                ],
+                "unsupportedClaims": [],
+                "unknownReason": None,
+                "diagnosticRefsUsed": [],
+                "boundaryNotes": [],
+            },
+            {"mode": "test-wrong-finalizer"},
+        )
+
+    monkeypatch.setattr("app.paper.llm_client.LlmTriageClient.acquire_for_finding", no_acquisition)
+    monkeypatch.setattr("app.paper.llm_client.LlmTriageClient.finalize_finding", wrong_finding_finalizer)
+
+    response = client.post("/v1/paper/analysis-cases/case-001/start")
+    assert response.status_code == 200, response.text
+    assert response.json()["summary"]["triageCounts"]["UNKNOWN"] == 1
+    case_root = Path(body["paperRunRoot"]) / "cases" / "case-001"
+    triage = [json.loads(line) for line in (case_root / "triage-envelope.jsonl").read_text().splitlines()]
+    assert len(triage) == 1
+    assert triage[0]["findingId"] == "s4-finding-001"
+    assert triage[0]["verdict"] == "UNKNOWN"
+    b4 = json.loads((case_root / "audit-packets/findings/s4-finding-001/b4.json").read_text())
+    assert b4["machineVerdict"]["findingId"] == "s4-finding-001"
+    assert b4["machineVerdict"]["verdict"] == "UNKNOWN"
+
+
+def test_runner_uses_multi_round_acquisition_before_required_fallback(client, tmp_path, paper_source, monkeypatch):
+    body = make_case_body(tmp_path, paper_source)
+    assert client.post("/v1/paper/analysis-cases", json=body).status_code == 201
+    rounds: list[dict] = []
+
+    async def staged_acquisition(self, case, *, finding, evidence_rows, acquisition_messages=None, round_index=1):
+        rounds.append({"round": round_index, "history": acquisition_messages})
+        if round_index == 1:
+            return (
+                {
+                    "toolCalls": [{"id": "call-list", "name": "list_evidence_rows", "arguments": {"findingId": finding["findingId"]}}],
+                    "assistantMessage": {
+                        "role": "assistant",
+                        "content": None,
+                        "tool_calls": [
+                            {
+                                "id": "call-list",
+                                "type": "function",
+                                "function": {"name": "list_evidence_rows", "arguments": json.dumps({"findingId": finding["findingId"]}, sort_keys=True)},
+                            }
+                        ],
+                    },
+                },
+                {"mode": "test-round-1"},
+            )
+        if round_index == 2:
+            assert acquisition_messages is not None
+            assert any(message.get("role") == "tool" and message.get("tool_call_id") == "call-list" for message in acquisition_messages)
+            return (
+                {
+                    "toolCalls": [{"id": "call-context", "name": "retrieve_finding_context", "arguments": {"findingId": finding["findingId"]}}],
+                    "assistantMessage": {
+                        "role": "assistant",
+                        "content": None,
+                        "tool_calls": [
+                            {
+                                "id": "call-context",
+                                "type": "function",
+                                "function": {"name": "retrieve_finding_context", "arguments": json.dumps({"findingId": finding["findingId"]}, sort_keys=True)},
+                            }
+                        ],
+                    },
+                },
+                {"mode": "test-round-2"},
+            )
+        return ({"toolCalls": [], "assistantMessage": {"role": "assistant", "content": "done"}}, {"mode": "test-round-3"})
+
+    monkeypatch.setattr("app.paper.llm_client.LlmTriageClient.acquire_for_finding", staged_acquisition)
+
+    response = client.post("/v1/paper/analysis-cases/case-001/start")
+    assert response.status_code == 200, response.text
+    assert [row["round"] for row in rounds] == [1, 2, 3]
+    case_root = Path(body["paperRunRoot"]) / "cases" / "case-001"
+    transcripts = [json.loads(line) for line in (case_root / "llm-transcript.raw.jsonl").read_text().splitlines()]
+    tool_results = transcripts[0]["acquisition"]["toolResults"]
+    assert any(row["tool"] == "list_evidence_rows" and row["success"] for row in tool_results)
+    assert any(row["tool"] == "retrieve_finding_context" and row["success"] and not row["deterministicFallback"] for row in tool_results)
+    assert any(row["tool"] == "retrieve_generic_threat_context" and row["success"] and row["deterministicFallback"] for row in tool_results)
+    assert not any(row["tool"] == "retrieve_finding_context" and row["success"] and row["deterministicFallback"] for row in tool_results)
+
+
+def test_runner_dedupes_required_tool_success_across_acquisition_rounds(client, tmp_path, paper_source, monkeypatch):
+    body = make_case_body(tmp_path, paper_source)
+    assert client.post("/v1/paper/analysis-cases", json=body).status_code == 201
+
+    async def duplicate_context_acquisition(self, case, *, finding, evidence_rows, acquisition_messages=None, round_index=1):
+        if round_index in {1, 2}:
+            return (
+                {
+                    "toolCalls": [{"id": f"call-context-{round_index}", "name": "retrieve_finding_context", "arguments": {"findingId": finding["findingId"]}}],
+                    "assistantMessage": {
+                        "role": "assistant",
+                        "content": None,
+                        "tool_calls": [
+                            {
+                                "id": f"call-context-{round_index}",
+                                "type": "function",
+                                "function": {"name": "retrieve_finding_context", "arguments": json.dumps({"findingId": finding["findingId"]}, sort_keys=True)},
+                            }
+                        ],
+                    },
+                },
+                {"mode": f"test-round-{round_index}"},
+            )
+        return ({"toolCalls": [], "assistantMessage": {"role": "assistant", "content": "done"}}, {"mode": "test-round-3"})
+
+    monkeypatch.setattr("app.paper.llm_client.LlmTriageClient.acquire_for_finding", duplicate_context_acquisition)
+
+    response = client.post("/v1/paper/analysis-cases/case-001/start")
+    assert response.status_code == 200, response.text
+    case_root = Path(body["paperRunRoot"]) / "cases" / "case-001"
+    context_requests = (case_root / "s5-finding-context-requests.jsonl").read_text().splitlines()
+    assert len(context_requests) == 1
+    transcripts = [json.loads(line) for line in (case_root / "llm-transcript.raw.jsonl").read_text().splitlines()]
+    tool_results = transcripts[0]["acquisition"]["toolResults"]
+    assert any(row["tool"] == "retrieve_finding_context" and row["success"] for row in tool_results)
+    assert any(row["tool"] == "retrieve_finding_context" and row["error"] == "duplicate_tool_call" for row in tool_results)
+
+
+def test_runner_executes_round_three_then_stops_and_compacts_finalizer_notes(client, tmp_path, paper_source, monkeypatch):
+    body = make_case_body(tmp_path, paper_source)
+    assert client.post("/v1/paper/analysis-cases", json=body).status_code == 201
+    rounds: list[int] = []
+
+    async def round_three_threat_acquisition(self, case, *, finding, evidence_rows, acquisition_messages=None, round_index=1):
+        rounds.append(round_index)
+        tool_name = "list_evidence_rows"
+        if round_index == 3:
+            tool_name = "retrieve_generic_threat_context"
+        return (
+            {
+                "toolCalls": [{"id": f"call-{round_index}", "name": tool_name, "arguments": {"findingId": finding["findingId"]}}],
+                "assistantMessage": {
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [
+                        {
+                            "id": f"call-{round_index}",
+                            "type": "function",
+                            "function": {"name": tool_name, "arguments": json.dumps({"findingId": finding["findingId"]}, sort_keys=True)},
+                        }
+                    ],
+                },
+            },
+            {"mode": f"test-round-{round_index}", "rawResponse": {"must": "not reach finalizer notes"}},
+        )
+
+    monkeypatch.setattr("app.paper.llm_client.LlmTriageClient.acquire_for_finding", round_three_threat_acquisition)
+
+    response = client.post("/v1/paper/analysis-cases/case-001/start")
+    assert response.status_code == 200, response.text
+    assert rounds == [1, 2, 3]
+    case_root = Path(body["paperRunRoot"]) / "cases" / "case-001"
+    transcripts = [json.loads(line) for line in (case_root / "llm-transcript.raw.jsonl").read_text().splitlines()]
+    prompt = transcripts[0]["request"]["prompt"]
+    assert "rawResponse" not in prompt
+    assert "must" not in prompt
+    tool_results = transcripts[0]["acquisition"]["toolResults"]
+    assert any(row["tool"] == "retrieve_generic_threat_context" and row["success"] and not row["deterministicFallback"] for row in tool_results)
+    assert any(row["tool"] == "retrieve_finding_context" and row["success"] and row["deterministicFallback"] for row in tool_results)
 
 
 def test_s5_prepare_not_ready_fails_start_as_operational_error(client, tmp_path, paper_source):
@@ -806,6 +1459,7 @@ def test_s5_produced_ready_requires_context_selectable(client, tmp_path, paper_s
 
 @pytest.mark.asyncio
 async def test_live_s7_chat_request_uses_generation_controls_and_openai_response(monkeypatch, tmp_path, paper_source):
+    from app.agent_runtime.llm.generation_policy import TRACEAUDIT_QWEN36_FINALIZER_V1
     from app.paper.llm_client import LlmTriageClient
     from app.paper.models import PaperCaseCreateRequest
 
@@ -813,6 +1467,7 @@ async def test_live_s7_chat_request_uses_generation_controls_and_openai_response
     body["producerArtifacts"]["llmTriageByFindingId"] = {}
     case = PaperCaseCreateRequest.model_validate(body)
     captured = {}
+    exchange_logs = []
 
     class FakeResponse:
         status_code = 200
@@ -843,16 +1498,292 @@ async def test_live_s7_chat_request_uses_generation_controls_and_openai_response
 
     monkeypatch.setattr("app.paper.llm_client.settings.llm_mode", "real")
     monkeypatch.setattr("app.paper.llm_client.httpx.AsyncClient", FakeClient)
-    result, request = await LlmTriageClient(endpoint="http://s7.local", timeout_seconds=123).triage_finding(
-        case,
-        finding={"findingId": "s4-finding-001", "ruleId": "CWE-120"},
-        evidence_rows=[{"evidenceRef": "s3-evidence:s4:finding:s4-finding-001", "text": "finding text"}],
-    )
+    monkeypatch.setattr("app.paper.observability._exchange_logger.info", lambda message: exchange_logs.append(json.loads(message)))
+    token = set_request_id("req-paper-llm")
+    try:
+        result, request = await LlmTriageClient(endpoint="http://s7.local", timeout_seconds=123).finalize_finding(
+            case,
+            finding={"findingId": "s4-finding-001", "ruleId": "CWE-120"},
+            evidence_rows=[{"evidenceRef": "s3-evidence:s4:finding:s4-finding-001", "text": "finding text"}],
+            acquisition_notes={"toolResults": []},
+        )
+    finally:
+        reset_request_id(token)
     assert result["verdict"] == "UNKNOWN"
     assert captured["url"] == "http://s7.local/v1/chat"
     assert captured["headers"]["X-AEGIS-Strict-JSON"] == "true"
-    assert captured["headers"]["X-Timeout-Seconds"] == "123"
-    for field in ["max_tokens", "temperature", "top_p", "top_k", "min_p", "presence_penalty", "repetition_penalty"]:
-        assert field in captured["json"]
+    assert captured["headers"]["X-AEGIS-Wait-While-Alive"] == "true"
+    assert captured["headers"]["X-Request-Id"] == "req-paper-llm"
+    assert "X-Timeout-Seconds" not in captured["headers"]
+    assert "tools" not in captured["json"]
+    assert "tool_choice" not in captured["json"]
+    for field, value in TRACEAUDIT_QWEN36_FINALIZER_V1.to_gateway_fields().items():
+        assert captured["json"][field] == value
     assert captured["json"]["chat_template_kwargs"]["enable_thinking"] is False
     assert request["mode"] == "live"
+    assert exchange_logs
+    exchange = exchange_logs[-1]
+    assert exchange["service"] == "s3-agent"
+    assert exchange["requestId"] == "req-paper-llm"
+    assert exchange["phase"] == "paper_finalizer"
+    assert exchange["mode"] == "live"
+    assert exchange["model"] == captured["json"]["model"]
+    assert exchange["maxTokens"] == captured["json"]["max_tokens"]
+    assert "prompt" not in exchange
+    assert "rawResponse" not in exchange
+
+
+@pytest.mark.asyncio
+async def test_live_s7_finalizer_parse_error_logs_metadata(monkeypatch, tmp_path, paper_source):
+    from app.paper.llm_client import LlmTriageClient
+    from app.paper.models import PaperCaseCreateRequest
+
+    body = make_case_body(tmp_path, paper_source)
+    body["producerArtifacts"]["llmTriageByFindingId"] = {}
+    case = PaperCaseCreateRequest.model_validate(body)
+    exchange_logs = []
+
+    class FakeResponse:
+        status_code = 200
+        text = "ok"
+        def json(self):
+            return {"choices": [{"finish_reason": "stop", "message": {"content": "not-json"}}]}
+
+    class FakeClient:
+        def __init__(self, timeout):
+            pass
+        async def __aenter__(self):
+            return self
+        async def __aexit__(self, *args):
+            return None
+        async def post(self, url, json, headers):
+            return FakeResponse()
+
+    monkeypatch.setattr("app.paper.llm_client.settings.llm_mode", "real")
+    monkeypatch.setattr("app.paper.llm_client.httpx.AsyncClient", FakeClient)
+    monkeypatch.setattr("app.paper.observability._exchange_logger.info", lambda message: exchange_logs.append(json.loads(message)))
+
+    token = set_request_id("req-finalizer-error")
+    try:
+        with pytest.raises(PaperOperationalError):
+            await LlmTriageClient(endpoint="http://s7.local").finalize_finding(
+                case,
+                finding={"findingId": "s4-finding-001", "ruleId": "CWE-120"},
+                evidence_rows=[{"evidenceRef": "s3-evidence:s4:finding:s4-finding-001", "text": "finding text"}],
+                acquisition_notes={"toolResults": []},
+            )
+    finally:
+        reset_request_id(token)
+
+    error_logs = [entry for entry in exchange_logs if entry.get("status") == "error"]
+    assert error_logs
+    assert error_logs[-1]["phase"] == "paper_finalizer"
+    assert error_logs[-1]["errorCode"] == "LLM_RESPONSE_CONTRACT_ERROR"
+    assert error_logs[-1]["requestId"] == "req-finalizer-error"
+    assert "prompt" not in error_logs[-1]
+    assert "rawResponse" not in error_logs[-1]
+
+
+@pytest.mark.asyncio
+async def test_live_s7_acquisition_request_uses_tools_auto_without_strict_json(monkeypatch, tmp_path, paper_source):
+    from app.agent_runtime.llm.generation_policy import TRACEAUDIT_QWEN36_ACQUISITION_V1
+    from app.paper.llm_client import LlmTriageClient
+    from app.paper.models import PaperCaseCreateRequest
+
+    body = make_case_body(tmp_path, paper_source)
+    body["producerArtifacts"]["llmTriageByFindingId"] = {}
+    case = PaperCaseCreateRequest.model_validate(body)
+    captured = {}
+
+    class FakeResponse:
+        status_code = 200
+        text = "ok"
+        def json(self):
+            return {
+                "choices": [
+                    {
+                        "finish_reason": "tool_calls",
+                        "message": {
+                            "content": None,
+                            "tool_calls": [
+                                {
+                                    "id": "call-1",
+                                    "type": "function",
+                                    "function": {
+                                        "name": "retrieve_finding_context",
+                                        "arguments": json.dumps({"findingId": "s4-finding-001"}),
+                                    },
+                                }
+                            ],
+                        },
+                    }
+                ],
+                "usage": {"prompt_tokens": 10, "completion_tokens": 3},
+            }
+
+    class FakeClient:
+        def __init__(self, timeout):
+            captured["timeout"] = timeout
+        async def __aenter__(self):
+            return self
+        async def __aexit__(self, *args):
+            return None
+        async def post(self, url, json, headers):
+            captured["url"] = url
+            captured["json"] = json
+            captured["headers"] = headers
+            return FakeResponse()
+
+    monkeypatch.setattr("app.paper.llm_client.settings.llm_mode", "real")
+    monkeypatch.setattr("app.paper.llm_client.httpx.AsyncClient", FakeClient)
+
+    token = set_request_id("req-paper-acquire")
+    try:
+        result, request = await LlmTriageClient(endpoint="http://s7.local").acquire_for_finding(
+            case,
+            finding={"findingId": "s4-finding-001", "ruleId": "CWE-120"},
+            evidence_rows=[{"evidenceRef": "s3-evidence:s4:finding:s4-finding-001", "text": "finding text"}],
+        )
+    finally:
+        reset_request_id(token)
+
+    assert result["toolCalls"][0]["name"] == "retrieve_finding_context"
+    assert captured["url"] == "http://s7.local/v1/chat"
+    assert "X-AEGIS-Strict-JSON" not in captured["headers"]
+    assert captured["headers"]["X-AEGIS-Wait-While-Alive"] == "true"
+    assert captured["headers"]["X-Request-Id"] == "req-paper-acquire"
+    assert captured["json"]["tool_choice"] == "auto"
+    assert {tool["function"]["name"] for tool in captured["json"]["tools"]} >= {"retrieve_finding_context", "retrieve_generic_threat_context", "list_evidence_rows"}
+    assert "response_format" not in captured["json"]
+    for field, value in TRACEAUDIT_QWEN36_ACQUISITION_V1.to_gateway_fields().items():
+        assert captured["json"][field] == value
+    assert request["mode"] == "live"
+    assert request["modelProfile"] == TRACEAUDIT_QWEN36_ACQUISITION_V1.profile_id
+    assert request["generationProfile"] == TRACEAUDIT_QWEN36_ACQUISITION_V1.to_metadata(model=captured["json"]["model"])
+
+
+@pytest.mark.asyncio
+async def test_live_s7_acquisition_parse_error_logs_metadata(monkeypatch, tmp_path, paper_source):
+    from app.paper.llm_client import LlmTriageClient
+    from app.paper.models import PaperCaseCreateRequest
+
+    body = make_case_body(tmp_path, paper_source)
+    body["producerArtifacts"]["llmTriageByFindingId"] = {}
+    case = PaperCaseCreateRequest.model_validate(body)
+    exchange_logs = []
+
+    class FakeResponse:
+        status_code = 200
+        text = "ok"
+        def json(self):
+            return {"choices": []}
+
+    class FakeClient:
+        def __init__(self, timeout):
+            pass
+        async def __aenter__(self):
+            return self
+        async def __aexit__(self, *args):
+            return None
+        async def post(self, url, json, headers):
+            return FakeResponse()
+
+    monkeypatch.setattr("app.paper.llm_client.settings.llm_mode", "real")
+    monkeypatch.setattr("app.paper.llm_client.httpx.AsyncClient", FakeClient)
+    monkeypatch.setattr("app.paper.observability._exchange_logger.info", lambda message: exchange_logs.append(json.loads(message)))
+
+    token = set_request_id("req-acquisition-error")
+    try:
+        with pytest.raises(PaperOperationalError):
+            await LlmTriageClient(endpoint="http://s7.local").acquire_for_finding(
+                case,
+                finding={"findingId": "s4-finding-001", "ruleId": "CWE-120"},
+                evidence_rows=[{"evidenceRef": "s3-evidence:s4:finding:s4-finding-001", "text": "finding text"}],
+            )
+    finally:
+        reset_request_id(token)
+
+    error_logs = [entry for entry in exchange_logs if entry.get("status") == "error"]
+    assert error_logs
+    assert error_logs[-1]["phase"] == "paper_acquisition"
+    assert error_logs[-1]["errorCode"] == "LLM_RESPONSE_CONTRACT_ERROR"
+    assert error_logs[-1]["requestId"] == "req-acquisition-error"
+    assert "prompt" not in error_logs[-1]
+    assert "rawResponse" not in error_logs[-1]
+
+
+@pytest.mark.asyncio
+async def test_live_s7_acquisition_second_round_preserves_openai_tool_history(monkeypatch, tmp_path, paper_source):
+    from app.paper.llm_client import LlmTriageClient
+    from app.paper.models import PaperCaseCreateRequest
+
+    body = make_case_body(tmp_path, paper_source)
+    body["producerArtifacts"]["llmTriageByFindingId"] = {}
+    case = PaperCaseCreateRequest.model_validate(body)
+    captured = {}
+    history = [
+        {"role": "system", "content": "sys"},
+        {"role": "user", "content": "user"},
+        {
+            "role": "assistant",
+            "content": None,
+            "tool_calls": [
+                {
+                    "id": "call-1",
+                    "type": "function",
+                    "function": {
+                        "name": "list_evidence_rows",
+                        "arguments": json.dumps({"findingId": "s4-finding-001"}, sort_keys=True),
+                    },
+                }
+            ],
+        },
+        {
+            "role": "tool",
+            "tool_call_id": "call-1",
+            "name": "list_evidence_rows",
+            "content": json.dumps({"success": True, "content": "Current normalized evidence rows: 1."}, sort_keys=True),
+        },
+    ]
+
+    class FakeResponse:
+        status_code = 200
+        text = "ok"
+        def json(self):
+            return {
+                "choices": [
+                    {
+                        "finish_reason": "stop",
+                        "message": {"content": "No additional tools.", "tool_calls": []},
+                    }
+                ]
+            }
+
+    class FakeClient:
+        def __init__(self, timeout):
+            pass
+        async def __aenter__(self):
+            return self
+        async def __aexit__(self, *args):
+            return None
+        async def post(self, url, json, headers):
+            captured["json"] = json
+            captured["headers"] = headers
+            return FakeResponse()
+
+    monkeypatch.setattr("app.paper.llm_client.settings.llm_mode", "real")
+    monkeypatch.setattr("app.paper.llm_client.httpx.AsyncClient", FakeClient)
+    result, _request = await LlmTriageClient(endpoint="http://s7.local").acquire_for_finding(
+        case,
+        finding={"findingId": "s4-finding-001", "ruleId": "CWE-120"},
+        evidence_rows=[{"evidenceRef": "s3-evidence:s4:finding:s4-finding-001", "text": "finding text"}],
+        acquisition_messages=history,
+        round_index=2,
+    )
+
+    assert captured["json"]["messages"] == history
+    assert captured["json"]["tool_choice"] == "auto"
+    assert "response_format" not in captured["json"]
+    assert "X-AEGIS-Strict-JSON" not in captured["headers"]
+    assert result["toolCalls"] == []
+    assert result["assistantMessage"] == {"role": "assistant", "content": "No additional tools."}

@@ -298,6 +298,67 @@ def _paper_static_evidence_error_response(
     }
 
 
+def _paper_static_evidence_error_payload(
+    *,
+    request_id: str,
+    code: str,
+    message: str,
+) -> dict:
+    return {
+        "success": False,
+        "error": message,
+        "errorDetail": {
+            "code": code,
+            "message": message,
+            "requestId": request_id,
+            "retryable": False,
+        },
+    }
+
+
+def _paper_static_evidence_log_context(payload: dict | PaperStaticEvidenceRequest | None) -> dict[str, str | None]:
+    if isinstance(payload, PaperStaticEvidenceRequest):
+        return {
+            "caseId": payload.case_id,
+            "buildTargetId": payload.build_target_id,
+            "paperRunId": payload.provenance.paper_run_id,
+        }
+    if not isinstance(payload, dict):
+        return {"caseId": None, "buildTargetId": None, "paperRunId": None}
+    provenance = payload.get("provenance") if isinstance(payload.get("provenance"), dict) else {}
+    return {
+        "caseId": payload.get("caseId") if isinstance(payload.get("caseId"), str) else None,
+        "buildTargetId": payload.get("buildTargetId") if isinstance(payload.get("buildTargetId"), str) else None,
+        "paperRunId": provenance.get("paperRunId") if isinstance(provenance.get("paperRunId"), str) else None,
+    }
+
+
+def _log_paper_static_evidence_lifecycle(
+    message: str,
+    *,
+    request_id: str,
+    started_at: float,
+    payload: dict | PaperStaticEvidenceRequest | None,
+    level: int = logging.INFO,
+    status: int | None = None,
+    code: str | None = None,
+    bundle: dict | None = None,
+) -> None:
+    extra: dict[str, object | None] = {
+        "requestId": request_id,
+        **_paper_static_evidence_log_context(payload),
+    }
+    if status is not None:
+        extra["status"] = status
+        extra["elapsedMs"] = max(int((time.monotonic() - started_at) * 1000), 0)
+    if code is not None:
+        extra["code"] = code
+    if isinstance(bundle, dict):
+        extra["bundleStatus"] = bundle.get("bundleStatus")
+        extra["s4ProducerRunId"] = bundle.get("s4ProducerRunId")
+    logger.log(level, message, extra=extra)
+
+
 def _prepare_scan_dir(body: ScanRequest) -> tuple[Path, list[str], bool]:
     """스캔 디렉토리를 준비한다.
 
@@ -962,8 +1023,24 @@ async def paper_static_evidence(request: Request, payload: dict, response: Respo
     request_id = _get_request_id(request)
     set_request_id(request_id)
     response.headers["X-Request-Id"] = request_id
+    started_at = time.monotonic()
+    _log_paper_static_evidence_lifecycle(
+        "paper static-evidence request start",
+        request_id=request_id,
+        started_at=started_at,
+        payload=payload,
+    )
 
     if contains_forbidden_request_field(payload):
+        _log_paper_static_evidence_lifecycle(
+            "paper static-evidence request error",
+            request_id=request_id,
+            started_at=started_at,
+            payload=payload,
+            level=logging.WARNING,
+            status=400,
+            code="PAPER_STATIC_EVIDENCE_REQUEST_FORBIDDEN_FIELD",
+        )
         return _paper_static_evidence_error_response(
             request_id=request_id,
             response=response,
@@ -974,6 +1051,15 @@ async def paper_static_evidence(request: Request, payload: dict, response: Respo
 
     compile_context = payload.get("compileContext")
     if isinstance(compile_context, dict) and compile_context.get("type") != "compile_commands_json":
+        _log_paper_static_evidence_lifecycle(
+            "paper static-evidence request error",
+            request_id=request_id,
+            started_at=started_at,
+            payload=payload,
+            level=logging.WARNING,
+            status=400,
+            code="UNSUPPORTED_COMPILE_CONTEXT_TYPE",
+        )
         return _paper_static_evidence_error_response(
             request_id=request_id,
             response=response,
@@ -985,6 +1071,15 @@ async def paper_static_evidence(request: Request, payload: dict, response: Respo
     try:
         body = PaperStaticEvidenceRequest.model_validate(payload)
     except ValidationError:
+        _log_paper_static_evidence_lifecycle(
+            "paper static-evidence request error",
+            request_id=request_id,
+            started_at=started_at,
+            payload=payload,
+            level=logging.WARNING,
+            status=400,
+            code="PAPER_STATIC_EVIDENCE_REQUEST_INVALID",
+        )
         return _paper_static_evidence_error_response(
             request_id=request_id,
             response=response,
@@ -994,6 +1089,15 @@ async def paper_static_evidence(request: Request, payload: dict, response: Respo
         )
 
     if body.compile_context.ref != body.provenance.compile_context_ref:
+        _log_paper_static_evidence_lifecycle(
+            "paper static-evidence request error",
+            request_id=request_id,
+            started_at=started_at,
+            payload=body,
+            level=logging.WARNING,
+            status=400,
+            code="COMPILE_CONTEXT_REF_MISMATCH",
+        )
         return _paper_static_evidence_error_response(
             request_id=request_id,
             response=response,
@@ -1002,10 +1106,52 @@ async def paper_static_evidence(request: Request, payload: dict, response: Respo
             status_code=400,
         )
 
+    if _wants_async_ownership(request):
+        async def _owned_paper_static_evidence() -> dict:
+            request_summary_tracker.mark_started(
+                request_id,
+                last_ack_source="paper-static-evidence-started",
+                local_ack_state="phase-advancing",
+            )
+            try:
+                rulesets = resolve_rulesets(None, None, settings.default_rulesets)
+                timeout = _get_timeout(request)
+                return await build_paper_static_evidence_bundle(
+                    request=body,
+                    request_id=request_id,
+                    orchestrator=orchestrator,
+                    ast_dumper=ast_dumper,
+                    include_resolver=include_resolver,
+                    identify_libraries_func=identify_libraries,
+                    build_static_evidence_contract_func=build_static_evidence_contract,
+                    rulesets=rulesets,
+                    timeout=timeout,
+                )
+            except PaperStaticEvidenceContractError as exc:
+                return _paper_static_evidence_error_payload(
+                    request_id=request_id,
+                    code=exc.reason_code,
+                    message=exc.message,
+                )
+
+        payload, status_code = await request_ownership_store.submit(
+            request_id,
+            endpoint="paper-static-evidence",
+            runner=_owned_paper_static_evidence,
+        )
+        _log_paper_static_evidence_lifecycle(
+            "paper static-evidence request accepted",
+            request_id=request_id,
+            started_at=started_at,
+            payload=body,
+            status=status_code,
+        )
+        return _ownership_response(payload, status_code)
+
     try:
         rulesets = resolve_rulesets(None, None, settings.default_rulesets)
         timeout = _get_timeout(request)
-        return await build_paper_static_evidence_bundle(
+        bundle = await build_paper_static_evidence_bundle(
             request=body,
             request_id=request_id,
             orchestrator=orchestrator,
@@ -1016,7 +1162,25 @@ async def paper_static_evidence(request: Request, payload: dict, response: Respo
             rulesets=rulesets,
             timeout=timeout,
         )
+        _log_paper_static_evidence_lifecycle(
+            "paper static-evidence request end",
+            request_id=request_id,
+            started_at=started_at,
+            payload=body,
+            status=200,
+            bundle=bundle,
+        )
+        return bundle
     except PaperStaticEvidenceContractError as exc:
+        _log_paper_static_evidence_lifecycle(
+            "paper static-evidence request error",
+            request_id=request_id,
+            started_at=started_at,
+            payload=body,
+            level=logging.WARNING,
+            status=exc.status_code,
+            code=exc.reason_code,
+        )
         return _paper_static_evidence_error_response(
             request_id=request_id,
             response=response,
@@ -1025,6 +1189,15 @@ async def paper_static_evidence(request: Request, payload: dict, response: Respo
             status_code=exc.status_code,
         )
     except Exception as exc:
+        _log_paper_static_evidence_lifecycle(
+            "paper static-evidence request error",
+            request_id=request_id,
+            started_at=started_at,
+            payload=body,
+            level=logging.ERROR,
+            status=500,
+            code="INTERNAL_ERROR",
+        )
         return _error_response(request_id, exc, response)
 
 

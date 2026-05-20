@@ -1,7 +1,9 @@
 """Knowledge Base — 위협 지식 검색 서비스 (Qdrant + Neo4j GraphRAG)."""
 
 import logging
+import time
 from contextlib import asynccontextmanager
+from uuid import uuid4
 
 import neo4j
 from fastapi import FastAPI, Request
@@ -11,6 +13,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse, Response
 
 from app.config import redact_url_for_log, settings
+from app.context import get_request_id, set_request_id
 from app.cve.nvd_client import NvdClient
 from app.graphrag.code_graph_assembler import CodeGraphAssembler
 from app.graphrag.code_graph_service import CodeGraphService
@@ -189,14 +192,60 @@ app = FastAPI(
 )
 
 class _RequestIdMiddleware(BaseHTTPMiddleware):
-    """X-Request-Id를 응답 헤더에 반환한다."""
+    """Echo request ids, generating them for S5 paper-facing endpoints."""
 
     async def dispatch(self, request: Request, call_next):
         request_id = request.headers.get("x-request-id")
-        response: Response = await call_next(request)
+        if request_id is None and _is_paper_facing_path(request.url.path):
+            request_id = f"req-{uuid4()}"
         if request_id:
-            response.headers["X-Request-Id"] = request_id
+            request.state.aegis_request_id = request_id
+        request.state.aegis_started_at = time.monotonic()
+        set_request_id(request_id)
+        response: Response = await call_next(request)
+        response_request_id = response.headers.get("X-Request-Id") or get_request_id() or getattr(
+            request.state,
+            "aegis_request_id",
+            request_id,
+        )
+        if response_request_id:
+            response.headers["X-Request-Id"] = response_request_id
         return response
+
+
+def _is_paper_facing_path(path: str) -> bool:
+    return path.startswith("/v1/paper/") or path == "/v1/contracts/paper-context"
+
+
+def _request_id_for_response(request: Request, *, generate_if_missing: bool = False) -> str | None:
+    request_id = get_request_id() or getattr(request.state, "aegis_request_id", None) or request.headers.get("x-request-id")
+    if request_id is None and generate_if_missing:
+        request_id = f"req-{uuid4()}"
+    if request_id:
+        set_request_id(request_id)
+        request.state.aegis_request_id = request_id
+    return request_id
+
+
+def _elapsed_ms(request: Request) -> int:
+    started_at = getattr(request.state, "aegis_started_at", None)
+    if started_at is None:
+        return 0
+    return int((time.monotonic() - started_at) * 1000)
+
+
+def _paper_observability_extra(request: Request, *, status: int, error_code: str | None = None) -> dict:
+    extra = {
+        "service": "s5-kb",
+        "requestId": _request_id_for_response(request, generate_if_missing=True),
+        "method": request.method,
+        "path": request.url.path,
+        "status": status,
+        "elapsedMs": _elapsed_ms(request),
+    }
+    if error_code:
+        extra["errorCode"] = error_code
+    return extra
 
 
 @app.exception_handler(HTTPException)
@@ -219,7 +268,8 @@ async def _http_exception_handler(request: Request, exc: HTTPException):
         paper_code = exc.detail.get("code")
     else:
         detail = exc.detail if isinstance(exc.detail, str) else str(exc.detail)
-    request_id = request.headers.get("x-request-id")
+    is_paper_facing = _is_paper_facing_path(request.url.path)
+    request_id = _request_id_for_response(request, generate_if_missing=is_paper_facing)
     error_detail = {
         "code": paper_code or code,
         "message": detail,
@@ -228,7 +278,7 @@ async def _http_exception_handler(request: Request, exc: HTTPException):
     }
     if reason:
         error_detail["reason"] = reason
-    return JSONResponse(
+    response = JSONResponse(
         status_code=exc.status_code,
         content={
             "success": False,
@@ -236,12 +286,21 @@ async def _http_exception_handler(request: Request, exc: HTTPException):
             "errorDetail": error_detail,
         },
     )
+    if request_id:
+        response.headers["X-Request-Id"] = request_id
+    if is_paper_facing:
+        logger.error(
+            "S5 paper endpoint error",
+            extra={"_extra": _paper_observability_extra(request, status=exc.status_code, error_code=str(paper_code or code))},
+        )
+    return response
 
 
 @app.exception_handler(RequestValidationError)
 async def _request_validation_exception_handler(request: Request, exc: RequestValidationError):
     """Pydantic/FastAPI validation errors in the S5 observability error envelope."""
-    request_id = request.headers.get("x-request-id")
+    is_paper_facing = _is_paper_facing_path(request.url.path)
+    request_id = _request_id_for_response(request, generate_if_missing=is_paper_facing)
     errors = exc.errors()
     sanitized_errors = [
         {key: value for key, value in error.items() if key not in {"input", "ctx"}}
@@ -318,13 +377,14 @@ async def _request_validation_exception_handler(request: Request, exc: RequestVa
             reason = "ingest_value_too_large"
     elif request.url.path.startswith("/v1/paper/"):
         reason = "S5_PAPER_SCHEMA_INVALID"
-    return JSONResponse(
+    error_code = "S5_PAPER_SCHEMA_INVALID" if request.url.path.startswith("/v1/paper/") else "INVALID_INPUT"
+    response = JSONResponse(
         status_code=422,
         content={
             "success": False,
             "error": detail,
             "errorDetail": {
-                "code": "S5_PAPER_SCHEMA_INVALID" if request.url.path.startswith("/v1/paper/") else "INVALID_INPUT",
+                "code": error_code,
                 "message": detail,
                 "requestId": request_id,
                 "retryable": False,
@@ -332,6 +392,14 @@ async def _request_validation_exception_handler(request: Request, exc: RequestVa
             },
         },
     )
+    if request_id:
+        response.headers["X-Request-Id"] = request_id
+    if is_paper_facing:
+        logger.error(
+            "S5 paper endpoint validation error",
+            extra={"_extra": _paper_observability_extra(request, status=422, error_code=error_code)},
+        )
+    return response
 
 
 app.add_middleware(_RequestIdMiddleware)

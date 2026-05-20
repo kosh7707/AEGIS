@@ -11,10 +11,23 @@ def normalize_s4(bundle: dict[str, Any]) -> tuple[dict[str, Any], list[EvidenceL
     producer_run = bundle.get("s4ProducerRunId")
     ledger: list[EvidenceLedgerRow] = []
     findings = []
+    source_file_to_finding: dict[str, str] = {}
+    function_to_finding: dict[str, str] = {}
+    for finding in bundle.get("findings", []):
+        finding_id = finding["findingId"]
+        source_file_id = (finding.get("location") or {}).get("sourceFileId")
+        if source_file_id and source_file_id not in source_file_to_finding:
+            source_file_to_finding[source_file_id] = finding_id
+        function_id = finding.get("functionId")
+        if function_id and function_id not in function_to_finding:
+            function_to_finding[function_id] = finding_id
     for finding in bundle.get("findings", []):
         finding_id = finding["findingId"]
         text = finding.get("message") or finding.get("ruleId") or finding_id
-        evidence_ref = f"s3-evidence:s4:finding:{finding_id}"
+        surface_status = _s4_surface_status(bundle, "findings")
+        diagnostic_row = surface_status != "produced"
+        prefix = "s3-diagnostic" if diagnostic_row else "s3-evidence"
+        evidence_ref = f"{prefix}:s4:finding:{finding_id}"
         ledger.append(
             EvidenceLedgerRow(
                 evidenceRef=evidence_ref,
@@ -27,8 +40,9 @@ def normalize_s4(bundle: dict[str, Any]) -> tuple[dict[str, Any], list[EvidenceL
                 relatedFindingId=finding_id,
                 evidenceType="s4_finding",
                 text=text,
-                surfaceStatus="produced",
+                surfaceStatus=surface_status,
                 producerTrace=finding.get("trace", {}),
+                diagnostic=diagnostic_row,
             )
         )
         normalized = {
@@ -44,6 +58,56 @@ def normalize_s4(bundle: dict[str, Any]) -> tuple[dict[str, Any], list[EvidenceL
             "s4Trace": finding.get("trace", {}),
         }
         findings.append(normalized)
+    for surface in ["evidence", "sourceFiles", "functions", "includeEdges", "libraries", "toolRuns"]:
+        surface_status = _s4_surface_status(bundle, surface)
+        for row in bundle.get(surface, []):
+            row_id = _s4_row_id(row, surface)
+            related_finding_id = _s4_related_finding_id(
+                row,
+                surface,
+                source_file_to_finding=source_file_to_finding,
+                function_to_finding=function_to_finding,
+            )
+            ledger.append(
+                EvidenceLedgerRow(
+                    evidenceRef=f"{'s3-diagnostic' if surface_status != 'produced' else 's3-evidence'}:s4:{surface}:{row_id}",
+                    caseId=case_id,
+                    buildTargetId=build_target_id,
+                    producer="s4",
+                    producerRunId=producer_run,
+                    rawObjectRef=row.get("trace", {}).get("rawObjectRef"),
+                    sourceId=row_id,
+                    relatedFindingId=related_finding_id,
+                    evidenceType=_s4_evidence_type(surface),
+                    text=_s4_row_text(row, surface),
+                    surfaceStatus=surface_status,
+                    producerTrace=row.get("trace", {}),
+                    diagnostic=surface_status != "produced",
+                )
+            )
+    for surface in ["targetMetadata", "staticEvidenceContract", "claimBoundaryMatrix", "claimBoundaries"]:
+        surface_status = _s4_surface_status(bundle, surface)
+        row_value = bundle.get(surface)
+        if row_value is None:
+            continue
+        diagnostic_row = surface_status != "produced"
+        prefix = "s3-diagnostic" if diagnostic_row else "s3-evidence"
+        ledger.append(
+            EvidenceLedgerRow(
+                evidenceRef=f"{prefix}:s4:{surface}:{surface}",
+                caseId=case_id,
+                buildTargetId=build_target_id,
+                producer="s4",
+                producerRunId=producer_run,
+                rawObjectRef=_s4_singleton_raw_ref(row_value, surface),
+                sourceId=surface,
+                evidenceType=_s4_evidence_type(surface),
+                text=_s4_singleton_text(row_value, surface),
+                surfaceStatus=surface_status,
+                producerTrace=_s4_singleton_trace(row_value, surface, bundle),
+                diagnostic=diagnostic_row,
+            )
+        )
     for diagnostic in bundle.get("diagnostics", []):
         diagnostic_id = diagnostic.get("diagnosticId", f"diagnostic:{len(ledger)}")
         ledger.append(
@@ -70,11 +134,131 @@ def normalize_s4(bundle: dict[str, Any]) -> tuple[dict[str, Any], list[EvidenceL
         "bundleRef": bundle.get("bundleRef"),
         "surfaceStatus": bundle.get("surfaceStatus", {}),
         "findings": findings,
+        "evidence": bundle.get("evidence", []),
+        "sourceFiles": bundle.get("sourceFiles", []),
+        "functions": bundle.get("functions", []),
+        "includeEdges": bundle.get("includeEdges", []),
+        "libraries": bundle.get("libraries", []),
+        "toolRuns": bundle.get("toolRuns", []),
         "diagnostics": bundle.get("diagnostics", []),
         "claimBoundaries": bundle.get("claimBoundaries", {}),
         "claimBoundaryMatrix": bundle.get("claimBoundaryMatrix", []),
     }
     return normalized_bundle, ledger, findings
+
+
+def _s4_row_id(row: dict[str, Any], surface: str) -> str:
+    id_fields = {
+        "evidence": "evidenceId",
+        "sourceFiles": "sourceFileId",
+        "functions": "functionId",
+        "includeEdges": "includeEdgeId",
+        "libraries": "libraryId",
+        "toolRuns": "toolRunId",
+    }
+    return str(row[id_fields[surface]])
+
+
+def _s4_evidence_type(surface: str) -> str:
+    return {
+        "evidence": "s4_evidence",
+        "sourceFiles": "s4_source_file",
+        "functions": "s4_function",
+        "includeEdges": "s4_include_edge",
+        "libraries": "s4_library",
+        "toolRuns": "s4_tool_run",
+        "targetMetadata": "s4_target_metadata",
+        "staticEvidenceContract": "s4_static_evidence_contract",
+        "claimBoundaryMatrix": "s4_claim_boundary_matrix",
+        "claimBoundaries": "s4_claim_boundaries",
+    }[surface]
+
+
+def _s4_related_finding_id(
+    row: dict[str, Any],
+    surface: str,
+    *,
+    source_file_to_finding: dict[str, str],
+    function_to_finding: dict[str, str],
+) -> str | None:
+    if surface == "evidence":
+        return row.get("findingId")
+    if surface == "sourceFiles":
+        return source_file_to_finding.get(row.get("sourceFileId"))
+    if surface == "functions":
+        return function_to_finding.get(row.get("functionId"))
+    return None
+
+
+def _s4_row_text(row: dict[str, Any], surface: str) -> str:
+    if surface == "evidence":
+        return row.get("text") or row.get("evidenceId") or ""
+    if surface == "sourceFiles":
+        path = row.get("path") or row.get("sourceFileId")
+        language = row.get("language")
+        return f"Source file {path}" + (f" ({language})" if language else "")
+    if surface == "functions":
+        return row.get("qualifiedName") or row.get("name") or row.get("functionId") or ""
+    if surface == "includeEdges":
+        return row.get("text") or row.get("includeEdgeId") or ""
+    if surface == "libraries":
+        return row.get("name") or row.get("libraryId") or ""
+    if surface == "toolRuns":
+        tool = row.get("toolId") or row.get("toolRunId")
+        status = row.get("status")
+        count = row.get("findingsCount")
+        parts = [f"SAST tool run {tool}"]
+        if status is not None:
+            parts.append(f"status={status}")
+        if count is not None:
+            parts.append(f"findings={count}")
+        return "; ".join(parts)
+    return ""
+
+
+def _s4_surface_status(bundle: dict[str, Any], surface: str) -> str:
+    return ((bundle.get("surfaceStatus") or {}).get(surface) or {}).get("status") or "produced"
+
+
+def _s4_singleton_text(value: Any, surface: str) -> str:
+    if surface == "targetMetadata" and isinstance(value, dict):
+        language = value.get("language")
+        compile_context = (value.get("compileContext") or {}).get("ref")
+        parts = ["S4 target metadata"]
+        if language:
+            parts.append(f"language={language}")
+        if compile_context:
+            parts.append(f"compileContextRef={compile_context}")
+        return "; ".join(parts)
+    if surface == "staticEvidenceContract":
+        return "S4 static evidence contract and producer claim boundaries."
+    if surface == "claimBoundaryMatrix":
+        count = len(value) if isinstance(value, list) else 0
+        return f"S4 claim boundary matrix entries={count}."
+    if surface == "claimBoundaries":
+        return "S4 claim boundary policy."
+    return f"S4 {surface}."
+
+
+def _s4_singleton_trace(value: Any, surface: str, bundle: dict[str, Any]) -> dict[str, Any]:
+    if isinstance(value, dict) and isinstance(value.get("trace"), dict):
+        return value["trace"]
+    return {
+        "caseId": bundle.get("caseId"),
+        "buildTargetId": bundle.get("buildTargetId"),
+        "bundleRef": bundle.get("bundleRef"),
+        "s4ProducerRunId": bundle.get("s4ProducerRunId"),
+        "surface": surface,
+        "rawObjectRef": surface,
+    }
+
+
+def _s4_singleton_raw_ref(value: Any, surface: str) -> str:
+    if isinstance(value, dict):
+        trace = value.get("trace") or {}
+        if trace.get("rawObjectRef"):
+            return str(trace["rawObjectRef"])
+    return surface
 
 
 def normalize_s5_rows(response: dict[str, Any], *, evidence_type: str) -> tuple[dict[str, Any], list[EvidenceLedgerRow]]:
@@ -84,11 +268,16 @@ def normalize_s5_rows(response: dict[str, Any], *, evidence_type: str) -> tuple[
     finding_id = response.get("findingId")
     ledger: list[EvidenceLedgerRow] = []
     rows = response.get("rows", []) or []
+    response_surface_status = response.get("surfaceStatus")
     for row in rows:
         item_id = row["itemId"]
+        row_surface_status = row.get("surfaceStatus")
+        effective_surface_status = row_surface_status if response_surface_status == "produced" else response_surface_status
+        diagnostic_row = effective_surface_status != "produced"
+        prefix = "s3-diagnostic" if diagnostic_row else "s3-evidence"
         ledger.append(
             EvidenceLedgerRow(
-                evidenceRef=f"s3-evidence:s5:{item_id}",
+                evidenceRef=f"{prefix}:s5:{evidence_type}:{item_id}",
                 caseId=case_id,
                 buildTargetId=build_target_id,
                 producer="s5",
@@ -98,16 +287,17 @@ def normalize_s5_rows(response: dict[str, Any], *, evidence_type: str) -> tuple[
                 relatedFindingId=finding_id,
                 evidenceType=evidence_type,
                 text=row.get("text", ""),
-                surfaceStatus=row.get("surfaceStatus"),
+                surfaceStatus=effective_surface_status,
                 visibleLeakageClass=row.get("visibleLeakageClass"),
                 producerTrace=row.get("producerTrace", {}),
+                diagnostic=diagnostic_row,
             )
         )
     for diagnostic in response.get("diagnostics", []) or []:
         diag_id = diagnostic.get("code", "S5_DIAGNOSTIC") + f":{len(ledger)}"
         ledger.append(
             EvidenceLedgerRow(
-                evidenceRef=f"s3-diagnostic:s5:{response.get('findingId', 'target')}:{diag_id}",
+                evidenceRef=f"s3-diagnostic:s5:{evidence_type}:{response.get('findingId', 'target')}:{diag_id}",
                 caseId=case_id,
                 buildTargetId=build_target_id,
                 producer="s5",

@@ -304,10 +304,15 @@ def test_paper_context_contract_snapshot_advertises_s3_consumable_boundary():
         ("POST", "/v1/paper/finding-context/retrieve", "retrieve_finding_context"),
         ("POST", "/v1/paper/threat-context/generic", "retrieve_generic_threat_context"),
     }
-    assert all(item["timeoutHeaderRequired"] is True for item in body["endpoints"])
+    assert all(item["timeoutHeaderRequired"] is False for item in body["endpoints"])
+    assert body["policies"]["paperCallLivenessPolicy"] == "synchronous_bounded_no_absolute_semantic_timeout"
+    assert body["policies"]["callerReadTimeoutPolicy"] == "no_fixed_absolute_read_deadline_transport_fallback_only"
     assert body["policies"]["mainlineForbiddenLeakageClasses"] == FORBIDDEN_LEAKAGE_CLASSES
     assert body["policies"]["forbiddenInferencePolicy"] == "producer_status_is_not_final_triage"
-    assert body["freezeGate"]["s5VisiblePacketSchemaFinalized"] is False
+    assert body["freezeGate"]["s5VisiblePacketSchemaFinalized"] is True
+    assert body["freezeGate"]["s5FreezeGate"] == "pass"
+    assert body["freezeGate"]["validationSuiteVersion"] == "s5-paper-freeze-gate-v1"
+    assert body["freezeGate"]["s3ConsumerExecutionStatus"] == "pending_s3_owned_validation"
     assert body["freezeGate"]["finalVerdictFieldsForbidden"] is True
 
 
@@ -319,11 +324,18 @@ def test_paper_context_contract_snapshot_advertises_s3_consumable_boundary():
         ("/v1/paper/threat-context/generic", _threat_payload()),
     ],
 )
-def test_paper_post_endpoints_require_timeout_header(path: str, payload: dict[str, Any]):
+def test_paper_post_endpoints_accept_missing_timeout_header_as_no_absolute_deadline(
+    paper_repo,
+    path: str,
+    payload: dict[str, Any],
+):
+    if path != "/v1/paper/code-kb/prepare":
+        _seed_prepare(paper_repo)
+
     resp = client.post(path, json=payload, headers={"X-Request-Id": payload["requestId"]})
 
-    assert resp.status_code == 400, resp.text
-    assert resp.json()["errorDetail"]["code"] == "S5_PAPER_TIMEOUT_HEADER_MISSING_OR_INVALID"
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["producerProvenance"]["paperContextContractVersion"] == "s5-paper-context-api-v1"
 
 
 @pytest.mark.parametrize(

@@ -6,6 +6,7 @@ import logging
 import os
 import sys
 import time as _time
+import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
@@ -275,7 +276,7 @@ def _sanitize_validation_errors(errors: list[dict[str, Any]]) -> list[dict[str, 
 @app.exception_handler(RequestValidationError)
 async def request_validation_error_handler(request, exc: RequestValidationError):
     """Return value-free 422 validation errors without FastAPI raw `input` echo."""
-    request_id = request.headers.get("X-Request-Id") or get_request_id() or "unknown"
+    request_id = request.headers.get("X-Request-Id") or get_request_id() or f"req-{uuid.uuid4()}"
     set_request_id(request_id)
     validation_errors = _sanitize_validation_errors(exc.errors())
 
@@ -310,9 +311,11 @@ async def request_validation_error_handler(request, exc: RequestValidationError)
 @app.exception_handler(SastRunnerError)
 async def sast_runner_error_handler(request, exc: SastRunnerError):
     """SastRunnerError를 observability.md 형식으로 변환."""
-    request_id = request.headers.get("X-Request-Id") or get_request_id() or "unknown"
+    request_id = request.headers.get("X-Request-Id") or get_request_id() or f"req-{uuid.uuid4()}"
+    set_request_id(request_id)
     return JSONResponse(
         status_code=exc.status_code,
+        headers={"X-Request-Id": request_id},
         content={
             "success": False,
             "error": exc.message,

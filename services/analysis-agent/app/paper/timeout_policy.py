@@ -3,15 +3,12 @@ from __future__ import annotations
 import httpx
 
 
-WAIT_WHILE_ALIVE_TIMEOUT_POLICY = "wait-while-alive"
-"""Paper-path producer calls must not fail only because wall-clock time elapsed.
+"""Transport timeout helpers for long-running TraceAudit paper calls.
 
-The paper path can be substantially longer than the ordinary interactive S3
-tools. Correctness policy is: if the producer service is alive/progressing, S3
-keeps waiting; terminal producer failure is distinct from caller-side read
-deadline expiry. Until every paper producer offers first-class async ownership
-or heartbeat/status endpoints, S3 uses a compatibility transport timeout with
-no read deadline.
+The paper path can be substantially longer than ordinary interactive S3 tools.
+Correctness policy is: terminal producer status is evidence of producer outcome;
+caller-side read-deadline expiry is not. Producer correlation is carried by
+``X-Request-Id`` at each service boundary, not by legacy timeout-policy headers.
 """
 
 
@@ -30,12 +27,3 @@ def wait_while_alive_http_timeout(
     """
 
     return httpx.Timeout(connect=connect, read=None, write=write, pool=pool)
-
-
-def wait_while_alive_headers(request_id: str | None = None) -> dict[str, str]:
-    """Headers that advertise the paper path's liveness policy to producers."""
-
-    headers = {"X-AEGIS-Timeout-Policy": WAIT_WHILE_ALIVE_TIMEOUT_POLICY}
-    if request_id:
-        headers["X-Request-Id"] = request_id
-    return headers

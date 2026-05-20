@@ -17,23 +17,17 @@ from .models import (
     StageProgress,
     StageRecord,
 )
+from .observability import PaperObservedRoute, log_event, paper_error_response
 from .runner import PaperCaseRunner
 
-router = APIRouter(prefix="/v1/paper", tags=["paper"])
+router = APIRouter(prefix="/v1/paper", tags=["paper"], route_class=PaperObservedRoute)
 
 _CASES: dict[str, PaperCaseCreateRequest] = {}
 _RECORDS: dict[str, CaseRecord] = {}
 
 
 def _error_response(exc: PaperError) -> JSONResponse:
-    return JSONResponse(
-        status_code=exc.status_code,
-        content={
-            "success": False,
-            "error": exc.message,
-            "errorDetail": {"code": exc.code, "message": exc.message, "retryable": False, **exc.detail},
-        },
-    )
+    return paper_error_response(exc)
 
 
 @router.post("/analysis-cases")
@@ -66,6 +60,13 @@ async def create_analysis_case(request: PaperCaseCreateRequest) -> JSONResponse:
         )
         _CASES[request.caseId] = request
         _RECORDS[request.caseId] = record
+        log_event(
+            "paper case registered",
+            event="paper_case_registered",
+            caseId=request.caseId,
+            buildTargetId=request.buildTargetId,
+            paperRunId=request.paperRunId,
+        )
         response = PaperCaseCreateResponse(
             caseId=request.caseId,
             buildTargetId=request.buildTargetId,
@@ -85,6 +86,12 @@ async def create_analysis_case(request: PaperCaseCreateRequest) -> JSONResponse:
 @router.get("/analysis-cases")
 async def list_analysis_cases(paperRunId: str | None = Query(default=None)) -> dict[str, Any]:
     records = [record for record in _RECORDS.values() if paperRunId is None or record.paperRunId == paperRunId]
+    log_event(
+        "paper cases listed",
+        event="paper_cases_listed",
+        paperRunId=paperRunId,
+        caseCount=len(records),
+    )
     return {"cases": [PaperCaseStatusResponse(**record.model_dump()).model_dump(mode="json") for record in records]}
 
 
@@ -92,6 +99,14 @@ async def list_analysis_cases(paperRunId: str | None = Query(default=None)) -> d
 async def get_analysis_case(case_id: str) -> JSONResponse:
     try:
         record = _get_record(case_id)
+        log_event(
+            "paper case status fetched",
+            event="paper_case_status_fetched",
+            caseId=record.caseId,
+            buildTargetId=record.buildTargetId,
+            paperRunId=record.paperRunId,
+            status=record.status.value,
+        )
         return JSONResponse(content=PaperCaseStatusResponse(**record.model_dump()).model_dump(mode="json"))
     except PaperError as exc:
         return _error_response(exc)
@@ -101,6 +116,13 @@ async def get_analysis_case(case_id: str) -> JSONResponse:
 async def start_analysis_case(case_id: str) -> JSONResponse:
     try:
         request = _get_case(case_id)
+        log_event(
+            "paper case start requested",
+            event="paper_case_start_requested",
+            caseId=request.caseId,
+            buildTargetId=request.buildTargetId,
+            paperRunId=request.paperRunId,
+        )
         runner = PaperCaseRunner()
         summary = await runner.run(request)
         record = _get_record(case_id)
@@ -108,6 +130,15 @@ async def start_analysis_case(case_id: str) -> JSONResponse:
         _apply_stage_results(record, summary)
         record.summary = summary
         _RECORDS[case_id] = record
+        log_event(
+            "paper case completed",
+            event="paper_case_completed",
+            caseId=request.caseId,
+            buildTargetId=request.buildTargetId,
+            paperRunId=request.paperRunId,
+            findingCount=summary.get("findingCount"),
+            triageCounts=summary.get("triageCounts"),
+        )
         return JSONResponse(content=PaperCaseStatusResponse(**record.model_dump()).model_dump(mode="json"))
     except PaperError as exc:
         return _error_response(exc)
@@ -125,6 +156,14 @@ async def get_artifacts(case_id: str) -> JSONResponse:
             status=record.status,
             caseRoot=str(artifacts.root),
             files=artifacts.list_files(),
+        )
+        log_event(
+            "paper artifacts listed",
+            event="paper_artifacts_listed",
+            caseId=record.caseId,
+            buildTargetId=record.buildTargetId,
+            paperRunId=record.paperRunId,
+            fileCount=len(response.files),
         )
         return JSONResponse(content=response.model_dump(mode="json"))
     except PaperError as exc:

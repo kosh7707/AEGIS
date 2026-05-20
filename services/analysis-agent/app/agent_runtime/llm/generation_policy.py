@@ -53,6 +53,51 @@ class GenerationControls:
         return replace(self, **clean_updates)
 
 
+@dataclass(frozen=True)
+class ChatGenerationProfile:
+    """Named S3 chat profile for reproducible S7 calls.
+
+    `GenerationControls` intentionally excludes max_tokens because many legacy
+    S3 call sites budget completion tokens per turn. Paper-facing triage needs a
+    stronger contract: every live verdict must be attributable to a named
+    profile that includes both the complete S7 generation tuple and the
+    completion-token budget used for that profile version.
+    """
+
+    profile_id: str
+    max_tokens: int
+    controls: GenerationControls
+    response_format: dict[str, Any] | None = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.max_tokens, int) or isinstance(self.max_tokens, bool):
+            raise ValueError("max_tokens must be an integer")
+        if not (1 <= self.max_tokens <= 32768):
+            raise ValueError("max_tokens must be between 1 and 32768")
+        if not self.profile_id:
+            raise ValueError("profile_id must be non-empty")
+
+    def to_gateway_fields(self) -> dict[str, Any]:
+        """Return S7 request fields owned by this profile."""
+        fields = {
+            "max_tokens": self.max_tokens,
+            **self.controls.to_gateway_fields(),
+        }
+        if self.response_format is not None:
+            fields["response_format"] = self.response_format
+        return fields
+
+    def to_metadata(self, *, model: str | None = None) -> dict[str, Any]:
+        """Return reproducibility metadata suitable for transcripts/artifacts."""
+        metadata: dict[str, Any] = {
+            "profileId": self.profile_id,
+            "generationControls": self.to_gateway_fields(),
+        }
+        if model is not None:
+            metadata["model"] = model
+        return metadata
+
+
 class TimeoutDefaults:
     """S7-aligned timeout policy constants consumed by S3 callers/tools.
 
@@ -112,6 +157,33 @@ STRICT_JSON_REPAIR = GenerationControls(
     repetition_penalty=1.0,
     enable_thinking=False,
 )
+
+# Paper TraceAudit evidence-acquisition/reasoning profile for Qwen3.6-27B via S7.
+#
+# Acquisition turns are allowed to think and call tools. They must not request
+# strict JSON mode because the model may need to emit OpenAI tool_calls.
+TRACEAUDIT_QWEN36_ACQUISITION_V1 = ChatGenerationProfile(
+    profile_id="traceaudit-qwen36-acquisition-v1",
+    max_tokens=32768,
+    controls=THINKING_GENERAL,
+    response_format=None,
+)
+
+# Paper TraceAudit strict finalizer profile for Qwen3.6-27B via S7.
+#
+# This profile is deliberately centralized because paper verdict rows must be
+# reproducible and audit-attributable. It is tool-less and schema-constrained;
+# do not reuse it for acquisition/tool-call turns.
+TRACEAUDIT_QWEN36_FINALIZER_V1 = ChatGenerationProfile(
+    profile_id="traceaudit-qwen36-finalizer-v1",
+    max_tokens=8192,
+    controls=STRICT_JSON_REPAIR,
+    response_format={"type": "json_object"},
+)
+
+# Backward-compatible alias for tests/callers not yet migrated. The canonical
+# names above distinguish the acquisition and finalization phases.
+TRACEAUDIT_QWEN36_TRIAGE_V1 = TRACEAUDIT_QWEN36_FINALIZER_V1
 
 # Transitional default for legacy call sites during the foundation slice.
 # Deprecation milestone: once S3 regression-gate evidence shows every active

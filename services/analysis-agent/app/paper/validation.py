@@ -204,10 +204,19 @@ def validate_s5_contract_snapshot(snapshot: dict[str, Any]) -> None:
         raise PaperContractError("S5 contract snapshot missing required paper tools")
 
 
-def validate_s5_response(data: dict[str, Any], *, expected_case_id: str, expected_build_target_id: str, require_rows: bool = False) -> None:
+def validate_s5_response(
+    data: dict[str, Any],
+    *,
+    expected_case_id: str,
+    expected_build_target_id: str,
+    expected_finding_id: str | None = None,
+    require_rows: bool = False,
+) -> None:
     _assert_no_forbidden_keys(data, S5_FORBIDDEN_KEYS, source="S5")
     if data.get("caseId") != expected_case_id or data.get("buildTargetId") != expected_build_target_id:
         raise PaperContractError("S5 response case/buildTarget identity mismatch")
+    if expected_finding_id is not None and data.get("findingId") != expected_finding_id:
+        raise PaperContractError("S5 response findingId mismatch")
     status = data.get("surfaceStatus")
     if status not in S5_SURFACE_STATUSES:
         raise PaperContractError("S5 response surfaceStatus is unknown")
@@ -251,7 +260,12 @@ def validate_s5_row(row: Any, *, index: int = 0) -> None:
 
 
 def _assert_visible_text_safe(obj: Any) -> None:
-    for path, _key, value in _walk(obj):
+    for path, key, value in _walk(obj):
+        for pattern in FORBIDDEN_LEAKAGE_VALUES:
+            if pattern.search(str(key)):
+                raise PaperContractError(f"S5 visible field contains forbidden leakage in key at {path}")
+        if FORBIDDEN_VERDICT_VALUE_RE.search(str(key)):
+            raise PaperContractError(f"S5 visible field contains verdict-like key at {path}")
         if isinstance(value, str):
             if FORBIDDEN_VERDICT_VALUE_RE.search(value):
                 raise PaperContractError(f"S5 visible field contains verdict-like language at {path}")

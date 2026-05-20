@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -75,6 +76,65 @@ SURFACE_STATUSES = {
 NON_DIAGNOSTIC_SURFACE_STATUSES = {"produced", "empty"}
 TOOL_RUN_SUCCESS_STATUSES = {"success"}
 TOOL_RUN_STATUSES = {"success", "failed", "timeout", "not_available", "skipped"}
+DIAGNOSTIC_CATEGORIES = {
+    "request-contract",
+    "input-consumption",
+    "tool-execution",
+    "producer-invariant",
+    "surface-unavailable",
+    "surface-error",
+    "operational",
+}
+DIAGNOSTIC_REASON_CODES = {
+    "PAPER_STATIC_EVIDENCE_REQUEST_INVALID",
+    "PAPER_STATIC_EVIDENCE_REQUEST_FORBIDDEN_FIELD",
+    "UNSUPPORTED_COMPILE_CONTEXT_TYPE",
+    "COMPILE_CONTEXT_REF_MISMATCH",
+    "SOURCE_ROOT_UNREADABLE",
+    "COMPILE_CONTEXT_UNREADABLE",
+    "COMPILE_CONTEXT_PARSE_FAILED",
+    "COMPILE_CONTEXT_NO_ANALYZABLE_ENTRIES",
+    "COMPILE_CONTEXT_SOURCE_UNRESOLVED",
+    "REQUIRED_TOOL_UNAVAILABLE",
+    "REQUIRED_TOOL_EXECUTION_INCOMPLETE",
+    "SURFACE_NOT_AVAILABLE",
+    "SURFACE_PRODUCTION_FAILED",
+    "STATIC_EVIDENCE_CONTRACT_MISSING",
+    "SURFACE_STATUS_INCOMPLETE",
+    "ROW_TRACE_MISSING",
+    "DUPLICATE_ROW_ID",
+    "PRODUCER_INTERNAL_ERROR",
+    # Existing deterministic producer projections.
+    "TOOL_RUN_MISSING",
+    "TOOL_EXECUTION_FAILED",
+    "TOOL_EXECUTION_PARTIAL",
+    "TOOL_EXECUTION_SKIPPED",
+    "TOOL_EXECUTION_TIMEOUT",
+    "RUNTIME_TOOL_MISSING",
+    "ENVIRONMENT_DRIFT",
+    "TOOL_CHECK_FAILED",
+}
+REQUIRED_TRACE_FIELDS = {
+    "caseId",
+    "buildTargetId",
+    "bundleRef",
+    "s4RequestId",
+    "s4ProducerRunId",
+    "sourceRootRef",
+    "compileContextRef",
+    "surfaceId",
+    "surface",
+    "rawObjectRef",
+}
+SINGLETON_SURFACES = {"targetMetadata", "staticEvidenceContract", "claimBoundaries"}
+ARRAY_SURFACES = set(DIAGNOSTIC_CAPABLE_ARRAYS) | {"claimBoundaryMatrix"}
+UNSAFE_DIAGNOSTIC_MESSAGE_PATTERNS = (
+    re.compile(r"traceback", re.IGNORECASE),
+    re.compile(r"\bFile\s+\"", re.IGNORECASE),
+    re.compile(r"(^|\s)/(home|tmp|var|etc|root|Users)/"),
+    re.compile(r"[A-Za-z]:\\\\"),
+    re.compile(r"(secret|password|token)", re.IGNORECASE),
+)
 
 FORBIDDEN_REQUEST_FIELDS = {
     "buildCommand",
@@ -95,6 +155,15 @@ FORBIDDEN_REQUEST_FIELDS = {
     "fingerprint",
     "artifactHash",
     "replayHash",
+    "integrity",
+    "integrityStatus",
+    "artifactIntegrity",
+    "reproducibility",
+    "reproducibleBuild",
+    "finalVerdict",
+    "securityVerdict",
+    "provenSafe",
+    "isSafe",
 }
 FORBIDDEN_BUNDLE_KEYS = {
     "verdict",
@@ -110,6 +179,15 @@ FORBIDDEN_BUNDLE_KEYS = {
     "fingerprint",
     "artifactHash",
     "replayHash",
+    "integrity",
+    "integrityStatus",
+    "artifactIntegrity",
+    "reproducibility",
+    "reproducibleBuild",
+    "finalVerdict",
+    "securityVerdict",
+    "provenSafe",
+    "isSafe",
 }
 FORBIDDEN_VALUES = {"TP", "FP", "UNKNOWN"}
 SOURCE_EXTENSIONS = {".c", ".cc", ".cpp", ".cxx"}
@@ -166,6 +244,10 @@ def _warn(report: dict[str, Any], section: str, reason_code: str, message: str, 
     report[section]["warnings"].append(_issue(reason_code, message, path))
 
 
+def _is_failed_bundle(bundle: dict[str, Any]) -> bool:
+    return bundle.get("success") is False and bundle.get("bundleStatus") == "failed"
+
+
 def _is_mapping(value: Any) -> bool:
     return isinstance(value, dict)
 
@@ -178,6 +260,40 @@ def _dict_get(value: Any, key: str, default: Any = None) -> Any:
     if isinstance(value, dict):
         return value.get(key, default)
     return getattr(value, key, default)
+
+
+def _diagnostic_message_is_safe(message: Any) -> bool:
+    if not isinstance(message, str) or not message.strip():
+        return False
+    return not any(pattern.search(message) for pattern in UNSAFE_DIAGNOSTIC_MESSAGE_PATTERNS)
+
+
+def _validate_trace_object(
+    trace: Any,
+    report: dict[str, Any],
+    *,
+    path: str,
+    section: str = "contractValidation",
+) -> None:
+    if not isinstance(trace, dict):
+        _fail(report, section, "ROW_TRACE_MISSING", "Trace object is missing.", path)
+        return
+    missing = [
+        field
+        for field in sorted(REQUIRED_TRACE_FIELDS)
+        if not isinstance(trace.get(field), str) or not trace.get(field)
+    ]
+    if missing:
+        _fail(report, section, "ROW_TRACE_MISSING", "Trace object is missing required refs.", path)
+
+
+def _surface_actual_count(bundle: dict[str, Any], surface: str) -> int | None:
+    value = bundle.get(surface)
+    if surface in ARRAY_SURFACES:
+        return len(value) if isinstance(value, list) else None
+    if surface in SINGLETON_SURFACES:
+        return 1 if isinstance(value, dict) and bool(value) else 0 if isinstance(value, dict) else None
+    return None
 
 
 def contains_forbidden_request_field(value: Any) -> bool:
@@ -982,24 +1098,6 @@ async def build_paper_static_evidence_bundle(
         buildSnapshotId=request.provenance.build_snapshot_id,
         buildUnitId=request.provenance.build_unit_id,
     )
-    code_graph = {"functions": function_rows} if function_rows else {"functions": []}
-    sca = {"libraries": library_rows}
-    static_contract = build_static_evidence_contract_func(
-        success=True,
-        provenance=snapshot_provenance,
-        findings=findings,
-        execution=execution,
-        code_graph=code_graph,
-        sca=sca,
-        policy_failure_reason_codes=static_contract_policy_failure_reason_codes or None,
-    )
-    claim_matrix = static_contract.get("claimBoundaryMatrix")
-    claim_boundaries = static_contract.get("claimBoundaries")
-    if not isinstance(claim_matrix, list) or not isinstance(claim_boundaries, dict):
-        claim_matrix, claim_boundaries = _claim_boundary_fallback()
-        static_contract["claimBoundaryMatrix"] = claim_matrix
-        static_contract["claimBoundaries"] = claim_boundaries
-
     target_metadata = {
         "trace": _trace(
             request=request,
@@ -1026,6 +1124,131 @@ async def build_paper_static_evidence_bundle(
             "analyzableSourceFiles": len(compile_context.analyzable_source_files),
         },
     }
+    code_graph = {"functions": function_rows} if function_rows else {"functions": []}
+    sca = {"libraries": library_rows}
+    try:
+        static_contract = build_static_evidence_contract_func(
+            success=True,
+            provenance=snapshot_provenance,
+            findings=findings,
+            execution=execution,
+            code_graph=code_graph,
+            sca=sca,
+            policy_failure_reason_codes=static_contract_policy_failure_reason_codes or None,
+        )
+    except Exception:
+        diagnostic = _diagnostic(
+            request=request,
+            request_id=request_id,
+            producer_run_id=producer_run_id,
+            bundle_ref=bundle_ref,
+            index=len(diagnostics),
+            severity="error",
+            category="producer-invariant",
+            reason_code="PRODUCER_INTERNAL_ERROR",
+            surface="staticEvidenceContract",
+            message="S4 static-evidence producer failed after request admission.",
+        )
+        diagnostics.append(diagnostic)
+        static_contract_diag_refs = [diagnostic["diagnosticId"]]
+        claim_matrix, claim_boundaries = _claim_boundary_fallback()
+        surface_status = {
+            "findings": _make_surface_status(
+                _status_for_array(len(finding_rows), diagnostic_refs=surface_diag_refs["findings"]),
+                len(finding_rows),
+                "empty_is_not_negative_evidence" if not finding_rows else "local_static_observation_only",
+                ["TOOL_EXECUTION_PARTIAL"] if surface_diag_refs["findings"] else [],
+                surface_diag_refs["findings"],
+            ),
+            "evidence": _make_surface_status(
+                _status_for_array(len(evidence_rows), diagnostic_refs=surface_diag_refs["evidence"]),
+                len(evidence_rows),
+                "empty_is_not_negative_evidence" if not evidence_rows else "local_reviewer_visible_evidence",
+                ["TOOL_EXECUTION_PARTIAL"] if surface_diag_refs["evidence"] else [],
+                surface_diag_refs["evidence"],
+            ),
+            "sourceFiles": _make_surface_status("produced", len(source_files), "local_static_structure_only"),
+            "functions": _make_surface_status(
+                "failed" if surface_diag_refs["functions"] else _status_for_array(len(function_rows)),
+                len(function_rows),
+                "local_static_structure_only",
+                ["SURFACE_PRODUCTION_FAILED"] if surface_diag_refs["functions"] else [],
+                surface_diag_refs["functions"],
+            ),
+            "includeEdges": _make_surface_status(
+                "failed" if surface_diag_refs["includeEdges"] else _status_for_array(len(include_rows)),
+                len(include_rows),
+                "local_static_structure_only",
+                ["SURFACE_PRODUCTION_FAILED"] if surface_diag_refs["includeEdges"] else [],
+                surface_diag_refs["includeEdges"],
+            ),
+            "libraries": _make_surface_status(
+                "failed" if surface_diag_refs["libraries"] else _status_for_array(len(library_rows)),
+                len(library_rows),
+                "empty_is_not_no_vulnerable_dependencies" if not library_rows else "bounded_library_identity_only",
+                ["SURFACE_PRODUCTION_FAILED"] if surface_diag_refs["libraries"] else [],
+                surface_diag_refs["libraries"],
+            ),
+            "toolRuns": _make_surface_status(
+                "partial" if surface_diag_refs["toolRuns"] else "produced",
+                len(tool_runs),
+                "local_tool_execution_state_only",
+                ["TOOL_EXECUTION_PARTIAL"] if surface_diag_refs["toolRuns"] else [],
+                surface_diag_refs["toolRuns"],
+            ),
+            "targetMetadata": _make_surface_status("produced", 1, "producer_metadata_only"),
+            "staticEvidenceContract": _make_surface_status(
+                "failed",
+                0,
+                "producer_diagnostic_not_security_evidence",
+                ["PRODUCER_INTERNAL_ERROR"],
+                static_contract_diag_refs,
+            ),
+            "claimBoundaryMatrix": _make_surface_status("produced", len(claim_matrix), "claim_boundary_contract"),
+            "claimBoundaries": _make_surface_status("produced", 1, "claim_boundary_contract"),
+        }
+        return {
+            "schemaVersion": SCHEMA_VERSION,
+            "bundleProfile": BUNDLE_PROFILE,
+            "surfacePolicy": SURFACE_POLICY,
+            "success": False,
+            "bundleStatus": "failed",
+            "evidenceCompleteness": {
+                "status": "bounded_partial",
+                "consumerPolicy": "not_complete_security_evidence",
+            },
+            "caseId": request.case_id,
+            "buildTargetId": request.build_target_id,
+            "s4RequestId": request_id,
+            "s4ProducerRunId": producer_run_id,
+            "bundleRef": bundle_ref,
+            "producer": {
+                "service": "s4-sast-runner",
+                "serviceVersion": SERVICE_VERSION,
+                "deterministic": True,
+            },
+            "provenance": _paper_provenance(request),
+            "surfaceStatus": surface_status,
+            "diagnostics": diagnostics,
+            "findings": finding_rows,
+            "evidence": evidence_rows,
+            "sourceFiles": source_files,
+            "functions": function_rows,
+            "includeEdges": include_rows,
+            "libraries": library_rows,
+            "toolRuns": tool_runs,
+            "targetMetadata": target_metadata,
+            "staticEvidenceContract": {},
+            "claimBoundaryMatrix": claim_matrix,
+            "claimBoundaries": claim_boundaries,
+        }
+
+    claim_matrix = static_contract.get("claimBoundaryMatrix")
+    claim_boundaries = static_contract.get("claimBoundaries")
+    if not isinstance(claim_matrix, list) or not isinstance(claim_boundaries, dict):
+        claim_matrix, claim_boundaries = _claim_boundary_fallback()
+        static_contract["claimBoundaryMatrix"] = claim_matrix
+        static_contract["claimBoundaries"] = claim_boundaries
 
     surface_status = {
         "findings": _make_surface_status(
@@ -1140,8 +1363,13 @@ def _validate_diagnostics(bundle: dict[str, Any], report: dict[str, Any]) -> set
             _fail(report, "contractValidation", "DUPLICATE_ROW_ID", "Duplicate diagnostic id.", path)
         else:
             ids.add(diag_id)
-        if not isinstance(diagnostic.get("trace"), dict):
-            _fail(report, "contractValidation", "ROW_TRACE_MISSING", "Diagnostic trace is missing.", path)
+        if diagnostic.get("category") not in DIAGNOSTIC_CATEGORIES:
+            _fail(report, "contractValidation", "DIAGNOSTIC_CATEGORY_INVALID", "Diagnostic category is invalid.", path)
+        if diagnostic.get("reasonCode") not in DIAGNOSTIC_REASON_CODES:
+            _fail(report, "contractValidation", "DIAGNOSTIC_REASON_INVALID", "Diagnostic reason code is invalid.", path)
+        if not _diagnostic_message_is_safe(diagnostic.get("message")):
+            _fail(report, "contractValidation", "DIAGNOSTIC_MESSAGE_UNSAFE", "Diagnostic message is unsafe.", path)
+        _validate_trace_object(diagnostic.get("trace"), report, path=path)
     return ids
 
 
@@ -1181,6 +1409,9 @@ def _validate_surface_status(bundle: dict[str, Any], report: dict[str, Any], dia
         if not isinstance(count, int) or count < 0:
             _fail(report, "contractValidation", "SURFACE_STATUS_INVALID", "Surface count is invalid.", path)
             continue
+        actual_count = _surface_actual_count(bundle, surface)
+        if actual_count is not None and count != actual_count:
+            _fail(report, "contractValidation", "SURFACE_COUNT_MISMATCH", "Surface count must match emitted surface.", path)
         if status == "empty" and count != 0:
             _fail(report, "contractValidation", "EMPTY_SURFACE_COUNT_MISMATCH", "empty surfaces must have count 0.", path)
         if status not in NON_DIAGNOSTIC_SURFACE_STATUSES and not refs:
@@ -1207,8 +1438,7 @@ def _validate_rows(bundle: dict[str, Any], report: dict[str, Any], diagnostic_id
                 _fail(report, "contractValidation", "DUPLICATE_ROW_ID", "Duplicate row id.", path)
             else:
                 observed_ids.add(row_id)
-            if not isinstance(row.get("trace"), dict):
-                _fail(report, "contractValidation", "ROW_TRACE_MISSING", "Row trace is missing.", path)
+            _validate_trace_object(row.get("trace"), report, path=path)
             _validate_diagnostic_refs(
                 refs=row.get("diagnosticRefs"),
                 diagnostic_ids=diagnostic_ids,
@@ -1216,7 +1446,18 @@ def _validate_rows(bundle: dict[str, Any], report: dict[str, Any], diagnostic_id
                 path=path,
             )
     target_metadata = bundle.get("targetMetadata")
-    if not isinstance(target_metadata, dict) or not isinstance(target_metadata.get("trace"), dict):
+    target_surface = bundle.get("surfaceStatus", {}).get("targetMetadata") if isinstance(bundle.get("surfaceStatus"), dict) else None
+    target_empty_failed = (
+        _is_failed_bundle(bundle)
+        and isinstance(target_metadata, dict)
+        and not target_metadata
+        and isinstance(target_surface, dict)
+        and target_surface.get("count") == 0
+        and target_surface.get("status") not in NON_DIAGNOSTIC_SURFACE_STATUSES
+    )
+    if isinstance(target_metadata, dict) and target_metadata and not target_empty_failed:
+        _validate_trace_object(target_metadata.get("trace"), report, path="$.targetMetadata")
+    elif not target_empty_failed:
         _fail(report, "contractValidation", "ROW_TRACE_MISSING", "targetMetadata trace is missing.", "$.targetMetadata")
 
 
@@ -1227,7 +1468,9 @@ def _validate_claim_boundaries(bundle: dict[str, Any], report: dict[str, Any]) -
         return
     matrix = bundle.get("claimBoundaryMatrix")
     boundaries = bundle.get("claimBoundaries")
-    if static_contract.get("claimBoundaryMatrix") != matrix or static_contract.get("claimBoundaries") != boundaries:
+    if not isinstance(boundaries, dict):
+        _fail(report, "contractValidation", "CLAIM_BOUNDARY_MATRIX_INVALID", "claimBoundaries is invalid.")
+    if static_contract and (static_contract.get("claimBoundaryMatrix") != matrix or static_contract.get("claimBoundaries") != boundaries):
         _fail(
             report,
             "contractValidation",
@@ -1268,16 +1511,21 @@ def _validate_tool_runs(bundle: dict[str, Any], report: dict[str, Any]) -> None:
         for row in tool_runs
         if isinstance(row, dict) and isinstance(row.get("toolId"), str)
     }
-    for tool in CURRENT_SIX_TOOLS:
-        row = by_tool.get(tool)
-        if row is None:
-            _fail(report, "producerSanityValidation", "CURRENT_SIX_TOOL_RUN_MISSING", "Current-six toolRun row is missing.")
+    for row in tool_runs:
+        if not isinstance(row, dict):
             continue
         status = row.get("status")
         if status not in TOOL_RUN_STATUSES:
             _fail(report, "producerSanityValidation", "TOOL_RUN_STATUS_INVALID", "ToolRun status is invalid.")
         if status not in TOOL_RUN_SUCCESS_STATUSES and not row.get("diagnosticRefs"):
             _fail(report, "producerSanityValidation", "TOOL_RUN_DIAGNOSTIC_REQUIRED", "Non-success toolRun needs diagnostics.")
+    if _is_failed_bundle(bundle):
+        return
+    for tool in CURRENT_SIX_TOOLS:
+        row = by_tool.get(tool)
+        if row is None:
+            _fail(report, "producerSanityValidation", "CURRENT_SIX_TOOL_RUN_MISSING", "Current-six toolRun row is missing.")
+            continue
 
 
 def _validate_top_level(bundle: dict[str, Any], report: dict[str, Any]) -> None:
@@ -1322,6 +1570,15 @@ def _validate_top_level(bundle: dict[str, Any], report: dict[str, Any]) -> None:
         _fail(report, "contractValidation", "BUNDLE_STATUS_INVALID", "success=true requires bundleStatus=produced.")
     if bundle.get("success") is False and bundle.get("bundleStatus") != "failed":
         _fail(report, "contractValidation", "BUNDLE_STATUS_INVALID", "success=false requires bundleStatus=failed.")
+    if bundle.get("success") is False and bundle.get("bundleStatus") == "failed":
+        diagnostics = bundle.get("diagnostics")
+        if not isinstance(diagnostics, list) or not diagnostics:
+            _fail(
+                report,
+                "contractValidation",
+                "FAILED_BUNDLE_DIAGNOSTICS_REQUIRED",
+                "failed bundle requires producer diagnostics.",
+            )
 
 
 def validate_paper_static_evidence_bundle(bundle: dict[str, Any]) -> dict[str, Any]:
@@ -1381,10 +1638,14 @@ def validate_current_six_liveness(tool_availability: dict[str, dict[str, Any]]) 
 def paper_reviewer_visible_rows(bundle: dict[str, Any], *, packet_condition: str) -> list[str]:
     del packet_condition
     rows = bundle.get("evidence", [])
-    if not isinstance(rows, list):
-        return []
     result = []
-    for row in rows:
-        if isinstance(row, dict) and isinstance(row.get("text"), str):
-            result.append(row["text"])
+    if isinstance(rows, list):
+        for row in rows:
+            if isinstance(row, dict) and isinstance(row.get("text"), str):
+                result.append(row["text"])
+    diagnostics = bundle.get("diagnostics", [])
+    if isinstance(diagnostics, list):
+        for diagnostic in diagnostics:
+            if isinstance(diagnostic, dict) and isinstance(diagnostic.get("message"), str):
+                result.append(diagnostic["message"])
     return result

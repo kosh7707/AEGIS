@@ -5,76 +5,468 @@ from typing import Any
 
 import httpx
 
+from app.agent_runtime.context import get_request_id
+from app.agent_runtime.llm.generation_policy import (
+    TRACEAUDIT_QWEN36_ACQUISITION_V1,
+    TRACEAUDIT_QWEN36_FINALIZER_V1,
+)
 from app.config import settings
 
 from .artifacts import read_json
 from .errors import PaperOperationalError
 from .models import PaperCaseCreateRequest
+from .observability import log_http_end, log_http_error, log_http_start, log_llm_exchange_metadata
+from .timeout_policy import wait_while_alive_http_timeout
 from .triage import fallback_unknown_for_finding
 
 
 class LlmTriageClient:
     def __init__(self, endpoint: str | None = None, timeout_seconds: float = 120.0):
         self.endpoint = endpoint or settings.llm_endpoint
+        # Deprecated compatibility attribute; live paper triage must not fail
+        # solely because model inference crossed a caller-side read deadline
+        # while S7/DGX are still alive.
         self.timeout_seconds = timeout_seconds
+        self.transport_timeout = wait_while_alive_http_timeout()
 
-    async def triage_finding(self, case: PaperCaseCreateRequest, *, finding: dict[str, Any], evidence_rows: list[dict[str, Any]]) -> tuple[dict[str, Any], dict[str, Any]]:
-        path = case.producerArtifacts.llmTriageByFindingId.get(finding["findingId"])
-        prompt = self._build_prompt(case, finding=finding, evidence_rows=evidence_rows)
+    async def acquire_for_finding(
+        self,
+        case: PaperCaseCreateRequest,
+        *,
+        finding: dict[str, Any],
+        evidence_rows: list[dict[str, Any]],
+        acquisition_messages: list[dict[str, Any]] | None = None,
+        round_index: int = 1,
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        """Run the paper evidence-acquisition LLM turn with tools enabled.
+
+        ``tool_choice=auto`` is intentional: Qwen/vLLM is known to fail with
+        required+thinking. The caller must execute allowed tool calls and apply
+        deterministic missing-tool fallback where the paper contract requires
+        S5 context.
+        """
+
+        prompt = self._build_acquisition_prompt(case, finding=finding, evidence_rows=evidence_rows)
         request = {
             "caseId": case.caseId,
             "findingId": finding["findingId"],
-            "modelProfile": "traceaudit-paper-default",
+            "roundIndex": round_index,
+            "modelProfile": TRACEAUDIT_QWEN36_ACQUISITION_V1.profile_id,
+            "generationProfile": TRACEAUDIT_QWEN36_ACQUISITION_V1.to_metadata(model=settings.llm_model),
+            "prompt": prompt,
+        }
+        if case.producerArtifacts.llmTriageByFindingId.get(finding["findingId"]) or settings.llm_mode == "mock":
+            log_llm_exchange_metadata(
+                phase="paper_acquisition",
+                mode="deterministic_required_tools",
+                model=settings.llm_model,
+                max_tokens=TRACEAUDIT_QWEN36_ACQUISITION_V1.max_tokens,
+                latency_ms=0,
+                case_id=case.caseId,
+                build_target_id=case.buildTargetId,
+                paper_run_id=case.paperRunId,
+                finding_id=finding["findingId"],
+                tool_call_count=0,
+            )
+            return {"toolCalls": [], "content": None, "mode": "deterministic_required_tools"}, {"mode": "skipped", **request}
+        body = self._build_s7_acquisition_body(prompt, acquisition_messages=acquisition_messages)
+        headers = {
+            "X-AEGIS-Wait-While-Alive": "true",
+        }
+        payload, latency_ms = await self._post_chat(
+            body,
+            headers,
+            case=case,
+            finding_id=finding["findingId"],
+            phase="paper_acquisition",
+        )
+        try:
+            turn = _extract_tool_call_turn(payload)
+        except PaperOperationalError:
+            choice = _first_choice(payload)
+            log_llm_exchange_metadata(
+                phase="paper_acquisition",
+                mode="live",
+                model=body.get("model"),
+                max_tokens=body.get("max_tokens"),
+                latency_ms=latency_ms,
+                case_id=case.caseId,
+                build_target_id=case.buildTargetId,
+                paper_run_id=case.paperRunId,
+                finding_id=finding["findingId"],
+                finish_reason=choice.get("finish_reason") if isinstance(choice, dict) else None,
+                usage=payload.get("usage"),
+                status="error",
+                error_code="LLM_RESPONSE_CONTRACT_ERROR",
+            )
+            raise
+        log_llm_exchange_metadata(
+            phase="paper_acquisition",
+            mode="live",
+            model=body.get("model"),
+            max_tokens=body.get("max_tokens"),
+            latency_ms=latency_ms,
+            case_id=case.caseId,
+            build_target_id=case.buildTargetId,
+            paper_run_id=case.paperRunId,
+            finding_id=finding["findingId"],
+            finish_reason=turn.get("finishReason"),
+            tool_call_count=len(turn.get("toolCalls") or []),
+            usage=turn.get("usage"),
+        )
+        return turn, {"mode": "live", **request, "body": body, "headers": headers, "rawResponse": payload}
+
+    async def finalize_finding(
+        self,
+        case: PaperCaseCreateRequest,
+        *,
+        finding: dict[str, Any],
+        evidence_rows: list[dict[str, Any]],
+        acquisition_notes: dict[str, Any] | None = None,
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        path = case.producerArtifacts.llmTriageByFindingId.get(finding["findingId"])
+        prompt = self._build_finalizer_prompt(
+            case,
+            finding=finding,
+            evidence_rows=evidence_rows,
+            acquisition_notes=acquisition_notes or {},
+        )
+        request = {
+            "caseId": case.caseId,
+            "findingId": finding["findingId"],
+            "modelProfile": TRACEAUDIT_QWEN36_FINALIZER_V1.profile_id,
+            "generationProfile": TRACEAUDIT_QWEN36_FINALIZER_V1.to_metadata(model=settings.llm_model),
             "prompt": prompt,
         }
         if path:
+            log_llm_exchange_metadata(
+                phase="paper_finalizer",
+                mode="file_backed",
+                model=settings.llm_model,
+                max_tokens=TRACEAUDIT_QWEN36_FINALIZER_V1.max_tokens,
+                latency_ms=0,
+                case_id=case.caseId,
+                build_target_id=case.buildTargetId,
+                paper_run_id=case.paperRunId,
+                finding_id=finding["findingId"],
+                tool_call_count=0,
+            )
             return read_json(path), {"mode": "file_backed", **request}
         if settings.llm_mode == "mock":
+            log_llm_exchange_metadata(
+                phase="paper_finalizer",
+                mode="mock",
+                model=settings.llm_model,
+                max_tokens=TRACEAUDIT_QWEN36_FINALIZER_V1.max_tokens,
+                latency_ms=0,
+                case_id=case.caseId,
+                build_target_id=case.buildTargetId,
+                paper_run_id=case.paperRunId,
+                finding_id=finding["findingId"],
+                tool_call_count=0,
+            )
             return fallback_unknown_for_finding(finding), {"mode": "mock", **request}
-        body = self._build_s7_chat_body(prompt)
+        body = self._build_s7_finalizer_body(prompt)
         headers = {
             "X-AEGIS-Strict-JSON": "true",
-            "X-Timeout-Seconds": str(int(self.timeout_seconds)),
+            "X-AEGIS-Wait-While-Alive": "true",
         }
+        payload, latency_ms = await self._post_chat(
+            body,
+            headers,
+            case=case,
+            finding_id=finding["findingId"],
+            phase="paper_finalizer",
+        )
+        choice = _first_choice(payload)
         try:
-            async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
-                response = await client.post(f"{self.endpoint.rstrip('/')}/v1/chat", json=body, headers=headers)
-        except httpx.HTTPError as exc:
-            raise PaperOperationalError(f"S7 LLM transport failure: {exc}") from exc
-        if response.status_code >= 400:
-            raise PaperOperationalError(f"S7 LLM HTTP {response.status_code}", detail={"body": response.text[:1000]})
-        payload = response.json()
-        return _extract_openai_json_content(payload), {"mode": "live", **request, "body": body, "headers": headers, "rawResponse": payload}
+            parsed = _extract_openai_json_content(payload)
+        except PaperOperationalError:
+            log_llm_exchange_metadata(
+                phase="paper_finalizer",
+                mode="live",
+                model=body.get("model"),
+                max_tokens=body.get("max_tokens"),
+                latency_ms=latency_ms,
+                case_id=case.caseId,
+                build_target_id=case.buildTargetId,
+                paper_run_id=case.paperRunId,
+                finding_id=finding["findingId"],
+                finish_reason=choice.get("finish_reason") if isinstance(choice, dict) else None,
+                usage=payload.get("usage"),
+                status="error",
+                error_code="LLM_RESPONSE_CONTRACT_ERROR",
+            )
+            raise
+        log_llm_exchange_metadata(
+            phase="paper_finalizer",
+            mode="live",
+            model=body.get("model"),
+            max_tokens=body.get("max_tokens"),
+            latency_ms=latency_ms,
+            case_id=case.caseId,
+            build_target_id=case.buildTargetId,
+            paper_run_id=case.paperRunId,
+            finding_id=finding["findingId"],
+            finish_reason=choice.get("finish_reason") if isinstance(choice, dict) else None,
+            tool_call_count=0,
+            usage=payload.get("usage"),
+        )
+        return parsed, {"mode": "live", **request, "body": body, "headers": headers, "rawResponse": payload}
 
-    def _build_s7_chat_body(self, prompt: str) -> dict[str, Any]:
+    async def triage_finding(self, case: PaperCaseCreateRequest, *, finding: dict[str, Any], evidence_rows: list[dict[str, Any]]) -> tuple[dict[str, Any], dict[str, Any]]:
+        """Compatibility wrapper for older tests/callers.
+
+        New paper execution must call ``acquire_for_finding`` then
+        ``finalize_finding`` so S5/code tools can be consumed before verdict
+        finalization.
+        """
+
+        return await self.finalize_finding(case, finding=finding, evidence_rows=evidence_rows, acquisition_notes={})
+
+    async def _post_chat(
+        self,
+        body: dict[str, Any],
+        headers: dict[str, str],
+        *,
+        case: PaperCaseCreateRequest,
+        finding_id: str,
+        phase: str,
+    ) -> tuple[dict[str, Any], int]:
+        path = "/v1/chat"
+        request_id = get_request_id()
+        if request_id:
+            headers["X-Request-Id"] = request_id
+        started_at = log_http_start(
+            target="s7-gateway",
+            method="POST",
+            path=path,
+            case_id=case.caseId,
+            build_target_id=case.buildTargetId,
+            paper_run_id=case.paperRunId,
+            finding_id=finding_id,
+            child_request_id=request_id,
+        )
+        try:
+            async with httpx.AsyncClient(timeout=self.transport_timeout) as client:
+                response = await client.post(f"{self.endpoint.rstrip('/')}{path}", json=body, headers=headers)
+        except httpx.HTTPError as exc:
+            latency_ms = log_http_error(
+                started_at=started_at,
+                target="s7-gateway",
+                method="POST",
+                path=path,
+                error_code=type(exc).__name__,
+                case_id=case.caseId,
+                build_target_id=case.buildTargetId,
+                paper_run_id=case.paperRunId,
+                finding_id=finding_id,
+                child_request_id=request_id,
+            )
+            log_llm_exchange_metadata(
+                phase=phase,
+                mode="live",
+                model=body.get("model"),
+                max_tokens=body.get("max_tokens"),
+                latency_ms=latency_ms,
+                case_id=case.caseId,
+                build_target_id=case.buildTargetId,
+                paper_run_id=case.paperRunId,
+                finding_id=finding_id,
+                status="error",
+                error_code=type(exc).__name__,
+            )
+            raise PaperOperationalError(f"S7 LLM transport failure: {exc}") from exc
+        latency_ms = log_http_end(
+            started_at=started_at,
+            target="s7-gateway",
+            method="POST",
+            path=path,
+            status=response.status_code,
+            case_id=case.caseId,
+            build_target_id=case.buildTargetId,
+            paper_run_id=case.paperRunId,
+            finding_id=finding_id,
+            child_request_id=request_id,
+        )
+        if response.status_code >= 400:
+            log_llm_exchange_metadata(
+                phase=phase,
+                mode="live",
+                model=body.get("model"),
+                max_tokens=body.get("max_tokens"),
+                latency_ms=latency_ms,
+                case_id=case.caseId,
+                build_target_id=case.buildTargetId,
+                paper_run_id=case.paperRunId,
+                finding_id=finding_id,
+                status="error",
+                error_code=f"HTTP_{response.status_code}",
+            )
+            raise PaperOperationalError(f"S7 LLM HTTP {response.status_code}", detail={"body": response.text[:1000]})
+        return response.json(), latency_ms
+
+    def _build_s7_acquisition_body(self, prompt: str, *, acquisition_messages: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+        messages = acquisition_messages or [
+            {
+                "role": "system",
+                "content": (
+                    "You are AEGIS TraceAudit's evidence-acquisition analyst. "
+                    "Do not emit a final verdict in this turn. Use available tools "
+                    "to collect the context needed for a later strict finalizer. "
+                    "If a required context tool looks relevant, call it with the current findingId."
+                ),
+            },
+            {"role": "user", "content": prompt},
+        ]
+        return {
+            "model": settings.llm_model,
+            "messages": messages,
+            "tools": paper_tool_schemas(),
+            "tool_choice": "auto",
+            **TRACEAUDIT_QWEN36_ACQUISITION_V1.to_gateway_fields(),
+        }
+
+    def _build_s7_finalizer_body(self, prompt: str) -> dict[str, Any]:
         return {
             "model": settings.llm_model,
             "messages": [
-                {"role": "system", "content": "Return strict JSON for TraceAudit triage."},
+                {
+                    "role": "system",
+                    "content": (
+                        "You are AEGIS TraceAudit's evidence-guided SAST triage analyst. "
+                        "Reason carefully over the complete bounded evidence packet before deciding. "
+                        "Return only the requested JSON object."
+                    ),
+                },
                 {"role": "user", "content": prompt},
             ],
-            "max_tokens": 2048,
-            "temperature": 0.0,
-            "top_p": 1.0,
-            "top_k": -1,
-            "min_p": 0.0,
-            "presence_penalty": 0.0,
-            "repetition_penalty": 1.0,
-            "chat_template_kwargs": {"enable_thinking": False},
-            "response_format": {"type": "json_object"},
+            # Do not shrink this for smoke-test convenience. DGX Spark Qwen is
+            # slow (~single-digit tokens/sec), but paper triage prioritizes
+            # accurate claims, sufficient reasoning room, and complete
+            # claim-evidence linkage over latency.
+            **TRACEAUDIT_QWEN36_FINALIZER_V1.to_gateway_fields(),
         }
 
-    def _build_prompt(self, case: PaperCaseCreateRequest, *, finding: dict[str, Any], evidence_rows: list[dict[str, Any]]) -> str:
-        lines = [
-            "Classify this SAST finding as TP, FP, or UNKNOWN.",
-            "TP/FP require cited evidence refs. Do not use producer diagnostics as security evidence.",
-            f"caseId={case.caseId} findingId={finding['findingId']}",
-            f"finding={finding}",
-            "evidenceRows:",
-        ]
-        for row in evidence_rows:
-            lines.append(f"- {row.get('evidenceRef')}: {row.get('text')}")
-        return "\n".join(lines)
+    def _build_acquisition_prompt(self, case: PaperCaseCreateRequest, *, finding: dict[str, Any], evidence_rows: list[dict[str, Any]]) -> str:
+        packet = {
+            "caseId": case.caseId,
+            "buildTargetId": case.buildTargetId,
+            "findingId": finding["findingId"],
+            "finding": finding,
+            "currentEvidenceRows": evidence_rows,
+            "requiredContextTools": ["retrieve_finding_context", "retrieve_generic_threat_context"],
+        }
+        return "\n".join(
+            [
+                "Task: acquire bounded evidence for this SAST finding before final triage.",
+                "",
+                "Rules:",
+                "- Do not decide TP/FP/UNKNOWN in this turn.",
+                "- Use tool_choice auto tool calls; never assume S5 no_hit/empty means safe.",
+                "- Prefer retrieve_finding_context and retrieve_generic_threat_context for the current finding.",
+                "- You may call list_evidence_rows to inspect current normalized rows.",
+                "",
+                "Acquisition packet JSON:",
+                json.dumps(packet, ensure_ascii=False, sort_keys=True),
+            ]
+        )
+
+    def _build_finalizer_prompt(
+        self,
+        case: PaperCaseCreateRequest,
+        *,
+        finding: dict[str, Any],
+        evidence_rows: list[dict[str, Any]],
+        acquisition_notes: dict[str, Any],
+    ) -> str:
+        evidence_refs = [str(row.get("evidenceRef")) for row in evidence_rows if row.get("evidenceRef")]
+        packet = {
+            "caseId": case.caseId,
+            "buildTargetId": case.buildTargetId,
+            "findingId": finding["findingId"],
+            "finding": finding,
+            "knownEvidenceRefs": evidence_refs,
+            "evidenceRows": evidence_rows,
+            "acquisitionNotes": acquisition_notes,
+        }
+        return "\n".join(
+            [
+                "Task: classify this SAST finding as TP, FP, or UNKNOWN for an auditable TraceAudit packet.",
+                "",
+                "Decision policy:",
+                "- Prioritize correctness over speed or brevity.",
+                "- TP/FP require explicit citedEvidenceRefs from knownEvidenceRefs.",
+                "- If bounded evidence is insufficient, choose UNKNOWN with unknownReason=UNKNOWN_INSUFFICIENT_CONTEXT.",
+                "- Do not promote producer diagnostics, empty/no_hit, operational absence, or retrieval failure into security evidence.",
+                "- Use S4/S5 evidence only within each producer's claim boundary.",
+                "- It is acceptable to cite multiple evidence rows when the claim depends on SAST, code context, and threat context together.",
+                "",
+                "Required JSON schema:",
+                "{",
+                '  "findingId": string,',
+                '  "verdict": "TP" | "FP" | "UNKNOWN",',
+                '  "rationale": string,',
+                '  "citedEvidenceRefs": string[],',
+                '  "claimEvidenceLinks": [{"claim": string, "stance": string, "evidenceRefs": string[]}],',
+                '  "unsupportedClaims": string[],',
+                '  "unknownReason": string | null,',
+                '  "diagnosticRefsUsed": string[],',
+                '  "boundaryNotes": string[]',
+                "}",
+                "",
+                "Evidence packet JSON:",
+                json.dumps(packet, ensure_ascii=False, sort_keys=True),
+            ]
+        )
+
+
+def paper_tool_schemas() -> list[dict[str, Any]]:
+    finding_id_property = {
+        "type": "string",
+        "description": "Current S4 findingId. Must match the finding under triage.",
+    }
+    return [
+        {
+            "type": "function",
+            "function": {
+                "name": "retrieve_finding_context",
+                "description": "Retrieve target-local Code KB / Source KG context for the current SAST finding.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {"findingId": finding_id_property},
+                    "required": ["findingId"],
+                    "additionalProperties": False,
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "retrieve_generic_threat_context",
+                "description": "Retrieve generic CWE/CAPEC/security concept context without CVE/advisory/fix leakage.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {"findingId": finding_id_property},
+                    "required": ["findingId"],
+                    "additionalProperties": False,
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "list_evidence_rows",
+                "description": "List current normalized evidence rows already known to S3 for this finding.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {"findingId": finding_id_property},
+                    "required": ["findingId"],
+                    "additionalProperties": False,
+                },
+            },
+        },
+    ]
 
 
 def _extract_openai_json_content(payload: dict[str, Any]) -> dict[str, Any]:
@@ -93,3 +485,53 @@ def _extract_openai_json_content(payload: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(parsed, dict):
         raise PaperOperationalError("S7 LLM response JSON content is not an object")
     return parsed
+
+
+def _first_choice(payload: dict[str, Any]) -> dict[str, Any] | None:
+    try:
+        choice = payload["choices"][0]
+    except (KeyError, IndexError, TypeError):
+        return None
+    return choice if isinstance(choice, dict) else None
+
+
+def _extract_tool_call_turn(payload: dict[str, Any]) -> dict[str, Any]:
+    try:
+        choice = payload["choices"][0]
+        message = choice["message"]
+    except (KeyError, IndexError, TypeError) as exc:
+        raise PaperOperationalError("S7 acquisition response missing choices[0].message") from exc
+    calls = []
+    raw_tool_calls = message.get("tool_calls") or []
+    for call in message.get("tool_calls") or []:
+        try:
+            function = call["function"]
+            raw_args = function.get("arguments", "{}")
+            args = json.loads(raw_args) if isinstance(raw_args, str) else raw_args
+            calls.append(
+                {
+                    "id": call.get("id") or f"tool-call-{len(calls) + 1}",
+                    "name": function["name"],
+                    "arguments": args if isinstance(args, dict) else {},
+                }
+            )
+        except (KeyError, json.JSONDecodeError):
+            calls.append(
+                {
+                    "id": call.get("id") if isinstance(call, dict) else f"tool-call-{len(calls) + 1}",
+                    "name": "<parse_error>",
+                    "arguments": {},
+                    "error": "tool_call_parse_error",
+                }
+            )
+    assistant_message: dict[str, Any] = {"role": "assistant", "content": message.get("content")}
+    if raw_tool_calls:
+        assistant_message["tool_calls"] = raw_tool_calls
+    return {
+        "toolCalls": calls,
+        "content": message.get("content"),
+        "reasoning": message.get("reasoning"),
+        "finishReason": choice.get("finish_reason"),
+        "usage": payload.get("usage", {}),
+        "assistantMessage": assistant_message,
+    }

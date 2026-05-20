@@ -9,7 +9,8 @@ from app.config import settings
 from .artifacts import read_json
 from .errors import PaperContractError, PaperOperationalError
 from .models import FORBIDDEN_LEAKAGE_CLASSES, PaperCaseCreateRequest
-from .timeout_policy import wait_while_alive_headers, wait_while_alive_http_timeout
+from .observability import log_event, log_http_end, log_http_error, log_http_start
+from .timeout_policy import wait_while_alive_http_timeout
 from .validation import validate_s5_contract_snapshot, validate_s5_response
 
 
@@ -137,13 +138,8 @@ def validate_prepare_alias_consistency(body: dict[str, Any]) -> None:
 
 
 class S5PaperClient:
-    def __init__(self, endpoint: str | None = None, timeout_ms: int | None = None):
+    def __init__(self, endpoint: str | None = None):
         self.endpoint = endpoint or settings.kb_endpoint
-        # Deprecated compatibility attribute: paper calls do not use an
-        # absolute caller-side read deadline. S5 liveness should be expressed
-        # through ownership/heartbeat semantics; until then S3 uses no-read-
-        # timeout synchronous compatibility behavior.
-        self.timeout_ms = timeout_ms
         self.transport_timeout = wait_while_alive_http_timeout()
 
     async def contract_snapshot(self, case: PaperCaseCreateRequest) -> dict[str, Any] | None:
@@ -159,6 +155,7 @@ class S5PaperClient:
         validate_prepare_alias_consistency(body)
         if case.producerArtifacts.s5CodeKbPath:
             data = read_json(case.producerArtifacts.s5CodeKbPath)
+            _log_file_backed(case, path="/v1/paper/code-kb/prepare", operation_request_id=body["requestId"])
         else:
             data = await self._post("/v1/paper/code-kb/prepare", body)
         self._validate_common(data, case)
@@ -177,9 +174,15 @@ class S5PaperClient:
         path = case.producerArtifacts.s5FindingContextByFindingId.get(finding["findingId"])
         if path:
             data = read_json(path)
+            _log_file_backed(case, path="/v1/paper/finding-context/retrieve", finding_id=finding["findingId"], operation_request_id=body["requestId"])
         else:
             data = await self._post("/v1/paper/finding-context/retrieve", body)
-        validate_s5_response(data, expected_case_id=case.caseId, expected_build_target_id=case.buildTargetId)
+        validate_s5_response(
+            data,
+            expected_case_id=case.caseId,
+            expected_build_target_id=case.buildTargetId,
+            expected_finding_id=finding["findingId"],
+        )
         return data, body
 
     async def retrieve_generic_threat_context(self, case: PaperCaseCreateRequest, *, finding: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -187,21 +190,68 @@ class S5PaperClient:
         path = case.producerArtifacts.s5GenericThreatContextByFindingId.get(finding["findingId"])
         if path:
             data = read_json(path)
+            _log_file_backed(case, path="/v1/paper/threat-context/generic", finding_id=finding["findingId"], operation_request_id=body["requestId"])
         else:
             data = await self._post("/v1/paper/threat-context/generic", body)
-        validate_s5_response(data, expected_case_id=case.caseId, expected_build_target_id=case.buildTargetId)
+        validate_s5_response(
+            data,
+            expected_case_id=case.caseId,
+            expected_build_target_id=case.buildTargetId,
+            expected_finding_id=finding["findingId"],
+        )
         return data, body
 
     async def _post(self, path: str, body: dict[str, Any]) -> dict[str, Any]:
         if body.get("visibilityMode") != "generic":
             raise PaperContractError("S5 paper requests must use visibilityMode=generic")
-        headers = wait_while_alive_headers(body["requestId"])
+        operation_request_id = str(body["requestId"])
+        # S5 paper contract requires X-Request-Id to match the body requestId.
+        # Parent S3 requestId remains in S3 logs; this child id joins S3 logs to
+        # S5 logs without an extra legacy timeout-policy header.
+        headers = {"X-Request-Id": operation_request_id}
         url = f"{self.endpoint.rstrip('/')}{path}"
+        started_at = log_http_start(
+            target="s5-kb",
+            method="POST",
+            path=path,
+            case_id=body.get("caseId"),
+            build_target_id=body.get("buildTargetId"),
+            paper_run_id=body.get("paperRunId"),
+            finding_id=body.get("findingId"),
+            operation_request_id=operation_request_id,
+            child_request_id=operation_request_id,
+        )
         try:
             async with httpx.AsyncClient(timeout=self.transport_timeout) as client:
                 response = await client.post(url, json=body, headers=headers)
         except httpx.HTTPError as exc:
+            log_http_error(
+                started_at=started_at,
+                target="s5-kb",
+                method="POST",
+                path=path,
+                error_code=type(exc).__name__,
+                case_id=body.get("caseId"),
+                build_target_id=body.get("buildTargetId"),
+                paper_run_id=body.get("paperRunId"),
+                finding_id=body.get("findingId"),
+                operation_request_id=operation_request_id,
+                child_request_id=operation_request_id,
+            )
             raise PaperOperationalError(f"S5 transport failure: {exc}") from exc
+        log_http_end(
+            started_at=started_at,
+            target="s5-kb",
+            method="POST",
+            path=path,
+            status=response.status_code,
+            case_id=body.get("caseId"),
+            build_target_id=body.get("buildTargetId"),
+            paper_run_id=body.get("paperRunId"),
+            finding_id=body.get("findingId"),
+            operation_request_id=operation_request_id,
+            child_request_id=operation_request_id,
+        )
         if response.status_code >= 400:
             raise PaperOperationalError(
                 f"S5 HTTP {response.status_code}",
@@ -232,3 +282,26 @@ def _prepare_response_is_context_selectable(data: dict[str, Any]) -> bool:
     if status == "partial" and readiness == "ready_with_diagnostics" and context_selectable:
         return True
     return False
+
+
+def _log_file_backed(
+    case: PaperCaseCreateRequest,
+    *,
+    path: str,
+    operation_request_id: str,
+    finding_id: str | None = None,
+) -> None:
+    log_event(
+        "S5 paper context loaded from file-backed artifact",
+        event="paper_producer_file_backed",
+        target="s5-kb",
+        method="POST",
+        path=path,
+        mode="file_backed",
+        caseId=case.caseId,
+        buildTargetId=case.buildTargetId,
+        paperRunId=case.paperRunId,
+        findingId=finding_id,
+        operationRequestId=operation_request_id,
+        childRequestId=operation_request_id,
+    )

@@ -53,6 +53,8 @@ _AUTHORITY_TEXT_PATTERNS = [
 ]
 
 _idempotency_cache: dict[tuple[str, str], dict[str, Any]] = {}
+IDEMPOTENCY_PROVIDER = "s5-paper-context-idempotency"
+IDEMPOTENCY_RECORD_SCHEMA_VERSION = "s5-paper-idempotency-record-v1"
 
 
 def reset_paper_context_state() -> None:
@@ -79,7 +81,67 @@ def _fingerprint(req: BasePaperRequest) -> str:
     return hashlib.sha256(_canonical_json(data).encode("utf-8")).hexdigest()
 
 
-def _with_idempotency(endpoint: str, req: BasePaperRequest, compute: Callable[[str], dict[str, Any]]) -> dict[str, Any]:
+def _idempotency_subject(endpoint: str, idempotency_key: str) -> str:
+    return f"{endpoint}:{idempotency_key}"
+
+
+def _load_ledger_idempotency(repo: SQLiteLedgerRepository, endpoint: str, idempotency_key: str) -> dict[str, Any] | None:
+    subject = _idempotency_subject(endpoint, idempotency_key)
+    observations = [
+        obs
+        for obs in repo.list_provider_observations(provider=IDEMPOTENCY_PROVIDER)
+        if obs.get("subjectKey") == subject and isinstance(obs.get("payload"), dict)
+    ]
+    if not observations:
+        return None
+    payload = observations[-1].get("payload") or {}
+    if payload.get("schemaVersion") != IDEMPOTENCY_RECORD_SCHEMA_VERSION:
+        return None
+    return payload
+
+
+def _record_ledger_idempotency(
+    repo: SQLiteLedgerRepository,
+    *,
+    endpoint: str,
+    req: BasePaperRequest,
+    fingerprint: str,
+    response: dict[str, Any],
+    replayed_request_id: str | None = None,
+) -> None:
+    subject = _idempotency_subject(endpoint, req.idempotency_key)
+    payload = {
+        "schemaVersion": IDEMPOTENCY_RECORD_SCHEMA_VERSION,
+        "endpoint": endpoint,
+        "idempotencyKey": req.idempotency_key,
+        "fingerprint": fingerprint,
+        "response": response,
+        "createdByRequestId": response.get("requestId"),
+        "lastReplayedRequestId": replayed_request_id,
+        "transportRequestIdMutable": True,
+        "replayPolicy": "preserve_stable_s5_ids_and_echo_current_request_id",
+    }
+    repo.record_provider_observation(
+        provider=IDEMPOTENCY_PROVIDER,
+        subject_key=subject,
+        status="replayable",
+        payload=payload,
+        observation_id=_stable_id("s5-paper-idempotency", endpoint, req.idempotency_key, length=24),
+    )
+
+
+def _replayed_response(stored_response: dict[str, Any], request_id: str) -> dict[str, Any]:
+    response = copy.deepcopy(stored_response)
+    response["requestId"] = request_id
+    return response
+
+
+def _with_idempotency(
+    repo: SQLiteLedgerRepository,
+    endpoint: str,
+    req: BasePaperRequest,
+    compute: Callable[[str], dict[str, Any]],
+) -> dict[str, Any]:
     fingerprint = _fingerprint(req)
     key = (endpoint, req.idempotency_key)
     cached = _idempotency_cache.get(key)
@@ -90,11 +152,28 @@ def _with_idempotency(endpoint: str, req: BasePaperRequest, compute: Callable[[s
                 "S5_PAPER_IDEMPOTENCY_CONFLICT",
                 "Idempotency key was reused with a different normalized paper request.",
             )
-        response = copy.deepcopy(cached["response"])
-        response["requestId"] = req.request_id
+        response = _replayed_response(cached["response"], req.request_id)
+        _record_ledger_idempotency(repo, endpoint=endpoint, req=req, fingerprint=fingerprint, response=cached["response"], replayed_request_id=req.request_id)
+        return response
+    repo.initialize()
+    ledger_record = _load_ledger_idempotency(repo, endpoint, req.idempotency_key)
+    if ledger_record is not None:
+        if ledger_record.get("fingerprint") != fingerprint:
+            raise paper_http_error(
+                409,
+                "S5_PAPER_IDEMPOTENCY_CONFLICT",
+                "Idempotency key was reused with a different normalized paper request.",
+            )
+        stored_response = ledger_record.get("response") or {}
+        if not isinstance(stored_response, dict):
+            raise paper_http_error(500, "S5_PAPER_SCHEMA_INVALID", "Stored idempotency response is malformed.")
+        _idempotency_cache[key] = {"fingerprint": fingerprint, "response": copy.deepcopy(stored_response)}
+        response = _replayed_response(stored_response, req.request_id)
+        _record_ledger_idempotency(repo, endpoint=endpoint, req=req, fingerprint=fingerprint, response=stored_response, replayed_request_id=req.request_id)
         return response
     response = compute(fingerprint)
     _idempotency_cache[key] = {"fingerprint": fingerprint, "response": copy.deepcopy(response)}
+    _record_ledger_idempotency(repo, endpoint=endpoint, req=req, fingerprint=fingerprint, response=response)
     return response
 
 
@@ -131,7 +210,7 @@ def _enforce_common(req: BasePaperRequest, x_request_id: str | None) -> None:
             "S5_PAPER_VISIBILITY_MODE_UNSUPPORTED",
             "S5 paper-context v1 supports only generic visibility mode.",
         )
-    if set(req.forbidden_leakage_classes) != FORBIDDEN_LEAKAGE_CLASSES:
+    if len(req.forbidden_leakage_classes) != len(FORBIDDEN_LEAKAGE_CLASSES) or set(req.forbidden_leakage_classes) != FORBIDDEN_LEAKAGE_CLASSES:
         raise paper_http_error(
             422,
             "S5_PAPER_FORBIDDEN_LEAKAGE_CLASSES_REQUIRED",
@@ -281,9 +360,10 @@ def _sanitize_visible(value: Any) -> tuple[Any, int]:
         redactions = 0
         sanitized: dict[str, Any] = {}
         for key, nested in value.items():
+            sanitized_key, key_redacted = _sanitize_string(str(key))
             sanitized_nested, nested_redactions = _sanitize_visible(nested)
-            sanitized[key] = sanitized_nested
-            redactions += nested_redactions
+            sanitized[sanitized_key] = sanitized_nested
+            redactions += (1 if key_redacted else 0) + nested_redactions
         return sanitized, redactions
     if isinstance(value, list):
         redactions = 0
@@ -395,7 +475,7 @@ def prepare_code_kb(repo: SQLiteLedgerRepository, req: PrepareCodeKbRequest, x_r
             response["sourceKgSelectors"] = selectors.as_paper_dict() if selectors else None
         return _sanitize_response(response)
 
-    return _with_idempotency("prepare_code_kb", req, compute)
+    return _with_idempotency(repo, "prepare_code_kb", req, compute)
 
 
 def _line_overlap(anchor: SourceAnchor, start: int | None, end: int | None) -> bool:
@@ -536,20 +616,45 @@ def retrieve_finding_context(repo: SQLiteLedgerRepository, req: RetrieveFindingC
     _enforce_common(req, x_request_id)
 
     def compute(fingerprint: str) -> dict[str, Any]:
-        selectors = req.source_kg_selectors or _mapping_selectors(repo, req.source_kg_ref)
+        selectors = req.source_kg_selectors if req.source_kg_selectors and req.source_kg_selectors.has_any() else _mapping_selectors(repo, req.source_kg_ref)
+        source_kg_prepared = selectors is not None and selectors.has_any()
         context = _resolve_context(repo, selectors)
         s5_producer_run_id = _stable_id("s5-producer-run-finding", req.case_id, req.finding_id, req.idempotency_key, fingerprint)
         retrieval_run_id = _stable_id("s5-retrieval-run-finding", req.case_id, req.finding_id, req.idempotency_key, fingerprint)
         row_set_id = _stable_id("s5-row-set", req.case_id, req.finding_id, req.idempotency_key, fingerprint)
-        rows, candidate_pool_size = _stable_rows_for_finding(
-            req,
-            context,
-            retrieval_run_id=retrieval_run_id,
-            row_set_id=row_set_id,
-            s5_producer_run_id=s5_producer_run_id,
+        rows, candidate_pool_size = (
+            _stable_rows_for_finding(
+                req,
+                context,
+                retrieval_run_id=retrieval_run_id,
+                row_set_id=row_set_id,
+                s5_producer_run_id=s5_producer_run_id,
+            )
+            if source_kg_prepared and context.get("resolved")
+            else ([], 0)
         )
         diagnostics: list[dict[str, Any]] = []
-        if rows:
+        if not source_kg_prepared:
+            status = "not_available"
+            diagnostics.append(
+                _diagnostic(
+                    "S5_PAPER_SOURCE_KG_NOT_PREPARED",
+                    "No prepared Source KG mapping or explicit selectors were available for this paper target.",
+                    surface_status="not_available",
+                    s3_evidence_refs=req.finding.s3_evidence_refs,
+                )
+            )
+        elif not context.get("resolved"):
+            status = "not_available"
+            diagnostics.append(
+                _diagnostic(
+                    "S5_PAPER_SOURCE_KG_NOT_AVAILABLE",
+                    "Prepared Source KG selectors did not resolve to a selectable Source KG context.",
+                    surface_status="not_available",
+                    s3_evidence_refs=req.finding.s3_evidence_refs,
+                )
+            )
+        elif rows:
             status = "produced"
         else:
             status = "no_hit"
@@ -585,13 +690,14 @@ def retrieve_finding_context(repo: SQLiteLedgerRepository, req: RetrieveFindingC
                 "discardedHitReasons": [],
                 "methodsAttempted": ["source_anchor", "symbol_neighbor", "cwe_hint"],
                 "methodsUsed": ["source_anchor"] if rows else [],
+                "sourceKgPrepared": source_kg_prepared,
             },
             "producerProvenance": _producer_provenance(req, code_kb_ref=req.code_kb_ref, source_kg_ref=req.source_kg_ref, source_kg_versions=True),
             "diagnostics": diagnostics,
         }
         return _sanitize_response(response)
 
-    return _with_idempotency("retrieve_finding_context", req, compute)
+    return _with_idempotency(repo, "retrieve_finding_context", req, compute)
 
 
 def _loads(raw: Any) -> dict[str, Any]:
@@ -794,4 +900,4 @@ def retrieve_generic_threat_context(
         }
         return _sanitize_response(response)
 
-    return _with_idempotency("retrieve_generic_threat_context", req, compute)
+    return _with_idempotency(repo, "retrieve_generic_threat_context", req, compute)
