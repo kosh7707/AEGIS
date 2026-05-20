@@ -9,10 +9,8 @@ from app.config import settings
 from .artifacts import read_json
 from .errors import PaperContractError, PaperOperationalError
 from .models import FORBIDDEN_LEAKAGE_CLASSES, PaperCaseCreateRequest
+from .timeout_policy import wait_while_alive_headers, wait_while_alive_http_timeout
 from .validation import validate_s5_contract_snapshot, validate_s5_response
-
-
-DEFAULT_TIMEOUT_MS = 120_000
 
 
 def _common(case: PaperCaseCreateRequest, *, schema_version: str, request_id: str, idempotency_key: str) -> dict[str, Any]:
@@ -139,9 +137,14 @@ def validate_prepare_alias_consistency(body: dict[str, Any]) -> None:
 
 
 class S5PaperClient:
-    def __init__(self, endpoint: str | None = None, timeout_ms: int = DEFAULT_TIMEOUT_MS):
+    def __init__(self, endpoint: str | None = None, timeout_ms: int | None = None):
         self.endpoint = endpoint or settings.kb_endpoint
+        # Deprecated compatibility attribute: paper calls do not use an
+        # absolute caller-side read deadline. S5 liveness should be expressed
+        # through ownership/heartbeat semantics; until then S3 uses no-read-
+        # timeout synchronous compatibility behavior.
         self.timeout_ms = timeout_ms
+        self.transport_timeout = wait_while_alive_http_timeout()
 
     async def contract_snapshot(self, case: PaperCaseCreateRequest) -> dict[str, Any] | None:
         if case.producerArtifacts.s5ContractSnapshotPath:
@@ -192,10 +195,10 @@ class S5PaperClient:
     async def _post(self, path: str, body: dict[str, Any]) -> dict[str, Any]:
         if body.get("visibilityMode") != "generic":
             raise PaperContractError("S5 paper requests must use visibilityMode=generic")
-        headers = {"X-Timeout-Ms": str(self.timeout_ms), "X-Request-Id": body["requestId"]}
+        headers = wait_while_alive_headers(body["requestId"])
         url = f"{self.endpoint.rstrip('/')}{path}"
         try:
-            async with httpx.AsyncClient(timeout=self.timeout_ms / 1000) as client:
+            async with httpx.AsyncClient(timeout=self.transport_timeout) as client:
                 response = await client.post(url, json=body, headers=headers)
         except httpx.HTTPError as exc:
             raise PaperOperationalError(f"S5 transport failure: {exc}") from exc

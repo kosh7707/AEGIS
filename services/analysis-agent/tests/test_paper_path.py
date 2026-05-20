@@ -7,6 +7,7 @@ import pytest
 
 from app.paper import api as paper_api
 from app.paper.errors import PaperContractError, PaperOperationalError
+from app.paper.s4_client import S4PaperClient
 from app.paper.s5_client import S5PaperClient, build_generic_threat_request, build_prepare_code_kb_request, validate_prepare_alias_consistency
 
 
@@ -506,7 +507,49 @@ def test_s5_prepare_alias_mismatch_fails_closed(tmp_path, paper_source):
 
 
 @pytest.mark.asyncio
-async def test_s5_live_post_sends_timeout_header_and_maps_409(monkeypatch):
+async def test_s4_live_post_uses_wait_while_alive_transport_policy(monkeypatch, tmp_path, paper_source):
+    captured = {}
+
+    class FakeResponse:
+        status_code = 200
+        text = "{}"
+
+        def json(self):
+            return s4_bundle()
+
+    class FakeClient:
+        def __init__(self, timeout):
+            captured["timeout"] = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        async def post(self, url, json, headers):
+            captured["url"] = url
+            captured["json"] = json
+            captured["headers"] = headers
+            return FakeResponse()
+
+    monkeypatch.setattr("app.paper.s4_client.httpx.AsyncClient", FakeClient)
+    from app.paper.models import PaperCaseCreateRequest
+
+    body = make_case_body(tmp_path, paper_source)
+    body["producerArtifacts"]["s4StaticEvidencePath"] = None
+    case = PaperCaseCreateRequest.model_validate(body)
+    await S4PaperClient(endpoint="http://s4.local").produce_static_evidence(case)
+
+    assert captured["url"] == "http://s4.local/v1/paper/static-evidence"
+    assert captured["timeout"].read is None
+    assert captured["timeout"].connect == 10.0
+    assert captured["headers"]["X-AEGIS-Timeout-Policy"] == "wait-while-alive"
+    assert "X-Timeout-Ms" not in captured["headers"]
+
+
+@pytest.mark.asyncio
+async def test_s5_live_post_uses_wait_while_alive_policy_and_maps_409(monkeypatch):
     captured = {}
 
     class FakeResponse:
@@ -538,7 +581,10 @@ async def test_s5_live_post_sends_timeout_header_and_maps_409(monkeypatch):
                 "forbiddenLeakageClasses": ["cve_id", "fix_commit", "advisory", "exploit_writeup", "patch_text"],
             },
         )
-    assert captured["headers"]["X-Timeout-Ms"] == "1234"
+    assert captured["timeout"].read is None
+    assert captured["timeout"].connect == 10.0
+    assert captured["headers"]["X-AEGIS-Timeout-Policy"] == "wait-while-alive"
+    assert "X-Timeout-Ms" not in captured["headers"]
     assert captured["headers"]["X-Request-Id"] == "req-1"
     assert captured["url"] == "http://s5.local/v1/paper/code-kb/prepare"
 

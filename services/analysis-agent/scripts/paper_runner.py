@@ -29,6 +29,12 @@ class RunnerResult:
     summary: dict[str, Any]
 
 
+def wait_while_alive_http_timeout(*, connect: float = 10.0, write: float = 10.0, pool: float = 10.0) -> httpx.Timeout:
+    """Bound transport setup, but never impose a paper-case read deadline."""
+
+    return httpx.Timeout(connect=connect, read=None, write=write, pool=pool)
+
+
 def load_manifest(path: str | Path) -> list[dict[str, Any]]:
     data = json.loads(Path(path).read_text())
     if isinstance(data, list):
@@ -115,7 +121,12 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--manifest", required=True, help="JSON array or object with cases[]")
     parser.add_argument("--base-url", default="http://localhost:8001", help="S3 analysis-agent base URL")
     parser.add_argument("--summary-out", required=True, help="Path for runner summary JSON")
-    parser.add_argument("--timeout", type=float, default=1800.0, help="HTTP timeout in seconds")
+    parser.add_argument(
+        "--timeout",
+        type=float,
+        default=None,
+        help="Deprecated compatibility flag. Paper runs no longer use an absolute read timeout.",
+    )
     parser.add_argument("--fail-fast", action="store_true", help="Stop after the first failed case")
     return parser.parse_args(argv)
 
@@ -123,7 +134,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(sys.argv[1:] if argv is None else argv)
     cases = load_manifest(args.manifest)
-    with httpx.Client(timeout=args.timeout) as client:
+    with httpx.Client(timeout=wait_while_alive_http_timeout()) as client:
         result = run_cases(cases, client=client, base_url=args.base_url, fail_fast=args.fail_fast)
     write_summary(args.summary_out, result.summary)
     return 0 if result.ok else 1

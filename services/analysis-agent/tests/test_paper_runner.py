@@ -46,6 +46,14 @@ def test_load_manifest_accepts_cases_object_and_array(tmp_path):
     assert paper_runner.load_manifest(manifest) == [{"caseId": "case-2"}]
 
 
+def test_wait_while_alive_http_timeout_has_no_read_deadline():
+    timeout = paper_runner.wait_while_alive_http_timeout()
+    assert timeout.read is None
+    assert timeout.connect == 10.0
+    assert timeout.write == 10.0
+    assert timeout.pool == 10.0
+
+
 def test_run_cases_creates_starts_and_fetches_artifacts_sequentially():
     client = FakeClient(
         [
