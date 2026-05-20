@@ -36,7 +36,7 @@ def build_s4_request(case: PaperCaseCreateRequest) -> dict[str, Any]:
 
 
 class S4PaperClient:
-    def __init__(self, endpoint: str | None = None, timeout_seconds: float = 60.0):
+    def __init__(self, endpoint: str | None = None, timeout_seconds: float = 3000.0):
         self.endpoint = endpoint or settings.sast_endpoint
         self.timeout_seconds = timeout_seconds
 
