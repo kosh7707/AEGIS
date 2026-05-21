@@ -121,6 +121,7 @@ class AsyncChatStatusResponse(BaseModel):
     statusUrl: str
     resultUrl: str
     cancelUrl: str
+    backendActivity: dict | None = None
 
 
 class AsyncChatResultResponse(BaseModel):

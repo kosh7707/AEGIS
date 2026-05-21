@@ -393,6 +393,254 @@ def _async_chat_backend_timeout() -> httpx.Timeout:
     )
 
 
+class BackendStreamParseError(Exception):
+    """Raised when an OpenAI-compatible SSE stream cannot be aggregated."""
+
+
+def _async_streaming_body(body: dict[str, Any]) -> dict[str, Any]:
+    streaming_body = dict(body)
+    stream_options = streaming_body.get("stream_options")
+    if not isinstance(stream_options, dict):
+        stream_options = {}
+    else:
+        stream_options = dict(stream_options)
+    stream_options["include_usage"] = True
+    streaming_body["stream"] = True
+    streaming_body["stream_options"] = stream_options
+    return streaming_body
+
+
+def _choice_accumulator(index: int) -> dict[str, Any]:
+    return {
+        "index": index,
+        "role": "assistant",
+        "content": "",
+        "reasoning": "",
+        "finish_reason": None,
+        "tool_calls": {},
+        "logprobs": None,
+    }
+
+
+def _append_stream_choice_delta(choices_by_index: dict[int, dict[str, Any]], choice: dict[str, Any]) -> int:
+    index = choice.get("index", 0)
+    if not isinstance(index, int):
+        index = 0
+    acc = choices_by_index.setdefault(index, _choice_accumulator(index))
+    finish_reason = choice.get("finish_reason")
+    if finish_reason is not None:
+        acc["finish_reason"] = finish_reason
+
+    delta = choice.get("delta")
+    if not isinstance(delta, dict):
+        return 0
+
+    logprobs = choice.get("logprobs")
+    if isinstance(logprobs, dict):
+        acc_logprobs = acc.get("logprobs")
+        if not isinstance(acc_logprobs, dict):
+            acc_logprobs = {}
+            acc["logprobs"] = acc_logprobs
+        for key, value in logprobs.items():
+            if isinstance(value, list):
+                existing = acc_logprobs.setdefault(key, [])
+                if isinstance(existing, list):
+                    existing.extend(value)
+                else:
+                    acc_logprobs[key] = list(value)
+            else:
+                acc_logprobs[key] = value
+
+    role = delta.get("role")
+    if isinstance(role, str) and role:
+        acc["role"] = role
+
+    completion_chars = 0
+    content = delta.get("content")
+    if isinstance(content, str):
+        acc["content"] += content
+        completion_chars += len(content)
+
+    reasoning = delta.get("reasoning")
+    if not isinstance(reasoning, str):
+        reasoning = delta.get("reasoning_content")
+    if isinstance(reasoning, str):
+        acc["reasoning"] += reasoning
+
+    tool_calls = delta.get("tool_calls")
+    if isinstance(tool_calls, list):
+        for fallback_index, tool_call in enumerate(tool_calls):
+            if not isinstance(tool_call, dict):
+                continue
+            tool_index = tool_call.get("index", fallback_index)
+            if not isinstance(tool_index, int):
+                tool_index = fallback_index
+            tool_acc = acc["tool_calls"].setdefault(
+                tool_index,
+                {
+                    "index": tool_index,
+                    "id": None,
+                    "type": "function",
+                    "function": {"name": "", "arguments": ""},
+                },
+            )
+            tool_id = tool_call.get("id")
+            if isinstance(tool_id, str):
+                tool_acc["id"] = tool_id
+            tool_type = tool_call.get("type")
+            if isinstance(tool_type, str):
+                tool_acc["type"] = tool_type
+            function_delta = tool_call.get("function")
+            if isinstance(function_delta, dict):
+                name = function_delta.get("name")
+                if isinstance(name, str):
+                    tool_acc["function"]["name"] = name
+                arguments = function_delta.get("arguments")
+                if isinstance(arguments, str):
+                    tool_acc["function"]["arguments"] += arguments
+
+    return completion_chars
+
+
+def _build_stream_chat_completion(
+    *,
+    chunks: list[dict[str, Any]],
+    body: dict[str, Any],
+    choices_by_index: dict[int, dict[str, Any]],
+    usage: dict[str, Any] | None,
+) -> dict[str, Any]:
+    first_chunk = chunks[0] if chunks else {}
+    choices: list[dict[str, Any]] = []
+    for index in sorted(choices_by_index):
+        acc = choices_by_index[index]
+        message: dict[str, Any] = {
+            "role": acc["role"] or "assistant",
+            "content": acc["content"],
+        }
+        if acc["reasoning"]:
+            message["reasoning"] = acc["reasoning"]
+        tool_calls: dict[int, dict[str, Any]] = acc["tool_calls"]
+        if tool_calls:
+            message["tool_calls"] = [
+                {
+                    key: value
+                    for key, value in {
+                        "id": tool_acc.get("id"),
+                        "type": tool_acc.get("type") or "function",
+                        "function": tool_acc.get("function", {"name": "", "arguments": ""}),
+                    }.items()
+                    if value is not None
+                }
+                for _, tool_acc in sorted(tool_calls.items())
+            ]
+        choices.append({
+            "index": index,
+            "message": message,
+            "finish_reason": acc["finish_reason"],
+            **({"logprobs": acc["logprobs"]} if acc.get("logprobs") is not None else {}),
+        })
+
+    return {
+        "id": first_chunk.get("id") or f"chatcmpl-async-{uuid4().hex[:12]}",
+        "object": "chat.completion",
+        "created": first_chunk.get("created") or int(time.time()),
+        "model": first_chunk.get("model") or body.get("model", ""),
+        "choices": choices,
+        "usage": usage or {},
+    }
+
+
+async def _stream_async_chat_backend(
+    *,
+    proxy_client,
+    llm_endpoint: str,
+    body: dict[str, Any],
+    headers: dict[str, str],
+    timeout: httpx.Timeout,
+    async_chat_manager,
+    request_id: str,
+) -> tuple[httpx.Response, dict[str, Any]]:
+    streaming_body = _async_streaming_body(body)
+    chunks: list[dict[str, Any]] = []
+    choices_by_index: dict[int, dict[str, Any]] = {}
+    usage: dict[str, Any] | None = None
+    saw_done = False
+
+    async with proxy_client.stream(
+        "POST",
+        f"{llm_endpoint}/v1/chat/completions",
+        json=streaming_body,
+        headers=headers,
+        timeout=timeout,
+    ) as resp:
+        await async_chat_manager.mark_backend_activity(
+            request_id,
+            source="stream-open",
+        )
+        if resp.status_code != 200:
+            content = await resp.aread()
+            await async_chat_manager.mark_backend_activity(
+                request_id,
+                source="stream-http-error",
+                response_bytes_increment=len(content),
+            )
+            return httpx.Response(resp.status_code, content=content), streaming_body
+
+        async for line in resp.aiter_lines():
+            if not line:
+                continue
+            stripped = line.strip()
+            if not stripped or stripped.startswith(":"):
+                continue
+            if not stripped.startswith("data:"):
+                continue
+            payload = stripped[len("data:"):].strip()
+            response_bytes = len(line.encode("utf-8"))
+            if payload == "[DONE]":
+                saw_done = True
+                await async_chat_manager.mark_backend_activity(
+                    request_id,
+                    source="stream-done",
+                    response_bytes_increment=response_bytes,
+                )
+                break
+            try:
+                chunk = json.loads(payload)
+            except json.JSONDecodeError as exc:
+                raise BackendStreamParseError(f"Malformed SSE data JSON: {exc.msg}") from exc
+            if not isinstance(chunk, dict):
+                raise BackendStreamParseError("SSE data payload is not a JSON object")
+
+            chunks.append(chunk)
+            completion_chars = 0
+            chunk_choices = chunk.get("choices")
+            if isinstance(chunk_choices, list):
+                for choice in chunk_choices:
+                    if isinstance(choice, dict):
+                        completion_chars += _append_stream_choice_delta(choices_by_index, choice)
+            chunk_usage = chunk.get("usage")
+            if isinstance(chunk_usage, dict):
+                usage = chunk_usage
+            await async_chat_manager.mark_backend_activity(
+                request_id,
+                source="stream-chunk",
+                response_bytes_increment=response_bytes,
+                completion_chars_increment=completion_chars,
+                stream_chunk_increment=1,
+            )
+
+    if not saw_done:
+        raise BackendStreamParseError("Backend stream ended before [DONE]")
+
+    aggregated = _build_stream_chat_completion(
+        chunks=chunks,
+        body=streaming_body,
+        choices_by_index=choices_by_index,
+        usage=usage,
+    )
+    return httpx.Response(200, json=aggregated), streaming_body
+
+
 def _strict_json_violation(
     request_id: str,
     model: str,
@@ -994,11 +1242,14 @@ async def _run_async_chat_request(
                     record.request_id,
                     phase="llm-inference",
                 )
-                resp = await proxy_client.post(
-                    f"{llm_endpoint}/v1/chat/completions",
-                    json=body,
+                resp, body = await _stream_async_chat_backend(
+                    proxy_client=proxy_client,
+                    llm_endpoint=llm_endpoint,
+                    body=body,
                     headers=fwd_headers,
                     timeout=req_timeout,
+                    async_chat_manager=async_chat_manager,
+                    request_id=record.request_id,
                 )
             finally:
                 prom.CONCURRENT_REQUESTS.dec()
@@ -1042,6 +1293,49 @@ async def _run_async_chat_request(
                 "LLM backend transport timed out while establishing or writing the "
                 "async request; async ownership does not impose an elapsed read ceiling"
             ),
+            retryable=True,
+        )
+        return
+    except httpx.TransportError as exc:
+        elapsed_ms = int((time.monotonic() - start) * 1000)
+        if circuit_breaker:
+            await circuit_breaker.record_failure()
+        if token_tracker:
+            await token_tracker.record(
+                endpoint="async_chat",
+                success=False,
+                duration_s=elapsed_ms / 1000,
+                error_type="TRANSPORT_DISCONNECTED",
+            )
+        await async_chat_manager.fail(
+            record.request_id,
+            blocked_reason="backend_transport_disconnected",
+            ack_source="backend-transport-disconnected",
+            error="LLM backend transport disconnected",
+            error_detail=(
+                f"{exc.__class__.__name__}: {exc}; "
+                "backend disconnected before completing the async stream"
+            ),
+            retryable=True,
+        )
+        return
+    except BackendStreamParseError as exc:
+        elapsed_ms = int((time.monotonic() - start) * 1000)
+        if circuit_breaker:
+            await circuit_breaker.record_failure()
+        if token_tracker:
+            await token_tracker.record(
+                endpoint="async_chat",
+                success=False,
+                duration_s=elapsed_ms / 1000,
+                error_type="STREAM_PARSE_ERROR",
+            )
+        await async_chat_manager.fail(
+            record.request_id,
+            blocked_reason="backend_stream_parse_error",
+            ack_source="backend-stream-parse-error",
+            error="LLM backend stream parse error",
+            error_detail=str(exc),
             retryable=True,
         )
         return

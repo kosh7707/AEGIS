@@ -2,11 +2,18 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from threading import RLock
 
 
 def _now_ms() -> int:
     return int(time.time() * 1000)
+
+
+def _iso_from_ms(value: int | None) -> str | None:
+    if value is None:
+        return None
+    return datetime.fromtimestamp(value / 1000, tz=UTC).isoformat()
 
 
 @dataclass
@@ -23,9 +30,30 @@ class TrackedRequest:
     blocked_reason: str | None = None
     phase: str | None = None
     started_at: int = field(default_factory=_now_ms)
+    backend_started_at: int | None = None
+    backend_last_activity_at: int | None = None
+    backend_activity_source: str | None = None
+    backend_stream_chunk_count: int = 0
+    backend_response_bytes: int = 0
+    backend_completion_chars: int = 0
+
+    def backend_activity_summary(self, now_ms: int) -> dict | None:
+        if self.backend_started_at is None:
+            return None
+        last_activity = self.backend_last_activity_at or self.backend_started_at
+        return {
+            "backendStartedAt": _iso_from_ms(self.backend_started_at),
+            "lastBackendActivityAt": _iso_from_ms(last_activity),
+            "backendElapsedMs": max(now_ms - self.backend_started_at, 0),
+            "backendIdleMs": max(now_ms - last_activity, 0),
+            "streamChunkCount": self.backend_stream_chunk_count,
+            "responseBytes": self.backend_response_bytes,
+            "approxCompletionChars": self.backend_completion_chars,
+            "activitySource": self.backend_activity_source,
+        }
 
     def to_summary(self, now_ms: int) -> dict:
-        return {
+        payload = {
             "requestId": self.request_id,
             "endpoint": self.endpoint,
             "taskType": self.task_type,
@@ -39,6 +67,10 @@ class TrackedRequest:
             "phase": self.phase,
             "elapsedMs": max(now_ms - self.started_at, 0),
         }
+        backend_activity = self.backend_activity_summary(now_ms)
+        if backend_activity is not None:
+            payload["backendActivity"] = backend_activity
+        return payload
 
 
 class RequestTracker:
@@ -98,6 +130,29 @@ class RequestTracker:
             req.local_ack_state = "transport-only"
             if req.last_ack_source is None:
                 req.last_ack_source = source
+
+    def mark_backend_activity(
+        self,
+        request_id: str,
+        *,
+        source: str,
+        response_bytes_increment: int = 0,
+        completion_chars_increment: int = 0,
+        stream_chunk_increment: int = 0,
+    ) -> None:
+        with self._lock:
+            req = self._requests.get(request_id)
+            if req is None:
+                return
+            now_ms = _now_ms()
+            req.state = "running"
+            if req.backend_started_at is None:
+                req.backend_started_at = now_ms
+            req.backend_last_activity_at = now_ms
+            req.backend_activity_source = source
+            req.backend_response_bytes += max(response_bytes_increment, 0)
+            req.backend_completion_chars += max(completion_chars_increment, 0)
+            req.backend_stream_chunk_count += max(stream_chunk_increment, 0)
 
     def mark_ack_break(
         self,

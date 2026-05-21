@@ -39,6 +39,97 @@ def _release_exchange_logs(logger, handler):
     logger.removeHandler(handler)
 
 
+class _MockAsyncStreamResponse:
+    def __init__(
+        self,
+        *,
+        status_code: int = 200,
+        lines: list[str | tuple[str, Event]] | None = None,
+        content: bytes | str = b"",
+        enter_exc: Exception | None = None,
+    ) -> None:
+        self.status_code = status_code
+        self._lines = lines or []
+        self._content = content.encode("utf-8") if isinstance(content, str) else content
+        self._enter_exc = enter_exc
+
+    async def __aenter__(self):
+        if self._enter_exc is not None:
+            raise self._enter_exc
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        return False
+
+    async def aiter_lines(self):
+        for item in self._lines:
+            if isinstance(item, tuple) and item[0] == "wait":
+                event = item[1]
+                while not event.is_set():
+                    await asyncio.sleep(0.01)
+                continue
+            yield item
+
+    async def aread(self) -> bytes:
+        return self._content
+
+    @property
+    def text(self) -> str:
+        return self._content.decode("utf-8", errors="replace")
+
+
+def _sse_data(payload: dict | str) -> str:
+    if isinstance(payload, str):
+        return f"data: {payload}"
+    return f"data: {json.dumps(payload)}"
+
+
+def _stream_lines_for_chat_completion(payload: dict) -> list[str]:
+    first_choice = payload.get("choices", [{}])[0]
+    message = first_choice.get("message", {})
+    finish_reason = first_choice.get("finish_reason")
+    delta: dict = {"role": message.get("role", "assistant")}
+    if "content" in message:
+        delta["content"] = message.get("content")
+    if "reasoning" in message:
+        delta["reasoning"] = message.get("reasoning")
+    if "tool_calls" in message:
+        delta["tool_calls"] = message.get("tool_calls")
+    lines = [
+        _sse_data({
+            "id": payload.get("id", "chatcmpl-test"),
+            "object": "chat.completion.chunk",
+            "created": payload.get("created", 1),
+            "model": payload.get("model", "Qwen/Qwen3.6-27B"),
+            "choices": [{"index": 0, "delta": delta, "finish_reason": None}],
+        }),
+        _sse_data({
+            "id": payload.get("id", "chatcmpl-test"),
+            "object": "chat.completion.chunk",
+            "created": payload.get("created", 1),
+            "model": payload.get("model", "Qwen/Qwen3.6-27B"),
+            "choices": [{"index": 0, "delta": {}, "finish_reason": finish_reason}],
+        }),
+    ]
+    if "usage" in payload:
+        lines.append(_sse_data({
+            "id": payload.get("id", "chatcmpl-test"),
+            "object": "chat.completion.chunk",
+            "created": payload.get("created", 1),
+            "model": payload.get("model", "Qwen/Qwen3.6-27B"),
+            "choices": [],
+            "usage": payload["usage"],
+        }))
+    lines.append(_sse_data("[DONE]"))
+    return lines
+
+
+def _mock_stream_completion(mock_client, payload: dict) -> _MockAsyncStreamResponse:
+    stream_response = _MockAsyncStreamResponse(lines=_stream_lines_for_chat_completion(payload))
+    mock_client.stream = MagicMock(return_value=stream_response)
+    return stream_response
+
+
 # ---------------------------------------------------------------------------
 # GET /v1/health
 # ---------------------------------------------------------------------------
@@ -1190,10 +1281,8 @@ class TestAsyncChatOwnershipSurface:
             "choices": [{"message": {"content": '{"ok": true}'}, "finish_reason": "stop"}],
             "usage": {"prompt_tokens": 8, "completion_tokens": 4},
         }
-        mock_resp = httpx.Response(200, json=mock_llm_response)
-
         with patch.object(app.state, "proxy_client") as mock_client:
-            mock_client.post = AsyncMock(return_value=mock_resp)
+            _mock_stream_completion(mock_client, mock_llm_response)
 
             resp = client_live.post(
                 "/v1/async-chat-requests",
@@ -1220,7 +1309,7 @@ class TestAsyncChatOwnershipSurface:
         })
 
         with patch.object(app.state, "proxy_client") as mock_client:
-            mock_client.post = AsyncMock()
+            mock_client.stream = MagicMock()
             resp = client_live.post(
                 "/v1/async-chat-requests",
                 json=body,
@@ -1232,17 +1321,15 @@ class TestAsyncChatOwnershipSurface:
         assert data["success"] is False
         assert data["retryable"] is False
         assert data["errorDetail"]["code"] == "INVALID_TOOL_CHOICE"
-        mock_client.post.assert_not_called()
+        mock_client.stream.assert_not_called()
 
     def test_async_status_and_result_wrap_chat_response(self, client_live):
         mock_llm_response = {
             "choices": [{"message": {"content": '{"ok": true}'}, "finish_reason": "stop"}],
             "usage": {"prompt_tokens": 8, "completion_tokens": 4},
         }
-        mock_resp = httpx.Response(200, json=mock_llm_response)
-
         with patch.object(app.state, "proxy_client") as mock_client:
-            mock_client.post = AsyncMock(return_value=mock_resp)
+            _mock_stream_completion(mock_client, mock_llm_response)
 
             submit = client_live.post(
                 "/v1/async-chat-requests",
@@ -1280,11 +1367,10 @@ class TestAsyncChatOwnershipSurface:
             "choices": [{"message": {"content": "async answer"}, "finish_reason": "stop"}],
             "usage": {"prompt_tokens": 8, "completion_tokens": 4},
         }
-        mock_resp = httpx.Response(200, json=mock_llm_response)
         logger, handler = _capture_exchange_logs()
         try:
             with patch.object(app.state, "proxy_client") as mock_client:
-                mock_client.post = AsyncMock(return_value=mock_resp)
+                _mock_stream_completion(mock_client, mock_llm_response)
 
                 submit = client_live.post(
                     "/v1/async-chat-requests",
@@ -1340,7 +1426,6 @@ class TestAsyncChatOwnershipSurface:
             "choices": [{"message": {"content": raw_response}, "finish_reason": "stop"}],
             "usage": {"prompt_tokens": 8, "completion_tokens": 4},
         }
-        mock_resp = httpx.Response(200, json=mock_llm_response)
         body = make_paper_finalizer_body()
         body["messages"] = [{"role": "user", "content": raw_prompt}]
         body["seed"] = raw_seed
@@ -1352,7 +1437,7 @@ class TestAsyncChatOwnershipSurface:
         logger, handler = _capture_exchange_logs()
         try:
             with patch.object(app.state, "proxy_client") as mock_client:
-                mock_client.post = AsyncMock(return_value=mock_resp)
+                _mock_stream_completion(mock_client, mock_llm_response)
                 submit = client_live.post(
                     "/v1/async-chat-requests",
                     json=body,
@@ -1395,11 +1480,10 @@ class TestAsyncChatOwnershipSurface:
             "choices": [{"message": {"content": '{"answer":"ok"}'}, "finish_reason": "stop"}],
             "usage": {"prompt_tokens": 8, "completion_tokens": 4},
         }
-        mock_resp = httpx.Response(200, json=mock_llm_response)
         body = make_paper_finalizer_body()
 
         with patch.object(app.state, "proxy_client") as mock_client:
-            mock_client.post = AsyncMock(return_value=mock_resp)
+            _mock_stream_completion(mock_client, mock_llm_response)
             submit = client_live.post(
                 "/v1/async-chat-requests",
                 json=body,
@@ -1413,7 +1497,7 @@ class TestAsyncChatOwnershipSurface:
                     break
                 time.sleep(0.01)
 
-        forwarded = mock_client.post.call_args.kwargs["json"]
+        forwarded = mock_client.stream.call_args.kwargs["json"]
         assert forwarded["response_format"] == body["response_format"]
         assert forwarded["tool_choice"] == "none"
 
@@ -1421,7 +1505,7 @@ class TestAsyncChatOwnershipSurface:
         body = make_paper_acquisition_body()
 
         with patch.object(app.state, "proxy_client") as mock_client:
-            mock_client.post = AsyncMock()
+            mock_client.stream = MagicMock()
             resp = client_live.post(
                 "/v1/async-chat-requests",
                 json=body,
@@ -1433,14 +1517,13 @@ class TestAsyncChatOwnershipSurface:
 
         assert resp.status_code == 422
         assert "x-aegis-strict-json" in resp.json()["errorDetail"]["invalidFields"]
-        mock_client.post.assert_not_called()
+        mock_client.stream.assert_not_called()
 
     def test_async_submit_preserves_snake_case_generation_controls(self, client_live):
         mock_llm_response = {
             "choices": [{"message": {"content": "async answer"}, "finish_reason": "stop"}],
             "usage": {"prompt_tokens": 8, "completion_tokens": 4},
         }
-        mock_resp = httpx.Response(200, json=mock_llm_response)
         body = make_chat_body()
         body.update({
             "max_tokens": 321,
@@ -1454,7 +1537,7 @@ class TestAsyncChatOwnershipSurface:
         })
 
         with patch.object(app.state, "proxy_client") as mock_client:
-            mock_client.post = AsyncMock(return_value=mock_resp)
+            _mock_stream_completion(mock_client, mock_llm_response)
             submit = client_live.post("/v1/async-chat-requests", json=body)
             request_id = submit.json()["requestId"]
             deadline = time.time() + 1.0
@@ -1464,7 +1547,7 @@ class TestAsyncChatOwnershipSurface:
                     break
                 time.sleep(0.01)
 
-        call_kwargs = mock_client.post.call_args
+        call_kwargs = mock_client.stream.call_args
         forwarded = call_kwargs.kwargs.get("json") or call_kwargs[1].get("json")
         for key in (
             "max_tokens",
@@ -1483,10 +1566,8 @@ class TestAsyncChatOwnershipSurface:
             "choices": [{"message": {"content": "async answer"}, "finish_reason": "stop"}],
             "usage": {"prompt_tokens": 8, "completion_tokens": 4},
         }
-        mock_resp = httpx.Response(200, json=mock_llm_response)
-
         with patch.object(app.state, "proxy_client") as mock_client:
-            mock_client.post = AsyncMock(return_value=mock_resp)
+            _mock_stream_completion(mock_client, mock_llm_response)
             submit = client_live.post("/v1/async-chat-requests", json=make_chat_body())
             request_id = submit.json()["requestId"]
             deadline = time.time() + 1.0
@@ -1496,7 +1577,7 @@ class TestAsyncChatOwnershipSurface:
                     break
                 time.sleep(0.01)
 
-        call_kwargs = mock_client.post.call_args
+        call_kwargs = mock_client.stream.call_args
         req_timeout = call_kwargs.kwargs.get("timeout") or call_kwargs[1].get("timeout")
         assert req_timeout is not None
         assert req_timeout.connect == 10.0
@@ -1504,23 +1585,281 @@ class TestAsyncChatOwnershipSurface:
         assert req_timeout.write == 10.0
         assert req_timeout.pool == 10.0
 
-    def test_async_result_not_ready_is_explicit(self, client_live):
-        async def delayed_response(*args, **kwargs):
-            await asyncio.sleep(0.05)
-            return httpx.Response(
-                200,
-                json={
-                    "choices": [{"message": {"content": '{"ok": true}'}, "finish_reason": "stop"}],
-                    "usage": {"prompt_tokens": 8, "completion_tokens": 4},
-                },
+    def test_async_backend_uses_streaming_with_unbounded_timeout_and_activity(self, client_live):
+        mock_llm_response = {
+            "choices": [{"message": {"content": "hello world"}, "finish_reason": "stop"}],
+            "usage": {"prompt_tokens": 8, "completion_tokens": 4},
+        }
+        with patch.object(app.state, "proxy_client") as mock_client:
+            _mock_stream_completion(mock_client, mock_llm_response)
+            submit = client_live.post("/v1/async-chat-requests", json=make_chat_body())
+            request_id = submit.json()["requestId"]
+            deadline = time.time() + 1.0
+            status_data = None
+            while time.time() < deadline:
+                status_data = client_live.get(f"/v1/async-chat-requests/{request_id}").json()
+                if status_data["state"] == "completed":
+                    break
+                time.sleep(0.01)
+            result_resp = client_live.get(f"/v1/async-chat-requests/{request_id}/result")
+
+        assert mock_client.stream.call_args.args[0] == "POST"
+        forwarded = mock_client.stream.call_args.kwargs["json"]
+        assert forwarded["stream"] is True
+        assert forwarded["stream_options"]["include_usage"] is True
+        req_timeout = mock_client.stream.call_args.kwargs["timeout"]
+        assert req_timeout.read is None
+        assert result_resp.status_code == 200
+        result_data = result_resp.json()
+        assert result_data["response"]["choices"][0]["message"]["content"] == "hello world"
+        assert result_data["response"]["usage"]["completion_tokens"] == 4
+        assert status_data is not None
+        activity = status_data["backendActivity"]
+        assert activity["streamChunkCount"] >= 2
+        assert activity["responseBytes"] > 0
+        assert activity["approxCompletionChars"] == len("hello world")
+        assert activity["lastBackendActivityAt"]
+
+    def test_async_streaming_reports_in_flight_backend_activity_in_status_and_health(self, client_live):
+        release = Event()
+        lines: list[str | tuple[str, Event]] = [
+            _sse_data({
+                "id": "chunked",
+                "object": "chat.completion.chunk",
+                "created": 1,
+                "model": "Qwen/Qwen3.6-27B",
+                "choices": [{"index": 0, "delta": {"role": "assistant", "content": "partial"}, "finish_reason": None}],
+            }),
+            ("wait", release),
+            _sse_data({
+                "id": "chunked",
+                "object": "chat.completion.chunk",
+                "created": 1,
+                "model": "Qwen/Qwen3.6-27B",
+                "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+            }),
+            _sse_data("[DONE]"),
+        ]
+        with patch.object(app.state, "proxy_client") as mock_client:
+            mock_client.stream = MagicMock(return_value=_MockAsyncStreamResponse(lines=lines))
+            submit = client_live.post("/v1/async-chat-requests", json=make_chat_body())
+            request_id = submit.json()["requestId"]
+
+            deadline = time.time() + 1.0
+            status_data = {}
+            while time.time() < deadline:
+                status_data = client_live.get(f"/v1/async-chat-requests/{request_id}").json()
+                if status_data.get("backendActivity", {}).get("streamChunkCount", 0) >= 1:
+                    break
+                time.sleep(0.01)
+
+            health = client_live.get(f"/v1/health?requestId={request_id}").json()
+            release.set()
+
+        assert status_data["state"] == "running"
+        assert status_data["localAckState"] == "transport-only"
+        assert status_data["backendActivity"]["lastBackendActivityAt"]
+        assert status_data["backendActivity"]["backendIdleMs"] >= 0
+        summary = health["requestSummary"]
+        assert summary["requestId"] == request_id
+        assert summary["backendActivity"]["streamChunkCount"] >= 1
+        assert summary["backendActivity"]["approxCompletionChars"] == len("partial")
+
+    def test_async_streaming_aggregates_tool_call_chunks(self, client_live):
+        lines = [
+            _sse_data({
+                "id": "tool-stream",
+                "object": "chat.completion.chunk",
+                "created": 1,
+                "model": "Qwen/Qwen3.6-27B",
+                "choices": [{
+                    "index": 0,
+                    "delta": {
+                        "role": "assistant",
+                        "tool_calls": [{
+                            "index": 0,
+                            "id": "call_1",
+                            "type": "function",
+                            "function": {"name": "retrieve_finding_context", "arguments": "{\"finding"},
+                        }],
+                    },
+                    "finish_reason": None,
+                }],
+            }),
+            _sse_data({
+                "id": "tool-stream",
+                "object": "chat.completion.chunk",
+                "created": 1,
+                "model": "Qwen/Qwen3.6-27B",
+                "choices": [{
+                    "index": 0,
+                    "delta": {
+                        "tool_calls": [{
+                            "index": 0,
+                            "function": {"arguments": "Id\":\"f1\"}"},
+                        }],
+                    },
+                    "finish_reason": None,
+                }],
+            }),
+            _sse_data({
+                "id": "tool-stream",
+                "object": "chat.completion.chunk",
+                "created": 1,
+                "model": "Qwen/Qwen3.6-27B",
+                "choices": [{"index": 0, "delta": {}, "finish_reason": "tool_calls"}],
+            }),
+            _sse_data("[DONE]"),
+        ]
+        body = make_chat_body()
+        body.update({
+            "tools": [{"type": "function", "function": {"name": "retrieve_finding_context"}}],
+            "tool_choice": "auto",
+        })
+        with patch.object(app.state, "proxy_client") as mock_client:
+            mock_client.stream = MagicMock(return_value=_MockAsyncStreamResponse(lines=lines))
+            submit = client_live.post("/v1/async-chat-requests", json=body)
+            request_id = submit.json()["requestId"]
+            deadline = time.time() + 1.0
+            while time.time() < deadline:
+                if client_live.get(f"/v1/async-chat-requests/{request_id}").json()["state"] == "completed":
+                    break
+                time.sleep(0.01)
+            result_resp = client_live.get(f"/v1/async-chat-requests/{request_id}/result")
+
+        result_data = result_resp.json()
+        choice = result_data["response"]["choices"][0]
+        assert choice["finish_reason"] == "tool_calls"
+        tool_call = choice["message"]["tool_calls"][0]
+        assert tool_call["id"] == "call_1"
+        assert tool_call["function"]["name"] == "retrieve_finding_context"
+        assert tool_call["function"]["arguments"] == "{\"findingId\":\"f1\"}"
+
+    def test_async_remote_protocol_error_is_classified_backend_transport_disconnected(self, client_live):
+        with patch.object(app.state, "proxy_client") as mock_client:
+            mock_client.stream = MagicMock(
+                return_value=_MockAsyncStreamResponse(
+                    enter_exc=httpx.RemoteProtocolError("Server disconnected without sending a response"),
+                )
             )
+            submit = client_live.post("/v1/async-chat-requests", json=make_chat_body())
+            request_id = submit.json()["requestId"]
+            deadline = time.time() + 1.0
+            status_data = None
+            while time.time() < deadline:
+                status_data = client_live.get(f"/v1/async-chat-requests/{request_id}").json()
+                if status_data["state"] == "failed":
+                    break
+                time.sleep(0.01)
+            result_resp = client_live.get(f"/v1/async-chat-requests/{request_id}/result")
+
+        assert status_data is not None
+        assert status_data["state"] == "failed"
+        assert status_data["localAckState"] == "ack-break"
+        assert status_data["blockedReason"] == "backend_transport_disconnected"
+        assert status_data["retryable"] is True
+        assert status_data["error"] == "LLM backend transport disconnected"
+        assert "RemoteProtocolError" in status_data["errorDetail"]
+        result_data = result_resp.json()
+        assert result_resp.status_code == 409
+        assert result_data["blockedReason"] == "backend_transport_disconnected"
+        assert "disconnected" in result_data["errorDetail"]["detail"]
+
+    def test_async_streaming_backend_http_error_preserves_http_status_failure(self, client_live):
+        with patch.object(app.state, "proxy_client") as mock_client:
+            mock_client.stream = MagicMock(
+                return_value=_MockAsyncStreamResponse(status_code=503, content='{"error":"overloaded"}')
+            )
+            submit = client_live.post("/v1/async-chat-requests", json=make_chat_body())
+            request_id = submit.json()["requestId"]
+            deadline = time.time() + 1.0
+            status_data = None
+            while time.time() < deadline:
+                status_data = client_live.get(f"/v1/async-chat-requests/{request_id}").json()
+                if status_data["state"] == "failed":
+                    break
+                time.sleep(0.01)
+
+        assert status_data is not None
+        assert status_data["blockedReason"] == "http_503"
+        assert status_data["retryable"] is True
+        assert status_data["error"] == "LLM Engine HTTP_503"
+
+    def test_async_streaming_malformed_sse_is_stream_parse_error(self, client_live):
+        with patch.object(app.state, "proxy_client") as mock_client:
+            mock_client.stream = MagicMock(
+                return_value=_MockAsyncStreamResponse(lines=[_sse_data("{not-json")])
+            )
+            submit = client_live.post("/v1/async-chat-requests", json=make_chat_body())
+            request_id = submit.json()["requestId"]
+            deadline = time.time() + 1.0
+            status_data = None
+            while time.time() < deadline:
+                status_data = client_live.get(f"/v1/async-chat-requests/{request_id}").json()
+                if status_data["state"] == "failed":
+                    break
+                time.sleep(0.01)
+
+        assert status_data is not None
+        assert status_data["blockedReason"] == "backend_stream_parse_error"
+        assert status_data["retryable"] is True
+        assert status_data["error"] == "LLM backend stream parse error"
+
+    def test_async_streaming_truncated_before_done_is_stream_parse_error(self, client_live):
+        lines = [
+            _sse_data({
+                "id": "truncated",
+                "object": "chat.completion.chunk",
+                "created": 1,
+                "model": "Qwen/Qwen3.6-27B",
+                "choices": [{
+                    "index": 0,
+                    "delta": {"role": "assistant", "content": "partial"},
+                    "finish_reason": None,
+                }],
+            }),
+        ]
+        with patch.object(app.state, "proxy_client") as mock_client:
+            mock_client.stream = MagicMock(return_value=_MockAsyncStreamResponse(lines=lines))
+            submit = client_live.post("/v1/async-chat-requests", json=make_chat_body())
+            request_id = submit.json()["requestId"]
+            deadline = time.time() + 1.0
+            status_data = None
+            while time.time() < deadline:
+                status_data = client_live.get(f"/v1/async-chat-requests/{request_id}").json()
+                if status_data["state"] == "failed":
+                    break
+                time.sleep(0.01)
+            result_resp = client_live.get(f"/v1/async-chat-requests/{request_id}/result")
+
+        assert status_data is not None
+        assert status_data["state"] == "failed"
+        assert status_data["blockedReason"] == "backend_stream_parse_error"
+        assert status_data["retryable"] is True
+        assert status_data["resultReady"] is False
+        assert status_data["backendActivity"]["streamChunkCount"] == 1
+        result_data = result_resp.json()
+        assert result_resp.status_code == 409
+        assert result_data["state"] == "failed"
+        assert result_data["blockedReason"] == "backend_stream_parse_error"
+        assert "before [DONE]" in result_data["errorDetail"]["detail"]
+
+    def test_async_result_not_ready_is_explicit(self, client_live):
+        release = Event()
+        mock_llm_response = {
+            "choices": [{"message": {"content": '{"ok": true}'}, "finish_reason": "stop"}],
+            "usage": {"prompt_tokens": 8, "completion_tokens": 4},
+        }
+        lines: list[str | tuple[str, Event]] = [("wait", release)]
+        lines.extend(_stream_lines_for_chat_completion(mock_llm_response))
 
         with patch.object(app.state, "proxy_client") as mock_client:
-            mock_client.post = AsyncMock(side_effect=delayed_response)
+            mock_client.stream = MagicMock(return_value=_MockAsyncStreamResponse(lines=lines))
 
             submit = client_live.post("/v1/async-chat-requests", json=make_chat_body())
             request_id = submit.json()["requestId"]
             result_resp = client_live.get(f"/v1/async-chat-requests/{request_id}/result")
+            release.set()
 
         assert result_resp.status_code == 409
         result_data = result_resp.json()
@@ -1531,23 +1870,22 @@ class TestAsyncChatOwnershipSurface:
         assert result_data["state"] in {"queued", "running"}
 
     def test_async_wait_while_alive_status_health_and_late_result(self, client_live):
-        started = Event()
         release = Event()
-
-        async def delayed_response(*args, **kwargs):
-            started.set()
-            while not release.is_set():
-                await asyncio.sleep(0.01)
-            return httpx.Response(
-                200,
-                json={
-                    "choices": [{"message": {"content": '{"ok": true}'}, "finish_reason": "stop"}],
-                    "usage": {"prompt_tokens": 8, "completion_tokens": 4},
-                },
-            )
+        mock_llm_response = {
+            "choices": [{"message": {"content": '{"ok": true}'}, "finish_reason": "stop"}],
+            "usage": {"prompt_tokens": 8, "completion_tokens": 4},
+        }
+        first_chunk = _stream_lines_for_chat_completion({
+            "choices": [{"message": {"content": "{"}, "finish_reason": None}],
+        })[0]
+        lines: list[str | tuple[str, Event]] = [first_chunk, ("wait", release)]
+        lines.extend(_stream_lines_for_chat_completion({
+            "choices": [{"message": {"content": '"ok": true}'}, "finish_reason": "stop"}],
+            "usage": mock_llm_response["usage"],
+        }))
 
         with patch.object(app.state, "proxy_client") as mock_client:
-            mock_client.post = AsyncMock(side_effect=delayed_response)
+            mock_client.stream = MagicMock(return_value=_MockAsyncStreamResponse(lines=lines))
 
             submit = client_live.post(
                 "/v1/async-chat-requests",
@@ -1557,9 +1895,13 @@ class TestAsyncChatOwnershipSurface:
             request_id = submit.json()["requestId"]
 
             deadline = time.time() + 1.0
-            while not started.is_set() and time.time() < deadline:
+            status_data = {}
+            while time.time() < deadline:
+                status_data = client_live.get(f"/v1/async-chat-requests/{request_id}").json()
+                if status_data.get("backendActivity", {}).get("streamChunkCount", 0) >= 1:
+                    break
                 time.sleep(0.01)
-            assert started.is_set()
+            assert status_data.get("backendActivity", {}).get("streamChunkCount", 0) >= 1
 
             record = app.state.async_chat_manager._requests[request_id]
             record.accepted_at_ms = 0
@@ -1575,6 +1917,8 @@ class TestAsyncChatOwnershipSurface:
                 assert status_data["localAckState"] == "transport-only"
                 assert status_data["blockedReason"] is None
                 assert status_data["resultReady"] is False
+                assert status_data["backendActivity"]["lastBackendActivityAt"]
+                assert status_data["backendActivity"]["backendIdleMs"] >= 0
 
                 result_resp = client_live.get(f"/v1/async-chat-requests/{request_id}/result")
                 assert result_resp.status_code == 409
@@ -1591,6 +1935,7 @@ class TestAsyncChatOwnershipSurface:
             assert summary["localAckState"] == "transport-only"
             assert summary["blockedReason"] is None
             assert summary["elapsedMs"] > 1_800_000
+            assert summary["backendActivity"]["streamChunkCount"] >= 1
 
             release.set()
             deadline = time.time() + 1.0
@@ -1613,30 +1958,23 @@ class TestAsyncChatOwnershipSurface:
         assert result_data["response"]["choices"][0]["message"]["content"] == '{"ok": true}'
 
     def test_async_cancel_returns_cancelled_state(self, client_live):
-        started = Event()
-
-        async def delayed_response(*args, **kwargs):
-            started.set()
-            await asyncio.sleep(60)
-            return httpx.Response(
-                200,
-                json={
-                    "choices": [{"message": {"content": '{"ok": true}'}, "finish_reason": "stop"}],
-                    "usage": {"prompt_tokens": 8, "completion_tokens": 4},
-                },
-            )
+        release = Event()
+        lines: list[str | tuple[str, Event]] = [("wait", release)]
 
         with patch.object(app.state, "proxy_client") as mock_client:
-            mock_client.post = AsyncMock(side_effect=delayed_response)
+            mock_client.stream = MagicMock(return_value=_MockAsyncStreamResponse(lines=lines))
 
             submit = client_live.post("/v1/async-chat-requests", json=make_chat_body())
             request_id = submit.json()["requestId"]
 
             deadline = time.time() + 1.0
-            while not started.is_set() and time.time() < deadline:
+            while time.time() < deadline:
+                if client_live.get(f"/v1/async-chat-requests/{request_id}").json()["state"] == "running":
+                    break
                 time.sleep(0.01)
 
             cancel_resp = client_live.delete(f"/v1/async-chat-requests/{request_id}")
+            release.set()
 
         assert cancel_resp.status_code == 200
         cancel_data = cancel_resp.json()
@@ -1649,10 +1987,8 @@ class TestAsyncChatOwnershipSurface:
             "choices": [{"message": {"content": '{"ok": true}'}, "finish_reason": "stop"}],
             "usage": {"prompt_tokens": 8, "completion_tokens": 4},
         }
-        mock_resp = httpx.Response(200, json=mock_llm_response)
-
         with patch.object(app.state, "proxy_client") as mock_client:
-            mock_client.post = AsyncMock(return_value=mock_resp)
+            _mock_stream_completion(mock_client, mock_llm_response)
 
             submit = client_live.post("/v1/async-chat-requests", json=make_chat_body())
             request_id = submit.json()["requestId"]
@@ -1677,7 +2013,7 @@ class TestAsyncChatOwnershipSurface:
 
     def test_async_backend_transport_timeout_is_terminal_failure(self, client_live):
         with patch.object(app.state, "proxy_client") as mock_client:
-            mock_client.post = AsyncMock(side_effect=httpx.PoolTimeout("pool timeout"))
+            mock_client.stream = MagicMock(side_effect=httpx.PoolTimeout("pool timeout"))
 
             submit = client_live.post("/v1/async-chat-requests", json=make_chat_body())
             request_id = submit.json()["requestId"]
@@ -1718,10 +2054,8 @@ class TestAsyncChatOwnershipSurface:
             }],
             "usage": {"prompt_tokens": 8, "completion_tokens": 4},
         }
-        mock_resp = httpx.Response(200, json=mock_llm_response)
-
         with patch.object(app.state, "proxy_client") as mock_client:
-            mock_client.post = AsyncMock(return_value=mock_resp)
+            _mock_stream_completion(mock_client, mock_llm_response)
 
             submit = client_live.post(
                 "/v1/async-chat-requests",
@@ -1771,7 +2105,6 @@ class TestAsyncChatOwnershipSurface:
             }],
             "usage": {"prompt_tokens": 8, "completion_tokens": 4},
         }
-        mock_resp = httpx.Response(200, json=mock_llm_response)
         body = make_chat_body()
         body.update({
             "tools": [{"type": "function", "function": {"name": "knowledge.search"}}],
@@ -1779,7 +2112,7 @@ class TestAsyncChatOwnershipSurface:
         })
 
         with patch.object(app.state, "proxy_client") as mock_client:
-            mock_client.post = AsyncMock(return_value=mock_resp)
+            _mock_stream_completion(mock_client, mock_llm_response)
 
             submit = client_live.post(
                 "/v1/async-chat-requests",

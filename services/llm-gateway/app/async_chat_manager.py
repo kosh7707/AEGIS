@@ -50,6 +50,12 @@ class AsyncChatRequestRecord:
     expires_at_ms: int = field(default_factory=lambda: _now_ms() + _RETENTION_MS)
     response_payload: dict | None = None
     task: asyncio.Task | None = None
+    backend_started_at_ms: int | None = None
+    backend_last_activity_at_ms: int | None = None
+    backend_activity_source: str | None = None
+    backend_stream_chunk_count: int = 0
+    backend_response_bytes: int = 0
+    backend_completion_chars: int = 0
 
     def to_submit_response(self) -> dict:
         return {
@@ -63,8 +69,24 @@ class AsyncChatRequestRecord:
             "expiresAt": _iso_from_ms(self.expires_at_ms),
         }
 
-    def to_status_response(self) -> dict:
+    def backend_activity_response(self) -> dict | None:
+        if self.backend_started_at_ms is None:
+            return None
+        now_ms = _now_ms()
+        last_activity_ms = self.backend_last_activity_at_ms or self.backend_started_at_ms
         return {
+            "backendStartedAt": _iso_from_ms(self.backend_started_at_ms),
+            "lastBackendActivityAt": _iso_from_ms(last_activity_ms),
+            "backendElapsedMs": max(now_ms - self.backend_started_at_ms, 0),
+            "backendIdleMs": max(now_ms - last_activity_ms, 0),
+            "streamChunkCount": self.backend_stream_chunk_count,
+            "responseBytes": self.backend_response_bytes,
+            "approxCompletionChars": self.backend_completion_chars,
+            "activitySource": self.backend_activity_source,
+        }
+
+    def to_status_response(self) -> dict:
+        payload = {
             "requestId": self.request_id,
             "traceRequestId": self.trace_request_id,
             "state": self.state,
@@ -87,6 +109,10 @@ class AsyncChatRequestRecord:
             "resultUrl": self.result_url,
             "cancelUrl": self.cancel_url,
         }
+        backend_activity = self.backend_activity_response()
+        if backend_activity is not None:
+            payload["backendActivity"] = backend_activity
+        return payload
 
     def to_result_response(self) -> dict:
         return {
@@ -234,6 +260,39 @@ class AsyncChatRequestManager:
                 request_id,
                 phase=phase,
                 source=source,
+            )
+
+    async def mark_backend_activity(
+        self,
+        request_id: str,
+        *,
+        source: str,
+        response_bytes_increment: int = 0,
+        completion_chars_increment: int = 0,
+        stream_chunk_increment: int = 0,
+    ) -> None:
+        async with self._lock:
+            record = self._requests.get(request_id)
+            if record is None:
+                return
+            now_ms = _now_ms()
+            if record.started_at_ms is None:
+                record.started_at_ms = now_ms
+            if record.backend_started_at_ms is None:
+                record.backend_started_at_ms = now_ms
+            record.backend_last_activity_at_ms = now_ms
+            record.backend_activity_source = source
+            record.backend_response_bytes += max(response_bytes_increment, 0)
+            record.backend_completion_chars += max(completion_chars_increment, 0)
+            record.backend_stream_chunk_count += max(stream_chunk_increment, 0)
+
+        if self._request_tracker:
+            self._request_tracker.mark_backend_activity(
+                request_id,
+                source=source,
+                response_bytes_increment=response_bytes_increment,
+                completion_chars_increment=completion_chars_increment,
+                stream_chunk_increment=stream_chunk_increment,
             )
 
     async def complete(self, request_id: str, *, response_payload: dict) -> None:
