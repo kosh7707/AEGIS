@@ -11,7 +11,12 @@ import pytest
 
 from app.config import settings
 from app.main import app
-from tests.conftest import ALL_TASK_TYPES, make_chat_body
+from tests.conftest import (
+    ALL_TASK_TYPES,
+    make_chat_body,
+    make_paper_acquisition_body,
+    make_paper_finalizer_body,
+)
 
 
 class _ListLogHandler(logging.Handler):
@@ -1129,6 +1134,55 @@ class TestChatProxy:
         assert data["strictJson"] is True
         assert data["errorDetail"]["code"] == "LLM_PARSE_ERROR"
 
+    def test_chat_paper_finalizer_preserves_json_schema_with_strict_header(self, client_live):
+        mock_llm_response = {
+            "choices": [{"message": {"content": '{"answer":"ok"}'}, "finish_reason": "stop"}],
+            "usage": {"prompt_tokens": 5, "completion_tokens": 3},
+        }
+        mock_resp = httpx.Response(200, json=mock_llm_response)
+        body = make_paper_finalizer_body()
+
+        with patch.object(app.state, "proxy_client") as mock_client:
+            mock_client.post = AsyncMock(return_value=mock_resp)
+            resp = client_live.post(
+                "/v1/chat",
+                json=body,
+                headers={
+                    "X-AEGIS-Paper-Controls": "true",
+                    "X-AEGIS-Strict-JSON": "true",
+                },
+            )
+
+        assert resp.status_code == 200
+        forwarded = mock_client.post.call_args.kwargs["json"]
+        assert forwarded["response_format"] == body["response_format"]
+        assert forwarded["response_format"]["type"] == "json_schema"
+        assert resp.headers["X-AEGIS-Strict-JSON"] == "applied"
+
+    def test_chat_paper_acquisition_forwards_required_controls(self, client_live):
+        mock_llm_response = {
+            "choices": [{"message": {"content": "tool turn"}, "finish_reason": "stop"}],
+            "usage": {"prompt_tokens": 5, "completion_tokens": 3},
+        }
+        mock_resp = httpx.Response(200, json=mock_llm_response)
+        body = make_paper_acquisition_body()
+        body["logprobs"] = True
+        body["top_logprobs"] = 2
+
+        with patch.object(app.state, "proxy_client") as mock_client:
+            mock_client.post = AsyncMock(return_value=mock_resp)
+            resp = client_live.post(
+                "/v1/chat",
+                json=body,
+                headers={"X-AEGIS-Paper-Controls": "true"},
+            )
+
+        assert resp.status_code == 200
+        forwarded = mock_client.post.call_args.kwargs["json"]
+        for key in ("seed", "logprobs", "top_logprobs", "tool_choice", "tools"):
+            assert forwarded[key] == body[key]
+        assert forwarded["chat_template_kwargs"]["preserve_thinking"] is False
+
 
 class TestAsyncChatOwnershipSurface:
     def test_async_submit_returns_accepted_shape(self, client_live):
@@ -1276,6 +1330,110 @@ class TestAsyncChatOwnershipSurface:
             "taskType": None,
         }
         assert entry["response"]["choices"][0]["message"]["content"] == "async answer"
+
+    def test_async_paper_exchange_log_is_prompt_redacted_with_hashes(self, client_live):
+        raw_prompt = "UNIQUE_RAW_PROMPT_DO_NOT_LOG"
+        raw_schema_property = "unique_secret_schema_property"
+        raw_response = "UNIQUE_RAW_RESPONSE_DO_NOT_LOG"
+        raw_seed = 987654321
+        mock_llm_response = {
+            "choices": [{"message": {"content": raw_response}, "finish_reason": "stop"}],
+            "usage": {"prompt_tokens": 8, "completion_tokens": 4},
+        }
+        mock_resp = httpx.Response(200, json=mock_llm_response)
+        body = make_paper_finalizer_body()
+        body["messages"] = [{"role": "user", "content": raw_prompt}]
+        body["seed"] = raw_seed
+        body["response_format"]["json_schema"]["schema"]["properties"] = {
+            raw_schema_property: {"type": "string"}
+        }
+        body["response_format"]["json_schema"]["schema"]["required"] = [raw_schema_property]
+
+        logger, handler = _capture_exchange_logs()
+        try:
+            with patch.object(app.state, "proxy_client") as mock_client:
+                mock_client.post = AsyncMock(return_value=mock_resp)
+                submit = client_live.post(
+                    "/v1/async-chat-requests",
+                    json=body,
+                    headers={
+                        "X-Request-Id": "trace-async-paper-redacted-001",
+                        "X-AEGIS-Paper-Controls": "true",
+                    },
+                )
+                request_id = submit.json()["requestId"]
+                deadline = time.time() + 1.0
+                while time.time() < deadline:
+                    status_resp = client_live.get(f"/v1/async-chat-requests/{request_id}")
+                    if status_resp.json()["state"] == "completed":
+                        break
+                    time.sleep(0.01)
+        finally:
+            _release_exchange_logs(logger, handler)
+
+        serialized = "\n".join(handler.messages)
+        assert raw_prompt not in serialized
+        assert raw_schema_property not in serialized
+        assert str(raw_seed) not in serialized
+        assert raw_response not in serialized
+        entries = [json.loads(m) for m in handler.messages]
+        entry = next(e for e in entries if e.get("asyncRequestId") == request_id)
+        controls = entry["controlObservability"]
+        assert controls["paperControls"] is True
+        assert controls["paperPhase"] == "finalizer"
+        assert controls["traceRequestId"] == "trace-async-paper-redacted-001"
+        assert controls["schemaSnapshotHash"]
+        assert controls["profileSnapshotHash"]
+        assert controls["redactedBodyHash"]
+        assert controls["responseSummaryHash"]
+        assert "seedHash" in controls["forwardedControls"]
+        assert entry["request"]["messageCount"] == 1
+        assert entry["response"]["hasMessageContent"] is True
+
+    def test_async_paper_finalizer_preserves_json_schema(self, client_live):
+        mock_llm_response = {
+            "choices": [{"message": {"content": '{"answer":"ok"}'}, "finish_reason": "stop"}],
+            "usage": {"prompt_tokens": 8, "completion_tokens": 4},
+        }
+        mock_resp = httpx.Response(200, json=mock_llm_response)
+        body = make_paper_finalizer_body()
+
+        with patch.object(app.state, "proxy_client") as mock_client:
+            mock_client.post = AsyncMock(return_value=mock_resp)
+            submit = client_live.post(
+                "/v1/async-chat-requests",
+                json=body,
+                headers={"X-AEGIS-Paper-Controls": "true"},
+            )
+            request_id = submit.json()["requestId"]
+            deadline = time.time() + 1.0
+            while time.time() < deadline:
+                status_resp = client_live.get(f"/v1/async-chat-requests/{request_id}")
+                if status_resp.json()["state"] == "completed":
+                    break
+                time.sleep(0.01)
+
+        forwarded = mock_client.post.call_args.kwargs["json"]
+        assert forwarded["response_format"] == body["response_format"]
+        assert forwarded["tool_choice"] == "none"
+
+    def test_async_paper_acquisition_strict_header_rejected_before_backend(self, client_live):
+        body = make_paper_acquisition_body()
+
+        with patch.object(app.state, "proxy_client") as mock_client:
+            mock_client.post = AsyncMock()
+            resp = client_live.post(
+                "/v1/async-chat-requests",
+                json=body,
+                headers={
+                    "X-AEGIS-Paper-Controls": "true",
+                    "X-AEGIS-Strict-JSON": "true",
+                },
+            )
+
+        assert resp.status_code == 422
+        assert "x-aegis-strict-json" in resp.json()["errorDetail"]["invalidFields"]
+        mock_client.post.assert_not_called()
 
     def test_async_submit_preserves_snake_case_generation_controls(self, client_live):
         mock_llm_response = {

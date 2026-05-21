@@ -111,6 +111,7 @@ def build_static_evidence_contract(
         execution=execution,
         policy_failure_reason_codes=policy_failure_reason_codes,
     )
+    coverage_reason_codes = _tool_coverage_reason_codes(execution)
     evidence_readiness = _evidence_readiness(
         coverage,
         success=success,
@@ -136,11 +137,8 @@ def build_static_evidence_contract(
                 evidence_readiness=evidence_readiness,
                 policy_failure_reason_codes=policy_failure_reason_codes,
             ),
-            "qualityEvaluation": {
-                "status": "not_evaluated",
-                "reasonCodes": ["NO_VALIDATION_PROFILE_RAN"],
-                "consumerPolicy": "do_not_treat_as_quality_score",
-            },
+            "qualityEvaluation": _quality_evaluation(),
+            "coverageQuality": _coverage_quality(coverage_reason_codes),
         },
         "coverage": coverage,
         "claimBoundaries": {
@@ -525,6 +523,9 @@ def _tool_evidence_matrix(execution: Any | None) -> list[dict[str, Any]]:
         skip_reason = _first_present(result, "skipReason", "skip_reason")
         degraded = bool(_first_present(result, "degraded") or False)
         degrade_reasons = list(_first_present(result, "degradeReasons", "degrade_reasons") or [])
+        coverage_degraded = bool(_first_present(result, "coverageDegraded", "coverage_degraded") or False)
+        coverage_reasons = list(_first_present(result, "coverageReasons", "coverage_reasons") or [])
+        coverage = _first_present(result, "coverage")
         matrix.append({
             **base,
             "status": status,
@@ -534,7 +535,10 @@ def _tool_evidence_matrix(execution: Any | None) -> list[dict[str, Any]]:
             "skipReason": skip_reason,
             "degraded": degraded,
             "degradeReasons": degrade_reasons,
-            "consumerPolicy": _tool_consumer_policy(status, skip_reason, degraded),
+            "coverageDegraded": coverage_degraded,
+            "coverageReasons": coverage_reasons,
+            "coverage": coverage if isinstance(coverage, Mapping) else None,
+            "consumerPolicy": _tool_consumer_policy(status, skip_reason, degraded, coverage_degraded),
             "evidenceRefs": [f"execution.toolResults.{tool_id}"],
         })
     return matrix
@@ -581,7 +585,52 @@ def _tool_anomaly_reason_codes(execution: Any | None) -> list[str]:
     return reason_codes
 
 
-def _tool_consumer_policy(status: str, skip_reason: Any | None, degraded: bool) -> str:
+def _tool_coverage_reason_codes(execution: Any | None) -> list[str]:
+    execution_map = _as_mapping(execution)
+    if execution_map is None:
+        return []
+    tool_results = execution_map.get("toolResults") or execution_map.get("tool_results") or {}
+    if not isinstance(tool_results, Mapping):
+        return []
+    reason_codes: list[str] = []
+    for tool_id in TOOL_EVIDENCE_ORDER:
+        result = _as_mapping(tool_results.get(tool_id))
+        if result is None:
+            continue
+        if not bool(_first_present(result, "coverageDegraded", "coverage_degraded") or False):
+            continue
+        reasons = list(_first_present(result, "coverageReasons", "coverage_reasons") or [])
+        if reasons:
+            reason_codes.extend(f"TOOL_COVERAGE_DEGRADED:{tool_id}:{reason}" for reason in reasons)
+        else:
+            reason_codes.append(f"TOOL_COVERAGE_DEGRADED:{tool_id}")
+    return sorted(dict.fromkeys(reason_codes))
+
+
+def _quality_evaluation(reason_codes: list[str] | None = None) -> dict[str, Any]:
+    _ = reason_codes
+    return {
+        "status": "not_evaluated",
+        "reasonCodes": ["NO_VALIDATION_PROFILE_RAN"],
+        "consumerPolicy": "do_not_treat_as_quality_score",
+    }
+
+
+def _coverage_quality(reason_codes: list[str]) -> dict[str, Any]:
+    if reason_codes:
+        return {
+            "status": "degraded",
+            "reasonCodes": reason_codes,
+            "consumerPolicy": "effective_coverage_partial_do_not_infer_negative_security_evidence",
+        }
+    return {
+        "status": "pass",
+        "reasonCodes": [],
+        "consumerPolicy": "effective_coverage_metadata_has_no_reported_caveats",
+    }
+
+
+def _tool_consumer_policy(status: str, skip_reason: Any | None, degraded: bool, coverage_degraded: bool = False) -> str:
     if status == "skipped":
         if skip_reason in _ALLOWED_SKIP_REASONS:
             return "not_requested_or_not_applicable"
@@ -592,6 +641,8 @@ def _tool_consumer_policy(status: str, skip_reason: Any | None, degraded: bool) 
         return "local_tool_partial_use_with_degradation_metadata"
     if status == "failed":
         return "local_tool_failed_do_not_use_as_negative_evidence"
+    if status == "ok" and coverage_degraded:
+        return "local_tool_effective_coverage_partial_not_negative_evidence"
     if status == "ok":
         return "local_tool_execution_state_only_not_vulnerability_verdict"
     return "metadata_absent_do_not_infer"

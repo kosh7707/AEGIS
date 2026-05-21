@@ -13,7 +13,13 @@ from app.async_chat_manager import AsyncChatRequestRecord
 from app.config import settings
 from app.context import get_request_id, set_request_id
 from app.generation_policy import TimeoutDefaults
-from app.generation_observability import effective_enable_thinking, generation_log_fields
+from app.generation_observability import (
+    control_observability,
+    effective_enable_thinking,
+    generation_log_fields,
+    redacted_body_summary,
+    response_summary,
+)
 from app.metrics import prom
 from app.schemas.request import AsyncChatSubmitRequest, TaskRequest
 from app.schemas.response import (
@@ -31,7 +37,10 @@ _LLM_BACKEND_HEALTH_CACHE_LOCK_ATTR = "llm_backend_health_cache_lock"
 
 router = APIRouter(prefix="/v1", tags=["v1"])
 _STRICT_JSON_HEADER = "x-aegis-strict-json"
+_PAPER_CONTROLS_HEADER = "x-aegis-paper-controls"
 _ALLOWED_TOOL_CHOICE_VALUES = {"auto", "none"}
+_INT64_MIN = -(2 ** 63)
+_INT64_MAX = 2 ** 63 - 1
 _REQUIRED_CHAT_GENERATION_FIELDS = (
     "max_tokens",
     "temperature",
@@ -242,12 +251,16 @@ def _log_llm_exchange(
     *,
     request_id: str,
     exchange_type: str,
+    accepted_request_body: dict,
     request_body: dict,
     response: httpx.Response,
     response_data: Any,
     elapsed_ms: int,
     strict_json: bool,
     async_request_id: str | None = None,
+    paper_controls: bool = False,
+    paper_phase: str | None = None,
+    profile_snapshot: dict[str, Any] | None = None,
 ) -> None:
     choices = response_data.get("choices", [{}]) if isinstance(response_data, dict) else [{}]
     finish_reason = choices[0].get("finish_reason", "?") if choices else "?"
@@ -277,9 +290,25 @@ def _log_llm_exchange(
         "generation": generation,
         "toolChoice": tool_choice,
         "toolCount": len(request_body.get("tools", [])),
-        "request": request_body,
-        "response": _exchange_payload_from_response(response, response_data),
     }
+    if paper_controls:
+        entry["controlObservability"] = control_observability(
+            accepted_body=accepted_request_body,
+            forwarded_body=request_body,
+            response_data=response_data,
+            request_id=request_id,
+            async_request_id=async_request_id,
+            trace_request_id=request_id,
+            paper_controls=paper_controls,
+            paper_phase=paper_phase,
+            strict_json=strict_json,
+            profile_snapshot=profile_snapshot,
+        )
+        entry["request"] = redacted_body_summary(request_body)
+        entry["response"] = response_summary(response_data)
+    else:
+        entry["request"] = request_body
+        entry["response"] = _exchange_payload_from_response(response, response_data)
     if async_request_id:
         entry["asyncRequestId"] = async_request_id
     _exchange_logger.info(json.dumps(entry, ensure_ascii=False))
@@ -292,6 +321,10 @@ def _is_truthy_header(value: str | None) -> bool:
 
 def _strict_json_requested(req: Request) -> bool:
     return _is_truthy_header(req.headers.get(_STRICT_JSON_HEADER))
+
+
+def _paper_controls_requested(req: Request) -> bool:
+    return _is_truthy_header(req.headers.get(_PAPER_CONTROLS_HEADER))
 
 
 def _build_forward_headers(request_id: str) -> dict[str, str]:
@@ -308,26 +341,40 @@ def _prepare_chat_forward(
     *,
     model_registry,
     strict_json: bool,
-) -> tuple[dict, str]:
+    paper_controls: bool = False,
+) -> tuple[dict, str, dict[str, Any]]:
     body = dict(request_body)
     profile = model_registry.get_default()
     llm_endpoint = profile.endpoint if profile else settings.llm_endpoint
     body["model"] = profile.modelName if profile else settings.llm_model
-    if strict_json:
+    profile_snapshot = {
+        "profileId": profile.profileId if profile else None,
+        "modelName": profile.modelName if profile else settings.llm_model,
+        "endpoint": llm_endpoint,
+        "status": profile.status if profile else None,
+    }
+    if strict_json and not paper_controls:
         _enforce_strict_json_request_controls(body)
-    return body, llm_endpoint
+    return body, llm_endpoint, profile_snapshot
 
 
 def _chat_timeout_from_header(raw_value: str | None) -> float | None:
-    """Deprecated compatibility parser for caller timeout headers.
+    """Return the finite `/v1/chat` read timeout requested by the caller.
 
-    TraceAudit/live DGX calls must not fail solely because model inference took
-    longer than a caller-side read ceiling while the gateway and backend are
-    still alive. Keep parsing only to tolerate existing callers; `/v1/chat`
-    uses an unbounded read timeout below and reserves timeout failures for
-    connect/write/pool transport establishment/resource problems.
+    `/v1/chat` is the synchronous compatibility surface and still honors
+    `X-Timeout-Seconds` with the documented default/max. Long-running
+    wait-while-alive semantics belong to `/v1/async-chat-requests`, whose
+    backend read timeout remains unbounded below.
     """
-    return None
+    if raw_value is None:
+        return TimeoutDefaults.CHAT_DEFAULT_SECONDS
+    try:
+        value = float(raw_value)
+    except (TypeError, ValueError):
+        return TimeoutDefaults.CHAT_DEFAULT_SECONDS
+    if value <= 0:
+        return TimeoutDefaults.CHAT_DEFAULT_SECONDS
+    return min(value, TimeoutDefaults.CHAT_MAX_SECONDS)
 
 
 def _async_chat_backend_timeout() -> httpx.Timeout:
@@ -436,12 +483,15 @@ def _chat_generation_controls_error(
     request_id: str,
     missing_fields: list[str],
     invalid_fields: list[str],
+    paper_phase: str | None = None,
 ) -> JSONResponse:
     detail_extra: dict[str, Any] = {}
     if missing_fields:
         detail_extra["missingFields"] = missing_fields
     if invalid_fields:
         detail_extra["invalidFields"] = invalid_fields
+    if paper_phase is not None:
+        detail_extra["paperPhase"] = paper_phase
     return _error_response(
         status_code=422,
         request_id=request_id,
@@ -450,6 +500,132 @@ def _chat_generation_controls_error(
         retryable=False,
         error_detail_extra=detail_extra,
     )
+
+
+def _has_hard_json_schema(body: dict) -> bool:
+    response_format = body.get("response_format")
+    if not isinstance(response_format, dict):
+        return False
+    if response_format.get("type") != "json_schema":
+        return False
+    json_schema = response_format.get("json_schema")
+    if not isinstance(json_schema, dict):
+        return False
+    return isinstance(json_schema.get("schema"), dict)
+
+
+def _has_any_schema_controls(body: dict) -> bool:
+    return "response_format" in body or "structured_outputs" in body
+
+
+def _paper_phase(body: dict, *, strict_json: bool) -> str:
+    tools = body.get("tools")
+    tools_present = isinstance(tools, list) and len(tools) > 0
+    tool_choice = body.get("tool_choice")
+    hard_schema = _has_hard_json_schema(body)
+    if tools_present and tool_choice == "auto" and not _has_any_schema_controls(body) and not strict_json:
+        return "acquisition"
+    if not tools_present and tool_choice == "none" and hard_schema:
+        return "finalizer"
+    return "ambiguous"
+
+
+def _require_bool(
+    body: dict,
+    field: str,
+    *,
+    missing: list[str],
+    invalid: list[str],
+) -> bool | None:
+    if field not in body or body.get(field) is None:
+        missing.append(field)
+        return None
+    value = body.get(field)
+    if not isinstance(value, bool):
+        invalid.append(field)
+        return None
+    return value
+
+
+def _paper_chat_generation_control_errors(
+    body: dict,
+    *,
+    strict_json: bool,
+) -> tuple[list[str], list[str], str]:
+    missing, invalid = _chat_generation_control_errors(body)
+
+    if "seed" not in body or body.get("seed") is None:
+        missing.append("seed")
+    else:
+        seed = body.get("seed")
+        if isinstance(seed, bool) or not isinstance(seed, int) or seed < _INT64_MIN or seed > _INT64_MAX:
+            invalid.append("seed")
+
+    logprobs = _require_bool(body, "logprobs", missing=missing, invalid=invalid)
+    if logprobs is True:
+        if "top_logprobs" not in body or body.get("top_logprobs") is None:
+            missing.append("top_logprobs")
+        else:
+            top_logprobs = body.get("top_logprobs")
+            if isinstance(top_logprobs, bool) or not isinstance(top_logprobs, int) or top_logprobs < 0:
+                invalid.append("top_logprobs")
+    elif logprobs is False and "top_logprobs" in body and body.get("top_logprobs") is not None:
+        invalid.append("top_logprobs")
+
+    chat_template_kwargs = body.get("chat_template_kwargs")
+    if not isinstance(chat_template_kwargs, dict):
+        if "chat_template_kwargs.enable_thinking" not in missing:
+            missing.append("chat_template_kwargs.enable_thinking")
+        missing.append("chat_template_kwargs.preserve_thinking")
+    elif not isinstance(chat_template_kwargs.get("preserve_thinking"), bool):
+        target = (
+            missing
+            if "preserve_thinking" not in chat_template_kwargs
+            or chat_template_kwargs.get("preserve_thinking") is None
+            else invalid
+        )
+        target.append("chat_template_kwargs.preserve_thinking")
+
+    tool_choice = body.get("tool_choice")
+    if tool_choice is None:
+        missing.append("tool_choice")
+    elif not isinstance(tool_choice, str) or tool_choice not in _ALLOWED_TOOL_CHOICE_VALUES:
+        invalid.append("tool_choice")
+
+    if "structured_outputs" in body:
+        invalid.append("structured_outputs")
+
+    tools = body.get("tools")
+    tools_present = isinstance(tools, list) and len(tools) > 0
+    has_schema_controls = _has_any_schema_controls(body)
+    hard_schema = _has_hard_json_schema(body)
+
+    if tools_present:
+        if tool_choice != "auto":
+            if tool_choice is None and "tool_choice" not in missing:
+                missing.append("tool_choice")
+            elif "tool_choice" not in invalid:
+                invalid.append("tool_choice")
+        if has_schema_controls:
+            invalid.append("response_format")
+        if strict_json:
+            invalid.append("x-aegis-strict-json")
+    else:
+        if tool_choice != "none":
+            if tool_choice is None and "tool_choice" not in missing:
+                missing.append("tool_choice")
+            elif "tool_choice" not in invalid:
+                invalid.append("tool_choice")
+        if not has_schema_controls:
+            missing.append("response_format")
+        elif not hard_schema:
+            invalid.append("response_format")
+
+    phase = _paper_phase(body, strict_json=strict_json)
+    if phase == "ambiguous" and "paper_phase" not in invalid:
+        invalid.append("paper_phase")
+
+    return list(dict.fromkeys(missing)), list(dict.fromkeys(invalid)), phase
 
 
 def _tool_choice_error(body: dict) -> str | None:
@@ -759,14 +935,17 @@ async def _run_async_chat_request(
     record: AsyncChatRequestRecord,
     request_body: dict,
     strict_json: bool,
+    paper_controls: bool,
+    paper_phase: str | None,
 ) -> None:
     set_request_id(record.trace_request_id)
 
     model_registry = app.state.model_registry
-    body, llm_endpoint = _prepare_chat_forward(
+    body, llm_endpoint, profile_snapshot = _prepare_chat_forward(
         request_body,
         model_registry=model_registry,
         strict_json=strict_json,
+        paper_controls=paper_controls,
     )
     fwd_headers = _build_forward_headers(record.trace_request_id)
     req_timeout = _async_chat_backend_timeout()
@@ -876,12 +1055,16 @@ async def _run_async_chat_request(
     _log_llm_exchange(
         request_id=record.trace_request_id,
         exchange_type="async_chat",
+        accepted_request_body=request_body,
         request_body=body,
         response=resp,
         response_data=resp_data,
         elapsed_ms=elapsed_ms,
         strict_json=strict_json,
         async_request_id=record.request_id,
+        paper_controls=paper_controls,
+        paper_phase=paper_phase,
+        profile_snapshot=profile_snapshot,
     )
 
     if resp.status_code == 200 and isinstance(resp_data, dict):
@@ -971,13 +1154,32 @@ async def create_async_chat_request(
 ) -> JSONResponse:
     trace_request_id = _ensure_request_id(req)
     strict_json = _strict_json_requested(req)
+    paper_controls = _paper_controls_requested(req)
     request_body = request.model_dump(mode="json", exclude_none=True)
-    tool_choice_error = _tool_choice_error(request_body)
-    if tool_choice_error:
-        return _tool_choice_validation_error(
-            request_id=trace_request_id,
-            detail=tool_choice_error,
+    paper_phase: str | None = None
+    if paper_controls:
+        missing_generation_controls, invalid_generation_controls, paper_phase = (
+            _paper_chat_generation_control_errors(request_body, strict_json=strict_json)
         )
+        if missing_generation_controls or invalid_generation_controls:
+            return _chat_generation_controls_error(
+                request_id=trace_request_id,
+                missing_fields=missing_generation_controls,
+                invalid_fields=invalid_generation_controls,
+                paper_phase=paper_phase,
+            )
+    else:
+        tool_choice_error = _tool_choice_error(request_body)
+        if tool_choice_error:
+            return _tool_choice_validation_error(
+                request_id=trace_request_id,
+                detail=tool_choice_error,
+            )
+        paper_phase = None
+    if paper_controls:
+        paper_phase = _paper_phase(request_body, strict_json=strict_json)
+    else:
+        paper_phase = None
 
     async_chat_manager = req.app.state.async_chat_manager
     record = await async_chat_manager.submit(
@@ -987,6 +1189,8 @@ async def create_async_chat_request(
             record=submitted_record,
             request_body=request_body,
             strict_json=strict_json,
+            paper_controls=paper_controls,
+            paper_phase=paper_phase,
         ),
     )
 
@@ -1169,32 +1373,42 @@ async def chat_proxy(req: Request) -> Response:
 
     original_body = await req.json()
     strict_json = _strict_json_requested(req)
-    missing_generation_controls, invalid_generation_controls = _chat_generation_control_errors(original_body)
+    paper_controls = _paper_controls_requested(req)
+    if paper_controls:
+        missing_generation_controls, invalid_generation_controls, paper_phase = (
+            _paper_chat_generation_control_errors(original_body, strict_json=strict_json)
+        )
+    else:
+        missing_generation_controls, invalid_generation_controls = _chat_generation_control_errors(original_body)
+        paper_phase = None
     if missing_generation_controls or invalid_generation_controls:
         return _chat_generation_controls_error(
             request_id=request_id,
             missing_fields=missing_generation_controls,
             invalid_fields=invalid_generation_controls,
+            paper_phase=paper_phase,
         )
-    tool_choice_error = _tool_choice_error(original_body)
-    if tool_choice_error:
-        return _tool_choice_validation_error(
-            request_id=request_id,
-            detail=tool_choice_error,
-        )
+    if not paper_controls:
+        tool_choice_error = _tool_choice_error(original_body)
+        if tool_choice_error:
+            return _tool_choice_validation_error(
+                request_id=request_id,
+                detail=tool_choice_error,
+            )
 
     model_registry = req.app.state.model_registry
-    body, llm_endpoint = _prepare_chat_forward(
+    body, llm_endpoint, profile_snapshot = _prepare_chat_forward(
         original_body,
         model_registry=model_registry,
         strict_json=strict_json,
+        paper_controls=paper_controls,
     )
 
     fwd_headers = _build_forward_headers(request_id)
 
-    # No caller-side read timeout: if the backend service is alive and still
-    # generating, `/v1/chat` must keep waiting. Bound only connect/write/pool
-    # resource waits so real transport failures remain observable.
+    # Synchronous compatibility surface: honor the documented finite
+    # X-Timeout-Seconds/default read ceiling. Use /v1/async-chat-requests when a
+    # caller needs wait-while-alive ownership over long DGX generations.
     caller_timeout = _chat_timeout_from_header(req.headers.get("x-timeout-seconds"))
     req_timeout = httpx.Timeout(
         connect=settings.llm_connect_timeout,
@@ -1345,11 +1559,15 @@ async def chat_proxy(req: Request) -> Response:
     _log_llm_exchange(
         request_id=request_id,
         exchange_type="chat_proxy",
+        accepted_request_body=original_body,
         request_body=body,
         response=resp,
         response_data=resp_data,
         elapsed_ms=elapsed_ms,
         strict_json=strict_json,
+        paper_controls=paper_controls,
+        paper_phase=paper_phase,
+        profile_snapshot=profile_snapshot,
     )
 
     if resp.status_code == 200 and isinstance(resp_data, dict):

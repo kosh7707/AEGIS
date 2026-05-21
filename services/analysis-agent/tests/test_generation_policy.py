@@ -7,6 +7,7 @@ import pytest
 from app.agent_runtime.llm.generation_policy import (
     ChatGenerationProfile,
     GenerationControls,
+    INSTRUCT_NON_THINKING,
     STRICT_JSON_REPAIR,
     THINKING_CODING,
     THINKING_GENERAL,
@@ -35,6 +36,11 @@ def test_thinking_general_serializes_complete_gateway_tuple() -> None:
 def test_named_presets_capture_intended_sampling_shapes() -> None:
     assert THINKING_CODING.temperature == 0.6
     assert THINKING_CODING.top_p == THINKING_GENERAL.top_p
+    assert INSTRUCT_NON_THINKING.temperature == 0.7
+    assert INSTRUCT_NON_THINKING.top_p == 0.8
+    assert INSTRUCT_NON_THINKING.top_k == 20
+    assert INSTRUCT_NON_THINKING.presence_penalty == 1.5
+    assert INSTRUCT_NON_THINKING.enable_thinking is False
     assert STRICT_JSON_REPAIR.temperature == 0.0
     assert STRICT_JSON_REPAIR.top_p == 1.0
     assert STRICT_JSON_REPAIR.top_k == 1
@@ -46,16 +52,22 @@ def test_traceaudit_qwen36_triage_profile_serializes_complete_gateway_request_co
 
     assert TRACEAUDIT_QWEN36_TRIAGE_V1.profile_id == "traceaudit-qwen36-finalizer-v1"
     assert fields == {
-        "max_tokens": 8192,
-        "temperature": 0.0,
-        "top_p": 1.0,
-        "top_k": 1,
+        "max_tokens": 32768,
+        "temperature": 0.7,
+        "top_p": 0.8,
+        "top_k": 20,
         "min_p": 0.0,
-        "presence_penalty": 0.0,
+        "presence_penalty": 1.5,
         "repetition_penalty": 1.0,
-        "chat_template_kwargs": {"enable_thinking": False},
-        "response_format": {"type": "json_object"},
+        "seed": 20260520,
+        "logprobs": False,
+        "chat_template_kwargs": {"enable_thinking": False, "preserve_thinking": False},
+        "response_format": fields["response_format"],
     }
+    assert "top_logprobs" not in fields
+    schema = fields["response_format"]["json_schema"]["schema"]
+    assert schema["properties"]["verdict"]["enum"] == ["TP", "FP", "UNKNOWN"]
+    assert set(schema["required"]) >= {"findingId", "verdict", "citedEvidenceRefs", "claimEvidenceLinks"}
 
 
 def test_traceaudit_qwen36_profiles_split_acquisition_from_finalizer() -> None:
@@ -65,11 +77,16 @@ def test_traceaudit_qwen36_profiles_split_acquisition_from_finalizer() -> None:
     assert TRACEAUDIT_QWEN36_ACQUISITION_V1.profile_id == "traceaudit-qwen36-acquisition-v1"
     assert acquisition["max_tokens"] == 32768
     assert acquisition["chat_template_kwargs"]["enable_thinking"] is True
+    assert acquisition["chat_template_kwargs"]["preserve_thinking"] is False
+    assert acquisition["seed"] == 20260520
+    assert acquisition["logprobs"] is False
+    assert "top_logprobs" not in acquisition
     assert "response_format" not in acquisition
 
     assert TRACEAUDIT_QWEN36_FINALIZER_V1.profile_id == "traceaudit-qwen36-finalizer-v1"
-    assert finalizer["response_format"] == {"type": "json_object"}
+    assert finalizer["response_format"]["type"] == "json_schema"
     assert finalizer["chat_template_kwargs"]["enable_thinking"] is False
+    assert finalizer["chat_template_kwargs"]["preserve_thinking"] is False
 
 
 def test_chat_generation_profile_records_reproducibility_metadata() -> None:
@@ -130,6 +147,28 @@ def test_chat_generation_profile_rejects_invalid_max_tokens(max_tokens) -> None:
             profile_id="bad",
             max_tokens=max_tokens,
             controls=THINKING_GENERAL,
+        )
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"seed": True},
+        {"seed": 2**63},
+        {"logprobs": "false"},
+        {"logprobs": False, "top_logprobs": 0},
+        {"logprobs": True},
+        {"logprobs": True, "top_logprobs": -1},
+        {"preserve_thinking": "false"},
+    ],
+)
+def test_chat_generation_profile_rejects_invalid_paper_controls(kwargs: dict) -> None:
+    with pytest.raises(ValueError):
+        ChatGenerationProfile(
+            profile_id="bad-paper-controls",
+            max_tokens=32768,
+            controls=THINKING_GENERAL,
+            **kwargs,
         )
 
 

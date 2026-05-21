@@ -307,6 +307,20 @@ def test_paper_context_contract_snapshot_advertises_s3_consumable_boundary():
     assert all(item["timeoutHeaderRequired"] is False for item in body["endpoints"])
     assert body["policies"]["paperCallLivenessPolicy"] == "synchronous_bounded_no_absolute_semantic_timeout"
     assert body["policies"]["callerReadTimeoutPolicy"] == "no_fixed_absolute_read_deadline_transport_fallback_only"
+    assert body["policies"]["sourceKgQualityGatePolicy"] == "selectable_context_may_be_partial_with_caveats"
+    assert body["policies"]["sourceKgQualityDiagnostics"] == [
+        "S5_PAPER_SOURCE_KG_SMOKE_HARNESS_PROVENANCE",
+        "S5_PAPER_SOURCE_KG_LOW_CONFIDENCE_EDGES",
+        "S5_PAPER_SOURCE_KG_NODE_SNIPPET_COVERAGE_EMPTY",
+        "S5_PAPER_SOURCE_KG_EDGE_COVERAGE_EMPTY",
+        "S5_PAPER_SOURCE_KG_RICH_IR_NOT_AVAILABLE",
+    ]
+    assert body["policies"]["sourceKgPartialReadiness"] == {
+        "surfaceStatus": "partial",
+        "stageReadiness": "ready",
+        "sourceKgQualityGate": "accepted_with_caveats",
+        "negativeEvidenceAllowed": False,
+    }
     assert body["policies"]["mainlineForbiddenLeakageClasses"] == FORBIDDEN_LEAKAGE_CLASSES
     assert body["policies"]["forbiddenInferencePolicy"] == "producer_status_is_not_final_triage"
     assert body["freezeGate"]["s5VisiblePacketSchemaFinalized"] is True
@@ -395,6 +409,41 @@ def test_prepare_seeds_real_source_kg_and_returns_s3_consumable_refs(paper_repo)
     assert body["producerProvenance"]["visibilityMode"] == "generic"
     observations = paper_repo.list_provider_observations(provider="s5-paper-context")
     assert any(obs["subjectKey"] == body["sourceKgRef"] and obs["status"] == "ready" for obs in observations)
+
+
+def test_prepare_marks_smoke_harness_source_kg_as_partial_quality(paper_repo):
+    weak_source = _source_payload()
+    weak_source["analysisArtifactSet"]["analyzerName"] = "s3-smoke-source-kg-harness"
+    weak_source["analysisArtifactSet"]["analysisConfig"] = {"enabled": ["manual-smoke-callgraph"]}
+    for edge in weak_source["graphEdges"]:
+        edge["metadata"] = {"confidence": 0.7, "producer": "manual-smoke-harness"}
+
+    payload = _prepare_with_ingest_payload(
+        requestId="s3-s5-prepare-weak-kg",
+        idempotencyKey="case-001:target-001:s5:prepare-code-kb:weak-kg",
+        sourceContext={**_base_prepare_payload()["sourceContext"], "sourceKgIngestRequest": weak_source},
+    )
+    resp = client.post(
+        "/v1/paper/code-kb/prepare",
+        json=payload,
+        headers={"X-Timeout-Ms": "30000", "X-Request-Id": "s3-s5-prepare-weak-kg"},
+    )
+
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["surfaceStatus"] == "partial"
+    assert body["stageReadiness"] == "ready"
+    assert body["readiness"]["codeKbReady"] is True
+    assert body["readiness"]["sourceKgReady"] is True
+    assert body["readiness"]["contextSelectable"] is True
+    assert body["readiness"]["sourceKgQualityGate"] == "accepted_with_caveats"
+    codes = {diag["code"] for diag in body["diagnostics"]}
+    assert "S5_PAPER_SOURCE_KG_SMOKE_HARNESS_PROVENANCE" in codes
+    assert "S5_PAPER_SOURCE_KG_LOW_CONFIDENCE_EDGES" in codes
+    assert all(diag["negativeEvidenceAllowed"] is False for diag in body["diagnostics"])
+
+    observations = paper_repo.list_provider_observations(provider="s5-paper-context")
+    assert any(obs["subjectKey"] == body["sourceKgRef"] and obs["status"] == "partial" for obs in observations)
 
 
 def test_finding_retrieve_projects_real_source_kg_rows_with_b2_b4_stable_shape(paper_repo):

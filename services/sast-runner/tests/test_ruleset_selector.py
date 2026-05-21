@@ -78,7 +78,7 @@ class TestResolveRulesets:
     def test_profile_based_cpp(self) -> None:
         profile = _make_profile(languageStandard="c++17")
         result = resolve_rulesets(None, profile, ["p/default"])
-        assert "p/c" in result  # Semgrep p/c covers C/C++
+        assert "p/c" in result  # retained as a baseline C ruleset; C++ coverage is reported separately
         assert "p/security-audit" in result
 
     def test_no_profile_uses_defaults(self) -> None:
@@ -125,13 +125,21 @@ class TestSemgrepIncludeExtensions:
         assert semgrep_include_extensions(p) is None
 
     def test_cpp_project(self) -> None:
-        """C++ 프로젝트 → [".c", ".h"] (C 파일만)."""
+        """C++ 프로젝트 → C/C++ 확장자를 모두 허용한다."""
         p = _make_profile(languageStandard="c++17")
         result = semgrep_include_extensions(p)
-        assert result == [".c", ".h"]
+        assert result is not None
+        assert ".c" in result
+        assert ".h" in result
+        assert ".cpp" in result
+        assert ".cc" in result
+        assert ".cxx" in result
+        assert ".hpp" in result
 
     def test_mixed_project(self) -> None:
-        """mixed 프로젝트 → [".c", ".h"]."""
+        """mixed 프로젝트 → C/C++ 확장자를 모두 허용한다."""
         p = _make_profile(languageStandard="rust2024")  # mixed fallback
         result = semgrep_include_extensions(p)
-        assert result == [".c", ".h"]
+        assert result is not None
+        assert ".c" in result
+        assert ".cpp" in result

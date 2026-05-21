@@ -1,0 +1,40 @@
+rules:
+  - id: aegis.cpp.cwe-78-system-with-variable
+    patterns:
+      - pattern-either:
+          - pattern: system($ARG)
+          - pattern: std::system($ARG)
+      - pattern-not: system("...")
+      - pattern-not: std::system("...")
+    message: >
+      Potential OS command injection: system() called with a non-literal C++ argument.
+      This is deterministic local static evidence only; S3 owns final triage.
+    languages: [cpp]
+    severity: ERROR
+    metadata:
+      cwe:
+        - "CWE-78"
+      category: security
+      confidence: HIGH
+      impact: HIGH
+      traceaudit_role: "cpp-command-injection-canary"
+
+  - id: aegis.cpp.cwe-78-popen-with-variable
+    patterns:
+      - pattern-either:
+          - pattern: popen($ARG, ...)
+          - pattern: std::popen($ARG, ...)
+      - pattern-not: popen("...", ...)
+      - pattern-not: std::popen("...", ...)
+    message: >
+      Potential OS command injection: popen() called with a non-literal C++ argument.
+      This is deterministic local static evidence only; S3 owns final triage.
+    languages: [cpp]
+    severity: ERROR
+    metadata:
+      cwe:
+        - "CWE-78"
+      category: security
+      confidence: HIGH
+      impact: HIGH
+      traceaudit_role: "cpp-command-injection-canary"

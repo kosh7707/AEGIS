@@ -62,6 +62,7 @@ def normalize_s4(bundle: dict[str, Any]) -> tuple[dict[str, Any], list[EvidenceL
         surface_status = _s4_surface_status(bundle, surface)
         for row in bundle.get(surface, []):
             row_id = _s4_row_id(row, surface)
+            diagnostic_row = _s4_row_is_diagnostic(row, surface, surface_status)
             related_finding_id = _s4_related_finding_id(
                 row,
                 surface,
@@ -70,7 +71,7 @@ def normalize_s4(bundle: dict[str, Any]) -> tuple[dict[str, Any], list[EvidenceL
             )
             ledger.append(
                 EvidenceLedgerRow(
-                    evidenceRef=f"{'s3-diagnostic' if surface_status != 'produced' else 's3-evidence'}:s4:{surface}:{row_id}",
+                    evidenceRef=f"{'s3-diagnostic' if diagnostic_row else 's3-evidence'}:s4:{surface}:{row_id}",
                     caseId=case_id,
                     buildTargetId=build_target_id,
                     producer="s4",
@@ -82,7 +83,7 @@ def normalize_s4(bundle: dict[str, Any]) -> tuple[dict[str, Any], list[EvidenceL
                     text=_s4_row_text(row, surface),
                     surfaceStatus=surface_status,
                     producerTrace=row.get("trace", {}),
-                    diagnostic=surface_status != "produced",
+                    diagnostic=diagnostic_row,
                 )
             )
     for surface in ["targetMetadata", "staticEvidenceContract", "claimBoundaryMatrix", "claimBoundaries"]:
@@ -140,6 +141,7 @@ def normalize_s4(bundle: dict[str, Any]) -> tuple[dict[str, Any], list[EvidenceL
         "includeEdges": bundle.get("includeEdges", []),
         "libraries": bundle.get("libraries", []),
         "toolRuns": bundle.get("toolRuns", []),
+        "staticEvidenceContract": bundle.get("staticEvidenceContract", {}),
         "diagnostics": bundle.get("diagnostics", []),
         "claimBoundaries": bundle.get("claimBoundaries", {}),
         "claimBoundaryMatrix": bundle.get("claimBoundaryMatrix", []),
@@ -212,8 +214,34 @@ def _s4_row_text(row: dict[str, Any], surface: str) -> str:
             parts.append(f"status={status}")
         if count is not None:
             parts.append(f"findings={count}")
+        if row.get("coverageDegraded") is True:
+            reasons = row.get("coverageReasons") or []
+            reason_text = ",".join(str(reason) for reason in reasons) if isinstance(reasons, list) else str(reasons)
+            parts.append("coverageDegraded=true")
+            if reason_text:
+                parts.append(f"coverageReasons={reason_text}")
+        coverage = row.get("coverage")
+        if isinstance(coverage, dict) and coverage.get("coverageKind"):
+            parts.append(f"coverageKind={coverage['coverageKind']}")
         return "; ".join(parts)
     return ""
+
+
+def _s4_row_is_diagnostic(row: dict[str, Any], surface: str, surface_status: str) -> bool:
+    """Classify producer caveats as diagnostic rows without marking liveness failed.
+
+    S4 may report `status=success` for a Semgrep tool run while also exposing
+    effective-coverage caveats. Those caveats are producer diagnostics/contract
+    notes, not positive or negative security evidence. Prefixing the row as
+    `s3-diagnostic` keeps it visible to B2/B4 packets without letting a
+    finalizer cite it as ordinary S4 evidence.
+    """
+
+    if surface_status != "produced":
+        return True
+    if surface == "toolRuns" and row.get("coverageDegraded") is True:
+        return True
+    return False
 
 
 def _s4_surface_status(bundle: dict[str, Any], surface: str) -> str:

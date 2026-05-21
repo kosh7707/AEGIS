@@ -5,6 +5,8 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
+from app.scanner.semgrep_coverage import C_CPP_INCLUDE_EXTENSIONS
+
 if TYPE_CHECKING:
     from app.schemas.request import BuildProfile
 
@@ -24,7 +26,7 @@ _C_STANDARDS = frozenset({
 
 # Semgrep 룰셋 매핑
 C_RULESETS = ["p/c"]
-CPP_RULESETS = ["p/c"]  # Semgrep에는 별도 p/cpp가 없으므로 p/c가 C/C++ 공용
+CPP_RULESETS = ["p/c"]  # baseline C registry pack; effective C++ coverage is reported separately.
 SECURITY_RULESETS = ["p/security-audit"]
 
 
@@ -101,19 +103,19 @@ def resolve_header_language(profile: BuildProfile | None) -> str:
 
 
 def semgrep_include_extensions(profile: BuildProfile | None) -> list[str] | None:
-    """C++ 프로젝트에서 Semgrep이 스캔할 파일 확장자 필터를 결정한다.
+    """Semgrep이 스캔할 파일 확장자 필터를 결정한다.
 
     Returns:
         None: 전체 스캔 (C 프로젝트 또는 profile 없음)
-        [".c", ".h"]: C 파일만 (C++ 또는 mixed 프로젝트)
+        C/C++ extension allowlist: C++ 또는 mixed 프로젝트에서 .cpp를 배제하지 않음.
     """
     if profile is None:
         return None
     lang = detect_language_family(profile)
     if lang == "c":
         return None  # C 프로젝트 → 전체 스캔
-    # cpp 또는 mixed → C 파일만 스캔 (Semgrep C 룰은 .c/.h에만 유효)
-    return [".c", ".h"]
+    # cpp 또는 mixed → C/C++ 파일을 모두 포함한다. 실제 유효 커버리지는 별도 품질 메타데이터로 노출한다.
+    return list(C_CPP_INCLUDE_EXTENSIONS)
 
 
 def _rulesets_for_language(lang: str) -> list[str]:

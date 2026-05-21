@@ -1,9 +1,10 @@
 """S3-owned generation controls for S7 LLM gateway requests.
 
 These presets make the caller-owned generation tuple explicit instead of relying
-on S7 gateway defaults. Values are based on the 2026-04-28 S3/S7 temperature
-policy review for Qwen3.6-27B and must be revisited when the model family or
-S7 validation ranges change.
+on S7 gateway defaults. Paper-facing Qwen3.6-27B profiles follow the official
+Qwen recommended sampling tuples (2026-05-20 verification against the model
+card) and must be revisited when the model family or S7 validation ranges
+change.
 """
 
 from __future__ import annotations
@@ -68,6 +69,10 @@ class ChatGenerationProfile:
     max_tokens: int
     controls: GenerationControls
     response_format: dict[str, Any] | None = None
+    seed: int | None = None
+    logprobs: bool | None = None
+    top_logprobs: int | None = None
+    preserve_thinking: bool | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.max_tokens, int) or isinstance(self.max_tokens, bool):
@@ -76,6 +81,27 @@ class ChatGenerationProfile:
             raise ValueError("max_tokens must be between 1 and 32768")
         if not self.profile_id:
             raise ValueError("profile_id must be non-empty")
+        if self.seed is not None and (
+            isinstance(self.seed, bool)
+            or not isinstance(self.seed, int)
+            or self.seed < -(2**63)
+            or self.seed > 2**63 - 1
+        ):
+            raise ValueError("seed must be a signed int64 when provided")
+        if self.logprobs is not None and not isinstance(self.logprobs, bool):
+            raise ValueError("logprobs must be boolean when provided")
+        if self.top_logprobs is not None and (
+            isinstance(self.top_logprobs, bool)
+            or not isinstance(self.top_logprobs, int)
+            or self.top_logprobs < 0
+        ):
+            raise ValueError("top_logprobs must be a non-negative integer when provided")
+        if self.logprobs is False and self.top_logprobs is not None:
+            raise ValueError("top_logprobs must be omitted when logprobs is false")
+        if self.logprobs is True and self.top_logprobs is None:
+            raise ValueError("top_logprobs must be provided when logprobs is true")
+        if self.preserve_thinking is not None and not isinstance(self.preserve_thinking, bool):
+            raise ValueError("preserve_thinking must be boolean when provided")
 
     def to_gateway_fields(self) -> dict[str, Any]:
         """Return S7 request fields owned by this profile."""
@@ -83,6 +109,17 @@ class ChatGenerationProfile:
             "max_tokens": self.max_tokens,
             **self.controls.to_gateway_fields(),
         }
+        if self.preserve_thinking is not None:
+            fields["chat_template_kwargs"] = {
+                **fields["chat_template_kwargs"],
+                "preserve_thinking": self.preserve_thinking,
+            }
+        if self.seed is not None:
+            fields["seed"] = self.seed
+        if self.logprobs is not None:
+            fields["logprobs"] = self.logprobs
+        if self.top_logprobs is not None:
+            fields["top_logprobs"] = self.top_logprobs
         if self.response_format is not None:
             fields["response_format"] = self.response_format
         return fields
@@ -120,8 +157,8 @@ def _validate_range(name: str, value: float, minimum: float, maximum: float) -> 
         raise ValueError(f"{name} must be between {minimum:g} and {maximum:g}")
 
 
-# General evidence-acquisition/reasoning turn. Keep stochasticity high enough for
-# Qwen thinking mode while bounding nucleus/top-k sampling explicitly.
+# Official Qwen3.6 thinking/general tuple. Paper acquisition uses this profile
+# because evidence acquisition needs reasoning plus tool-call freedom.
 THINKING_GENERAL = GenerationControls(
     temperature=1.0,
     top_p=0.95,
@@ -132,7 +169,8 @@ THINKING_GENERAL = GenerationControls(
     enable_thinking=True,
 )
 
-# Initial code-generation draft. Slightly lower temperature than broad analysis.
+# Official Qwen3.6 thinking/precise-coding tuple. This remains available for
+# legacy PoC/code-generation paths, but TraceAudit paper triage does not use it.
 THINKING_CODING = GenerationControls(
     temperature=0.6,
     top_p=0.95,
@@ -143,11 +181,29 @@ THINKING_CODING = GenerationControls(
     enable_thinking=True,
 )
 
-# Strict JSON repair/finalizer path. Thinking is disabled on structured
-# dispatch/finalization turns because Qwen/vLLM can place the requested JSON in
-# the reasoning channel instead of assistant content when thinking is enabled.
-# If S7/model validation rejects top_k=1 in practice, keep this preset
-# centralized and adjust here rather than per callsite.
+# Official Qwen3.6 instruct/non-thinking tuple. Paper finalization uses this
+# instead of the older deterministic JSON-repair tuple so the paper baseline is
+# attributable to the public model recommendation rather than an ad-hoc local
+# sampler. Schema/JSON validity remains enforced by response_format plus S3
+# parsing/validation, not by lowering sampling to greedy.
+INSTRUCT_NON_THINKING = GenerationControls(
+    temperature=0.7,
+    top_p=0.8,
+    top_k=20,
+    min_p=0.0,
+    presence_penalty=1.5,
+    repetition_penalty=1.0,
+    enable_thinking=False,
+)
+
+# Legacy deterministic strict-JSON repair path for non-paper S3 flows. Do not
+# use this as a TraceAudit paper baseline unless an explicit ablation says so.
+#
+# Thinking is disabled on structured dispatch/finalization turns because
+# Qwen/vLLM can place the requested JSON in the reasoning channel instead of
+# assistant content when thinking is enabled. If S7/model validation rejects
+# top_k=1 in practice, keep this preset centralized and adjust here rather than
+# per callsite.
 STRICT_JSON_REPAIR = GenerationControls(
     temperature=0.0,
     top_p=1.0,
@@ -158,6 +214,56 @@ STRICT_JSON_REPAIR = GenerationControls(
     enable_thinking=False,
 )
 
+
+TRACEAUDIT_FINALIZER_JSON_SCHEMA: dict[str, Any] = {
+    "type": "json_schema",
+    "json_schema": {
+        "name": "traceaudit_finding_triage_v1",
+        "strict": True,
+        "schema": {
+            "type": "object",
+            "properties": {
+                "findingId": {"type": "string"},
+                "verdict": {"type": "string", "enum": ["TP", "FP", "UNKNOWN"]},
+                "rationale": {"type": "string"},
+                "citedEvidenceRefs": {"type": "array", "items": {"type": "string"}},
+                "claimEvidenceLinks": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "claim": {"type": "string"},
+                            "stance": {"type": "string"},
+                            "evidenceRefs": {"type": "array", "items": {"type": "string"}},
+                        },
+                        "required": ["claim", "stance", "evidenceRefs"],
+                        "additionalProperties": False,
+                    },
+                },
+                "unsupportedClaims": {"type": "array", "items": {"type": "string"}},
+                "unknownReason": {"type": ["string", "null"]},
+                "diagnosticRefsUsed": {"type": "array", "items": {"type": "string"}},
+                "boundaryNotes": {"type": "array", "items": {"type": "string"}},
+            },
+            "required": [
+                "findingId",
+                "verdict",
+                "rationale",
+                "citedEvidenceRefs",
+                "claimEvidenceLinks",
+                "unsupportedClaims",
+                "unknownReason",
+                "diagnosticRefsUsed",
+                "boundaryNotes",
+            ],
+            "additionalProperties": False,
+        },
+    },
+}
+
+
+TRACEAUDIT_PAPER_SEED = 20260520
+
 # Paper TraceAudit evidence-acquisition/reasoning profile for Qwen3.6-27B via S7.
 #
 # Acquisition turns are allowed to think and call tools. They must not request
@@ -167,18 +273,24 @@ TRACEAUDIT_QWEN36_ACQUISITION_V1 = ChatGenerationProfile(
     max_tokens=32768,
     controls=THINKING_GENERAL,
     response_format=None,
+    seed=TRACEAUDIT_PAPER_SEED,
+    logprobs=False,
+    preserve_thinking=False,
 )
 
-# Paper TraceAudit strict finalizer profile for Qwen3.6-27B via S7.
+# Paper TraceAudit finalizer profile for Qwen3.6-27B via S7.
 #
 # This profile is deliberately centralized because paper verdict rows must be
-# reproducible and audit-attributable. It is tool-less and schema-constrained;
-# do not reuse it for acquisition/tool-call turns.
+# reproducible and audit-attributable. It is tool-less and JSON-constrained; do
+# not reuse it for acquisition/tool-call turns.
 TRACEAUDIT_QWEN36_FINALIZER_V1 = ChatGenerationProfile(
     profile_id="traceaudit-qwen36-finalizer-v1",
-    max_tokens=8192,
-    controls=STRICT_JSON_REPAIR,
-    response_format={"type": "json_object"},
+    max_tokens=32768,
+    controls=INSTRUCT_NON_THINKING,
+    response_format=TRACEAUDIT_FINALIZER_JSON_SCHEMA,
+    seed=TRACEAUDIT_PAPER_SEED,
+    logprobs=False,
+    preserve_thinking=False,
 )
 
 # Backward-compatible alias for tests/callers not yet migrated. The canonical

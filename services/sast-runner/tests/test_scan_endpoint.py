@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -10,6 +11,7 @@ from httpx import ASGITransport, AsyncClient
 
 from app.main import app
 from app.scanner.orchestrator import ALL_TOOLS
+from app.scanner.semgrep_coverage import C_CPP_INCLUDE_EXTENSIONS
 from app.schemas.response import (
     ExecutionReport,
     FindingsFilterInfo,
@@ -1685,6 +1687,56 @@ async def test_scan_with_build_profile_without_sdk_id_succeeds(
     assert data["success"] is True
     assert data["execution"]["sdk"]["resolved"] is False
     assert data["execution"]["sdk"].get("sdkId") is None
+
+
+@pytest.mark.asyncio
+async def test_project_path_source_discovery_uses_shared_c_cpp_semgrep_extensions(
+    client: AsyncClient,
+    tmp_path,
+) -> None:
+    project_dir = tmp_path / "project"
+    project_dir.mkdir()
+    for suffix in C_CPP_INCLUDE_EXTENSIONS:
+        (project_dir / f"sample{suffix}").write_text("int x;\n", encoding="utf-8")
+    (project_dir / "ignored.txt").write_text("not source\n", encoding="utf-8")
+
+    captured_source_files: list[str] = []
+
+    async def _capture_run(*, source_files: list[str], **kwargs):
+        del kwargs
+        captured_source_files.extend(source_files)
+        return [], ExecutionReport(
+            toolsRun=[],
+            toolResults={},
+            sdk=SdkResolutionInfo(resolved=False),
+            filtering=FindingsFilterInfo(beforeFilter=0, afterFilter=0),
+        )
+
+    with (
+        patch.object(
+            __import__("app.routers.scan", fromlist=["orchestrator"]).orchestrator,
+            "run",
+            AsyncMock(side_effect=_capture_run),
+        ),
+        patch.object(
+            __import__("app.routers.scan", fromlist=["orchestrator"]).orchestrator,
+            "evaluate_policy",
+            return_value=None,
+        ),
+    ):
+        resp = await client.post(
+            "/v1/scan",
+            json={
+                "scanId": "test-project-discovery-cpp-extensions",
+                "projectId": "proj-test",
+                "projectPath": str(project_dir),
+                "options": {"tools": []},
+            },
+        )
+
+    assert resp.status_code == 200
+    assert {Path(path).suffix for path in captured_source_files} == set(C_CPP_INCLUDE_EXTENSIONS)
+    assert "ignored.txt" not in captured_source_files
 
 
 @pytest.mark.asyncio

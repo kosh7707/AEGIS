@@ -339,7 +339,7 @@ def test_ledger_backed_idempotency_survives_process_cache_reset_for_all_paper_en
         observations = fresh_repo.list_provider_observations(provider="s5-paper-context-idempotency")
         assert any(
             obs["subjectKey"] == f"{_endpoint_subject(endpoint)}:{payload['idempotencyKey']}"
-            and obs["payload"].get("schemaVersion") == "s5-paper-idempotency-record-v1"
+            and obs["payload"].get("schemaVersion") == "s5-paper-idempotency-record-v2"
             for obs in observations
         )
     finally:

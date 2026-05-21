@@ -26,6 +26,9 @@ class ToolExecutionResult(BaseModel):
     budget_warning: bool | None = Field(default=None, alias="budgetWarning")
     degraded: bool | None = None
     degrade_reasons: list[str] | None = Field(default=None, alias="degradeReasons")
+    coverage_degraded: bool | None = Field(default=None, alias="coverageDegraded")
+    coverage_reasons: list[str] | None = Field(default=None, alias="coverageReasons")
+    coverage: dict[str, Any] | None = None
     version: str | None = None
 
     model_config = {"populate_by_name": True, "by_alias": True}

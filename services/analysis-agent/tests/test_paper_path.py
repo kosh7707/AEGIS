@@ -178,6 +178,40 @@ def s4_bundle(case_id="case-001", build_target_id="target-001", *, findings=True
     }
 
 
+def s4_bundle_with_semgrep_coverage_caveat(case_id="case-coverage", build_target_id="target-001"):
+    bundle = s4_bundle(case_id=case_id, build_target_id=build_target_id, findings=False)
+    diagnostic_id = "s4:diagnostic:semgrep-cpp-effective-coverage"
+    bundle["diagnostics"].append(
+        {
+            "diagnosticId": diagnostic_id,
+            "severity": "warning",
+            "category": "tool-coverage",
+            "reasonCode": "SEMGREP_CPP_EFFECTIVE_COVERAGE_UNPROVEN",
+            "surface": "toolRuns",
+            "message": "Semgrep ran successfully, but C++ effective coverage is caveated.",
+            "consumerPolicy": "producer_diagnostic_not_security_evidence",
+            "trace": _trace(case_id, build_target_id, "diagnostics", "diagnostics[0]"),
+        }
+    )
+    bundle["staticEvidenceContract"]["gates"] = {
+        "qualityEvaluation": "not_evaluated",
+        "coverageQuality": {
+            "status": "caveated",
+            "consumerPolicy": "coverage_caveat_not_negative_security_evidence",
+        },
+    }
+    bundle["toolRuns"][0].update(
+        {
+            "findingsCount": 0,
+            "coverage": {"coverageKind": "semgrep-effective-coverage-v1"},
+            "coverageDegraded": True,
+            "coverageReasons": ["SEMGREP_CPP_EFFECTIVE_COVERAGE_UNPROVEN"],
+            "diagnosticRefs": [diagnostic_id],
+        }
+    )
+    return bundle
+
+
 def _trace(case_id, build_target_id, surface, raw):
     return {
         "caseId": case_id,
@@ -452,6 +486,45 @@ def test_zero_finding_case_reaches_paper_export_ready_without_s5_or_llm(client, 
     assert started.status_code == 200
     assert started.json()["status"] == "PAPER_EXPORT_READY"
     assert started.json()["summary"]["findingCount"] == 0
+
+
+def test_s4_semgrep_coverage_caveat_is_preserved_as_diagnostic_not_clean_evidence(client, tmp_path, paper_source):
+    body = make_case_body(
+        tmp_path,
+        paper_source,
+        case_id="case-coverage",
+        s4=s4_bundle_with_semgrep_coverage_caveat(case_id="case-coverage"),
+    )
+    body["producerArtifacts"]["s5FindingContextByFindingId"] = {}
+    body["producerArtifacts"]["s5GenericThreatContextByFindingId"] = {}
+    body["producerArtifacts"]["llmTriageByFindingId"] = {}
+
+    assert client.post("/v1/paper/analysis-cases", json=body).status_code == 201
+    started = client.post("/v1/paper/analysis-cases/case-coverage/start")
+
+    assert started.status_code == 200, started.text
+    assert started.json()["status"] == "PAPER_EXPORT_READY"
+    assert started.json()["summary"]["findingCount"] == 0
+    assert started.json()["summary"]["triageCounts"] == {"TP": 0, "FP": 0, "UNKNOWN": 0}
+
+    case_root = Path(body["paperRunRoot"]) / "cases" / "case-coverage"
+    normalized = json.loads((case_root / "s4-static-evidence.normalized.json").read_text())
+    tool_run = normalized["toolRuns"][0]
+    assert tool_run["coverageDegraded"] is True
+    assert tool_run["coverageReasons"] == ["SEMGREP_CPP_EFFECTIVE_COVERAGE_UNPROVEN"]
+    assert tool_run["coverage"]["coverageKind"] == "semgrep-effective-coverage-v1"
+    assert normalized["staticEvidenceContract"]["gates"]["coverageQuality"]["status"] == "caveated"
+
+    ledger = [json.loads(line) for line in (case_root / "evidence-ledger.jsonl").read_text().splitlines()]
+    tool_rows = [row for row in ledger if row["sourceId"] == "s4-tool-run-semgrep"]
+    assert len(tool_rows) == 1
+    tool_row = tool_rows[0]
+    assert tool_row["evidenceRef"] == "s3-diagnostic:s4:toolRuns:s4-tool-run-semgrep"
+    assert tool_row["diagnostic"] is True
+    assert "coverageDegraded=true" in tool_row["text"]
+    assert "SEMGREP_CPP_EFFECTIVE_COVERAGE_UNPROVEN" in tool_row["text"]
+    diagnostic_refs = {row["evidenceRef"] for row in ledger if row["diagnostic"]}
+    assert "s3-diagnostic:s4:s4:diagnostic:semgrep-cpp-effective-coverage" in diagnostic_refs
 
 
 def test_s4_non_consumable_bundle_fails_normal_start(client, tmp_path, paper_source):
@@ -1425,6 +1498,48 @@ def test_s5_ready_with_diagnostics_is_usable_when_context_selectable(client, tmp
     assert response.status_code == 200, response.text
 
 
+def test_s5_partial_ready_source_kg_quality_gate_is_usable_with_caveats(client, tmp_path, paper_source):
+    partial_ready = s5_prepare()
+    partial_ready["surfaceStatus"] = "partial"
+    partial_ready["stageReadiness"] = "ready"
+    partial_ready["readiness"] = {
+        "codeKbReady": True,
+        "sourceKgReady": True,
+        "contextSelectable": True,
+        "sourceKgQualityGate": "accepted_with_caveats",
+    }
+    partial_ready["diagnostics"] = [
+        {
+            "code": "S5_PAPER_SOURCE_KG_SMOKE_HARNESS_PROVENANCE",
+            "message": "Selectable Source KG came from a smoke/manual harness.",
+            "consumerPolicy": "diagnostic_only_not_security_evidence",
+            "negativeEvidenceAllowed": False,
+        },
+        {
+            "code": "S5_PAPER_SOURCE_KG_RICH_IR_NOT_AVAILABLE",
+            "message": "Rich IR artifacts are not available for this Source KG.",
+            "consumerPolicy": "diagnostic_only_not_security_evidence",
+            "negativeEvidenceAllowed": False,
+        },
+    ]
+    body = make_case_body(tmp_path, paper_source)
+    write_json(Path(body["producerArtifacts"]["s5CodeKbPath"]), partial_ready)
+
+    assert client.post("/v1/paper/analysis-cases", json=body).status_code == 201
+    response = client.post("/v1/paper/analysis-cases/case-001/start")
+
+    assert response.status_code == 200, response.text
+    case_root = Path(body["paperRunRoot"]) / "cases" / "case-001"
+    normalized = json.loads((case_root / "s5-code-kb.normalized.json").read_text())
+    assert normalized["surfaceStatus"] == "partial"
+    assert normalized["stageReadiness"] == "ready"
+    assert normalized["readiness"]["sourceKgQualityGate"] == "accepted_with_caveats"
+    assert {diag["code"] for diag in normalized["diagnostics"]} >= {
+        "S5_PAPER_SOURCE_KG_SMOKE_HARNESS_PROVENANCE",
+        "S5_PAPER_SOURCE_KG_RICH_IR_NOT_AVAILABLE",
+    }
+
+
 def test_s5_ready_with_diagnostics_requires_context_selectable(client, tmp_path, paper_source):
     partial_not_selectable = s5_prepare()
     partial_not_selectable["surfaceStatus"] = "partial"
@@ -1472,16 +1587,10 @@ async def test_live_s7_chat_request_uses_generation_controls_and_openai_response
     class FakeResponse:
         status_code = 200
         text = "ok"
+        def __init__(self, payload):
+            self._payload = payload
         def json(self):
-            return {
-                "choices": [
-                    {
-                        "message": {
-                            "content": json.dumps(llm_unknown())
-                        }
-                    }
-                ]
-            }
+            return self._payload
 
     class FakeClient:
         def __init__(self, timeout):
@@ -1494,7 +1603,26 @@ async def test_live_s7_chat_request_uses_generation_controls_and_openai_response
             captured["url"] = url
             captured["json"] = json
             captured["headers"] = headers
-            return FakeResponse()
+            return FakeResponse({
+                "requestId": "acr-finalizer-001",
+                "traceRequestId": headers.get("X-Request-Id"),
+                "status": "accepted",
+                "statusUrl": "/v1/async-chat-requests/acr-finalizer-001",
+                "resultUrl": "/v1/async-chat-requests/acr-finalizer-001/result",
+            })
+        async def get(self, url, headers):
+            captured.setdefault("get_urls", []).append(url)
+            if url.endswith("/v1/async-chat-requests/acr-finalizer-001"):
+                return FakeResponse({"requestId": "acr-finalizer-001", "state": "completed", "resultReady": True})
+            if url.endswith("/v1/async-chat-requests/acr-finalizer-001/result"):
+                return FakeResponse({
+                    "requestId": "acr-finalizer-001",
+                    "state": "completed",
+                    "response": {
+                        "choices": [{"message": {"content": json.dumps(llm_unknown())}}],
+                    },
+                })
+            raise AssertionError(f"unexpected GET url: {url}")
 
     monkeypatch.setattr("app.paper.llm_client.settings.llm_mode", "real")
     monkeypatch.setattr("app.paper.llm_client.httpx.AsyncClient", FakeClient)
@@ -1510,16 +1638,25 @@ async def test_live_s7_chat_request_uses_generation_controls_and_openai_response
     finally:
         reset_request_id(token)
     assert result["verdict"] == "UNKNOWN"
-    assert captured["url"] == "http://s7.local/v1/chat"
+    assert captured["url"] == "http://s7.local/v1/async-chat-requests"
+    assert captured["headers"]["X-AEGIS-Paper-Controls"] == "true"
     assert captured["headers"]["X-AEGIS-Strict-JSON"] == "true"
-    assert captured["headers"]["X-AEGIS-Wait-While-Alive"] == "true"
     assert captured["headers"]["X-Request-Id"] == "req-paper-llm"
-    assert "X-Timeout-Seconds" not in captured["headers"]
+    assert "X-AEGIS-Wait-While-Alive" not in captured["headers"]
     assert "tools" not in captured["json"]
-    assert "tool_choice" not in captured["json"]
+    assert captured["json"]["tool_choice"] == "none"
+    assert "structured_outputs" not in captured["json"]
+    assert captured["json"]["response_format"]["type"] == "json_schema"
+    assert captured["json"]["logprobs"] is False
+    assert "top_logprobs" not in captured["json"]
     for field, value in TRACEAUDIT_QWEN36_FINALIZER_V1.to_gateway_fields().items():
         assert captured["json"][field] == value
     assert captured["json"]["chat_template_kwargs"]["enable_thinking"] is False
+    assert captured["json"]["chat_template_kwargs"]["preserve_thinking"] is False
+    assert captured["get_urls"] == [
+        "http://s7.local/v1/async-chat-requests/acr-finalizer-001",
+        "http://s7.local/v1/async-chat-requests/acr-finalizer-001/result",
+    ]
     assert request["mode"] == "live"
     assert exchange_logs
     exchange = exchange_logs[-1]
@@ -1546,8 +1683,10 @@ async def test_live_s7_finalizer_parse_error_logs_metadata(monkeypatch, tmp_path
     class FakeResponse:
         status_code = 200
         text = "ok"
+        def __init__(self, payload):
+            self._payload = payload
         def json(self):
-            return {"choices": [{"finish_reason": "stop", "message": {"content": "not-json"}}]}
+            return self._payload
 
     class FakeClient:
         def __init__(self, timeout):
@@ -1557,7 +1696,21 @@ async def test_live_s7_finalizer_parse_error_logs_metadata(monkeypatch, tmp_path
         async def __aexit__(self, *args):
             return None
         async def post(self, url, json, headers):
-            return FakeResponse()
+            return FakeResponse({
+                "requestId": "acr-finalizer-error",
+                "statusUrl": "/v1/async-chat-requests/acr-finalizer-error",
+                "resultUrl": "/v1/async-chat-requests/acr-finalizer-error/result",
+            })
+        async def get(self, url, headers):
+            if url.endswith("/v1/async-chat-requests/acr-finalizer-error"):
+                return FakeResponse({"requestId": "acr-finalizer-error", "state": "completed", "resultReady": True})
+            if url.endswith("/v1/async-chat-requests/acr-finalizer-error/result"):
+                return FakeResponse({
+                    "requestId": "acr-finalizer-error",
+                    "state": "completed",
+                    "response": {"choices": [{"finish_reason": "stop", "message": {"content": "not-json"}}]},
+                })
+            raise AssertionError(f"unexpected GET url: {url}")
 
     monkeypatch.setattr("app.paper.llm_client.settings.llm_mode", "real")
     monkeypatch.setattr("app.paper.llm_client.httpx.AsyncClient", FakeClient)
@@ -1595,31 +1748,35 @@ async def test_live_s7_acquisition_request_uses_tools_auto_without_strict_json(m
     case = PaperCaseCreateRequest.model_validate(body)
     captured = {}
 
+    tool_response = {
+        "choices": [
+            {
+                "finish_reason": "tool_calls",
+                "message": {
+                    "content": None,
+                    "tool_calls": [
+                        {
+                            "id": "call-1",
+                            "type": "function",
+                            "function": {
+                                "name": "retrieve_finding_context",
+                                "arguments": json.dumps({"findingId": "s4-finding-001"}),
+                            },
+                        }
+                    ],
+                },
+            }
+        ],
+        "usage": {"prompt_tokens": 10, "completion_tokens": 3},
+    }
+
     class FakeResponse:
         status_code = 200
         text = "ok"
+        def __init__(self, payload):
+            self._payload = payload
         def json(self):
-            return {
-                "choices": [
-                    {
-                        "finish_reason": "tool_calls",
-                        "message": {
-                            "content": None,
-                            "tool_calls": [
-                                {
-                                    "id": "call-1",
-                                    "type": "function",
-                                    "function": {
-                                        "name": "retrieve_finding_context",
-                                        "arguments": json.dumps({"findingId": "s4-finding-001"}),
-                                    },
-                                }
-                            ],
-                        },
-                    }
-                ],
-                "usage": {"prompt_tokens": 10, "completion_tokens": 3},
-            }
+            return self._payload
 
     class FakeClient:
         def __init__(self, timeout):
@@ -1632,7 +1789,20 @@ async def test_live_s7_acquisition_request_uses_tools_auto_without_strict_json(m
             captured["url"] = url
             captured["json"] = json
             captured["headers"] = headers
-            return FakeResponse()
+            return FakeResponse({
+                "requestId": "acr-acquire-001",
+                "traceRequestId": headers.get("X-Request-Id"),
+                "status": "accepted",
+                "statusUrl": "/v1/async-chat-requests/acr-acquire-001",
+                "resultUrl": "/v1/async-chat-requests/acr-acquire-001/result",
+            })
+        async def get(self, url, headers):
+            captured.setdefault("get_urls", []).append(url)
+            if url.endswith("/v1/async-chat-requests/acr-acquire-001"):
+                return FakeResponse({"requestId": "acr-acquire-001", "state": "completed", "resultReady": True})
+            if url.endswith("/v1/async-chat-requests/acr-acquire-001/result"):
+                return FakeResponse({"requestId": "acr-acquire-001", "state": "completed", "response": tool_response})
+            raise AssertionError(f"unexpected GET url: {url}")
 
     monkeypatch.setattr("app.paper.llm_client.settings.llm_mode", "real")
     monkeypatch.setattr("app.paper.llm_client.httpx.AsyncClient", FakeClient)
@@ -1648,15 +1818,24 @@ async def test_live_s7_acquisition_request_uses_tools_auto_without_strict_json(m
         reset_request_id(token)
 
     assert result["toolCalls"][0]["name"] == "retrieve_finding_context"
-    assert captured["url"] == "http://s7.local/v1/chat"
+    assert captured["url"] == "http://s7.local/v1/async-chat-requests"
+    assert captured["headers"]["X-AEGIS-Paper-Controls"] == "true"
     assert "X-AEGIS-Strict-JSON" not in captured["headers"]
-    assert captured["headers"]["X-AEGIS-Wait-While-Alive"] == "true"
+    assert "X-AEGIS-Wait-While-Alive" not in captured["headers"]
     assert captured["headers"]["X-Request-Id"] == "req-paper-acquire"
     assert captured["json"]["tool_choice"] == "auto"
     assert {tool["function"]["name"] for tool in captured["json"]["tools"]} >= {"retrieve_finding_context", "retrieve_generic_threat_context", "list_evidence_rows"}
     assert "response_format" not in captured["json"]
+    assert "structured_outputs" not in captured["json"]
+    assert captured["json"]["logprobs"] is False
+    assert "top_logprobs" not in captured["json"]
     for field, value in TRACEAUDIT_QWEN36_ACQUISITION_V1.to_gateway_fields().items():
         assert captured["json"][field] == value
+    assert captured["json"]["chat_template_kwargs"]["preserve_thinking"] is False
+    assert captured["get_urls"] == [
+        "http://s7.local/v1/async-chat-requests/acr-acquire-001",
+        "http://s7.local/v1/async-chat-requests/acr-acquire-001/result",
+    ]
     assert request["mode"] == "live"
     assert request["modelProfile"] == TRACEAUDIT_QWEN36_ACQUISITION_V1.profile_id
     assert request["generationProfile"] == TRACEAUDIT_QWEN36_ACQUISITION_V1.to_metadata(model=captured["json"]["model"])
@@ -1675,8 +1854,10 @@ async def test_live_s7_acquisition_parse_error_logs_metadata(monkeypatch, tmp_pa
     class FakeResponse:
         status_code = 200
         text = "ok"
+        def __init__(self, payload):
+            self._payload = payload
         def json(self):
-            return {"choices": []}
+            return self._payload
 
     class FakeClient:
         def __init__(self, timeout):
@@ -1686,7 +1867,21 @@ async def test_live_s7_acquisition_parse_error_logs_metadata(monkeypatch, tmp_pa
         async def __aexit__(self, *args):
             return None
         async def post(self, url, json, headers):
-            return FakeResponse()
+            return FakeResponse({
+                "requestId": "acr-acquisition-error",
+                "statusUrl": "/v1/async-chat-requests/acr-acquisition-error",
+                "resultUrl": "/v1/async-chat-requests/acr-acquisition-error/result",
+            })
+        async def get(self, url, headers):
+            if url.endswith("/v1/async-chat-requests/acr-acquisition-error"):
+                return FakeResponse({"requestId": "acr-acquisition-error", "state": "completed", "resultReady": True})
+            if url.endswith("/v1/async-chat-requests/acr-acquisition-error/result"):
+                return FakeResponse({
+                    "requestId": "acr-acquisition-error",
+                    "state": "completed",
+                    "response": {"choices": []},
+                })
+            raise AssertionError(f"unexpected GET url: {url}")
 
     monkeypatch.setattr("app.paper.llm_client.settings.llm_mode", "real")
     monkeypatch.setattr("app.paper.llm_client.httpx.AsyncClient", FakeClient)
@@ -1749,15 +1944,10 @@ async def test_live_s7_acquisition_second_round_preserves_openai_tool_history(mo
     class FakeResponse:
         status_code = 200
         text = "ok"
+        def __init__(self, payload):
+            self._payload = payload
         def json(self):
-            return {
-                "choices": [
-                    {
-                        "finish_reason": "stop",
-                        "message": {"content": "No additional tools.", "tool_calls": []},
-                    }
-                ]
-            }
+            return self._payload
 
     class FakeClient:
         def __init__(self, timeout):
@@ -1769,7 +1959,28 @@ async def test_live_s7_acquisition_second_round_preserves_openai_tool_history(mo
         async def post(self, url, json, headers):
             captured["json"] = json
             captured["headers"] = headers
-            return FakeResponse()
+            return FakeResponse({
+                "requestId": "acr-acquire-round2",
+                "statusUrl": "/v1/async-chat-requests/acr-acquire-round2",
+                "resultUrl": "/v1/async-chat-requests/acr-acquire-round2/result",
+            })
+        async def get(self, url, headers):
+            if url.endswith("/v1/async-chat-requests/acr-acquire-round2"):
+                return FakeResponse({"requestId": "acr-acquire-round2", "state": "completed", "resultReady": True})
+            if url.endswith("/v1/async-chat-requests/acr-acquire-round2/result"):
+                return FakeResponse({
+                    "requestId": "acr-acquire-round2",
+                    "state": "completed",
+                    "response": {
+                        "choices": [
+                            {
+                                "finish_reason": "stop",
+                                "message": {"content": "No additional tools.", "tool_calls": []},
+                            }
+                        ]
+                    },
+                })
+            raise AssertionError(f"unexpected GET url: {url}")
 
     monkeypatch.setattr("app.paper.llm_client.settings.llm_mode", "real")
     monkeypatch.setattr("app.paper.llm_client.httpx.AsyncClient", FakeClient)

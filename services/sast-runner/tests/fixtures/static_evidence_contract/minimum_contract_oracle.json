@@ -22,6 +22,7 @@
     "systemStability",
     "evidenceReadiness",
     "claimSupportReadiness",
+    "coverageQuality",
     "qualityEvaluation"
   ],
   "qualityEvaluationDefault": {
@@ -83,6 +84,7 @@
   ],
   "allowedToolExecutionConsumerPolicies": [
     "local_tool_execution_state_only_not_vulnerability_verdict",
+    "local_tool_effective_coverage_partial_not_negative_evidence",
     "local_tool_partial_use_with_degradation_metadata",
     "local_tool_failed_do_not_use_as_negative_evidence",
     "not_requested_or_not_applicable",

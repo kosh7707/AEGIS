@@ -54,7 +54,7 @@ _AUTHORITY_TEXT_PATTERNS = [
 
 _idempotency_cache: dict[tuple[str, str], dict[str, Any]] = {}
 IDEMPOTENCY_PROVIDER = "s5-paper-context-idempotency"
-IDEMPOTENCY_RECORD_SCHEMA_VERSION = "s5-paper-idempotency-record-v1"
+IDEMPOTENCY_RECORD_SCHEMA_VERSION = "s5-paper-idempotency-record-v2"
 
 
 def reset_paper_context_state() -> None:
@@ -278,6 +278,99 @@ def _context_counts(context: dict[str, Any]) -> dict[str, int]:
     }
 
 
+def _source_kg_quality_diagnostics(context: dict[str, Any], counts: dict[str, int]) -> list[dict[str, Any]]:
+    """Return S3-visible quality caveats for selectable but weak Source KG context.
+
+    This is deliberately not a final security verdict.  It only prevents S5 from
+    over-claiming that a smoke/manual graph is production-quality context.
+    """
+    diagnostics: list[dict[str, Any]] = []
+    analysis = context.get("analysisArtifactSet") or {}
+    analyzer_name = str(analysis.get("analyzerName") or "").lower()
+    analysis_config = analysis.get("analysisConfig") or {}
+    graph_edges = context.get("graphEdges") or []
+    graph_nodes = context.get("graphNodes") or []
+    rich_ir = context.get("richIrArtifacts") or []
+
+    def has_token(value: Any, *tokens: str) -> bool:
+        rendered = json.dumps(value, ensure_ascii=False, sort_keys=True, default=str).lower()
+        return any(token in rendered for token in tokens)
+
+    if "smoke" in analyzer_name or "harness" in analyzer_name or has_token(analysis_config, "manual", "smoke", "harness"):
+        diagnostics.append(
+            _diagnostic(
+                "S5_PAPER_SOURCE_KG_SMOKE_HARNESS_PROVENANCE",
+                "Source KG was produced by a smoke/manual harness; treat it as partial context quality, not complete source graph coverage.",
+                severity="warning",
+                surface_status="partial",
+                metadata={
+                    "analyzerName": analysis.get("analyzerName"),
+                    "analysisArtifactSetId": analysis.get("analysisArtifactSetId"),
+                },
+            )
+        )
+
+    low_confidence_edges = []
+    manual_edges = []
+    for edge in graph_edges:
+        metadata = edge.get("metadata") or {}
+        confidence = metadata.get("confidence")
+        if isinstance(confidence, int | float) and confidence < 0.8:
+            low_confidence_edges.append(edge.get("sourceGraphEdgeId"))
+        if has_token(metadata.get("producer") or metadata, "manual", "smoke", "harness"):
+            manual_edges.append(edge.get("sourceGraphEdgeId"))
+    if low_confidence_edges or manual_edges:
+        diagnostics.append(
+            _diagnostic(
+                "S5_PAPER_SOURCE_KG_LOW_CONFIDENCE_EDGES",
+                "One or more Source KG call edges are low-confidence or manually produced; graph traversal should be consumed with caveats.",
+                severity="warning",
+                surface_status="partial",
+                metadata={
+                    "lowConfidenceEdgeCount": len(low_confidence_edges),
+                    "manualEdgeCount": len(manual_edges),
+                    "sampleEdgeIds": [edge_id for edge_id in [*low_confidence_edges, *manual_edges] if edge_id][:5],
+                },
+            )
+        )
+
+    nodes_with_snippets = sum(1 for node in graph_nodes if node.get("evidenceSnippetId"))
+    if counts["graphNodes"] > 0 and nodes_with_snippets == 0:
+        diagnostics.append(
+            _diagnostic(
+                "S5_PAPER_SOURCE_KG_NODE_SNIPPET_COVERAGE_EMPTY",
+                "Source KG graph nodes are present but none are linked to evidence snippets.",
+                severity="warning",
+                surface_status="partial",
+                metadata={"graphNodeCount": counts["graphNodes"]},
+            )
+        )
+
+    if counts["graphNodes"] > 1 and counts["graphEdges"] == 0:
+        diagnostics.append(
+            _diagnostic(
+                "S5_PAPER_SOURCE_KG_EDGE_COVERAGE_EMPTY",
+                "Source KG has multiple graph nodes but no call/data-flow edges.",
+                severity="warning",
+                surface_status="partial",
+                metadata={"graphNodeCount": counts["graphNodes"]},
+            )
+        )
+
+    if diagnostics and not rich_ir:
+        diagnostics.append(
+            _diagnostic(
+                "S5_PAPER_SOURCE_KG_RICH_IR_NOT_AVAILABLE",
+                "No rich IR artifact was attached to corroborate the weak Source KG graph.",
+                severity="warning",
+                surface_status="partial",
+                metadata={"richIrArtifactCount": counts["richIrArtifacts"]},
+            )
+        )
+
+    return diagnostics
+
+
 def _selectors_from_ingest_result(result: dict[str, Any]) -> SourceKgSelectors:
     ids = result.get("ids") or {}
     return SourceKgSelectors.model_validate(
@@ -433,10 +526,19 @@ def prepare_code_kb(repo: SQLiteLedgerRepository, req: PrepareCodeKbRequest, x_r
                     counts[key] = int(value)
         context_selectable = bool(context.get("resolved")) and (counts["graphNodes"] > 0 or counts["evidenceSnippets"] > 0)
         if context_selectable and selectors is not None:
-            status = "produced"
+            quality_diagnostics = _source_kg_quality_diagnostics(context, counts)
+            diagnostics.extend(quality_diagnostics)
+            status = "partial" if quality_diagnostics else "produced"
             stage = "ready"
-            readiness = {"codeKbReady": True, "sourceKgReady": True, "contextSelectable": True}
-            _record_mapping(repo, req=req, code_kb_ref=code_ref, source_kg_ref=source_ref, selectors=selectors, counts=counts, status="ready")
+            readiness = {
+                "codeKbReady": True,
+                "sourceKgReady": True,
+                "contextSelectable": True,
+            }
+            if quality_diagnostics:
+                readiness["sourceKgQualityGate"] = "accepted_with_caveats"
+            mapping_status = "partial" if quality_diagnostics else "ready"
+            _record_mapping(repo, req=req, code_kb_ref=code_ref, source_kg_ref=source_ref, selectors=selectors, counts=counts, status=mapping_status)
         else:
             status = "not_available"
             stage = "not_ready"

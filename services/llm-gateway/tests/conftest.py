@@ -149,4 +149,57 @@ def make_chat_body() -> dict:
     }
 
 
+def make_paper_acquisition_body() -> dict:
+    body = make_chat_body()
+    body.update({
+        "seed": 123456789,
+        "logprobs": False,
+        "chat_template_kwargs": {
+            "enable_thinking": True,
+            "preserve_thinking": False,
+        },
+        "tools": [{
+            "type": "function",
+            "function": {
+                "name": "knowledge_search",
+                "description": "Search paper evidence",
+                "parameters": {
+                    "type": "object",
+                    "properties": {"query": {"type": "string"}},
+                    "required": ["query"],
+                },
+            },
+        }],
+        "tool_choice": "auto",
+    })
+    return body
+
+
+def make_paper_finalizer_body() -> dict:
+    body = make_chat_body()
+    body.update({
+        "seed": 123456789,
+        "logprobs": False,
+        "chat_template_kwargs": {
+            "enable_thinking": False,
+            "preserve_thinking": False,
+        },
+        "tool_choice": "none",
+        "response_format": {
+            "type": "json_schema",
+            "json_schema": {
+                "name": "traceaudit_finalizer",
+                "strict": True,
+                "schema": {
+                    "type": "object",
+                    "properties": {"answer": {"type": "string"}},
+                    "required": ["answer"],
+                    "additionalProperties": False,
+                },
+            },
+        },
+    })
+    return body
+
+
 ALL_TASK_TYPES = [t.value for t in TaskType]

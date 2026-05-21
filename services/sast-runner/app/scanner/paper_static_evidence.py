@@ -80,6 +80,7 @@ DIAGNOSTIC_CATEGORIES = {
     "request-contract",
     "input-consumption",
     "tool-execution",
+    "tool-coverage",
     "producer-invariant",
     "surface-unavailable",
     "surface-error",
@@ -113,6 +114,11 @@ DIAGNOSTIC_REASON_CODES = {
     "RUNTIME_TOOL_MISSING",
     "ENVIRONMENT_DRIFT",
     "TOOL_CHECK_FAILED",
+    "SEMGREP_CPP_TARGETS_EXCLUDED_BY_EXTENSION_FILTER",
+    "SEMGREP_CPP_EFFECTIVE_COVERAGE_UNPROVEN",
+    "SEMGREP_C_EFFECTIVE_COVERAGE_UNPROVEN",
+    "SEMGREP_NO_SOURCE_FILES_REPORTED",
+    "SEMGREP_NO_C_OR_CPP_TARGETS_REPORTED",
 }
 REQUIRED_TRACE_FIELDS = {
     "caseId",
@@ -496,6 +502,16 @@ def _reason_from_tool_result(tool_result: Any) -> str:
     return "TOOL_EXECUTION_FAILED"
 
 
+def _coverage_reasons_from_tool_result(tool_result: Any) -> list[str]:
+    value = _to_plain(tool_result)
+    if not isinstance(value, dict):
+        return []
+    reasons = value.get("coverageReasons") or value.get("coverage_reasons") or []
+    if not isinstance(reasons, list):
+        return []
+    return [str(reason).upper().replace("-", "_") for reason in reasons if str(reason).strip()]
+
+
 def _paper_tool_status(tool_result: Any) -> str:
     value = _to_plain(tool_result)
     if not isinstance(value, dict):
@@ -852,6 +868,24 @@ def _project_tool_runs(
             diagnostics.append(diagnostic)
             diagnostic_refs.append(diagnostic["diagnosticId"])
             tool_diagnostic_refs.extend(diagnostic_refs)
+        coverage_reasons = _coverage_reasons_from_tool_result(result)
+        if status == "success" and coverage_reasons:
+            for reason in coverage_reasons:
+                diagnostic = _diagnostic(
+                    request=request,
+                    request_id=request_id,
+                    producer_run_id=producer_run_id,
+                    bundle_ref=bundle_ref,
+                    index=len(diagnostics),
+                    severity="warning",
+                    category="tool-coverage",
+                    reason_code=reason,
+                    surface="toolRuns",
+                    message="A current-six SAST tool completed but its effective coverage is partial.",
+                )
+                diagnostics.append(diagnostic)
+                diagnostic_refs.append(diagnostic["diagnosticId"])
+            tool_diagnostic_refs.extend(diagnostic_refs)
         rows.append(
             {
                 "toolRunId": f"toolrun:{index:04d}:{tool}",
@@ -862,6 +896,9 @@ def _project_tool_runs(
                 "elapsedMs": result_map.get("elapsedMs") or result_map.get("elapsed_ms"),
                 "degraded": bool(result_map.get("degraded", status != "success")),
                 "degradeReasons": result_map.get("degradeReasons") or result_map.get("degrade_reasons") or [],
+                "coverageDegraded": bool(result_map.get("coverageDegraded") or result_map.get("coverage_degraded")),
+                "coverageReasons": coverage_reasons,
+                "coverage": result_map.get("coverage"),
                 "consumerPolicy": "local_tool_execution_state_only_not_vulnerability_verdict",
                 "diagnosticRefs": diagnostic_refs,
                 "trace": _trace(

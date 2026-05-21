@@ -318,6 +318,49 @@ class TestPolicyHelpers:
         assert execution.tool_results["cppcheck"].status == "ok"
         assert execution.tool_results["semgrep"].skip_reason == "operator-requested-subset"
 
+    @pytest.mark.asyncio
+    async def test_semgrep_cpp_effective_coverage_is_reported_separately_from_system_degraded(
+        self,
+        orchestrator,
+        tmp_path,
+        monkeypatch,
+    ):
+        """Semgrep 실행 성공과 C++ effective coverage caveat를 별도 필드로 분리한다."""
+        rules_dir = tmp_path / "rules"
+        rules_dir.mkdir()
+        (rules_dir / "c-only.yaml").write_text(
+            """
+rules:
+  - id: test.c.only
+    pattern: popen($ARG, ...)
+    message: c-only rule
+    languages: [c]
+    severity: WARNING
+""".lstrip(),
+            encoding="utf-8",
+        )
+        monkeypatch.setattr("app.config.settings.custom_rules_dir", str(rules_dir))
+
+        with (
+            patch.object(orchestrator, "check_tools", AsyncMock(return_value=_available_all_tools())),
+            patch.object(orchestrator, "_run_semgrep", AsyncMock(return_value=[])),
+        ):
+            _findings, execution = await orchestrator.run(
+                scan_dir=tmp_path,
+                source_files=["src/main.cpp"],
+                profile=BuildProfile(languageStandard="c++17"),
+                rulesets=["p/c"],
+                tools=["semgrep"],
+            )
+
+        semgrep = execution.tool_results["semgrep"]
+        assert semgrep.status == "ok"
+        assert execution.degraded is False
+        assert semgrep.degraded in {None, False}
+        assert semgrep.coverage_degraded is True
+        assert semgrep.coverage_reasons == ["SEMGREP_CPP_EFFECTIVE_COVERAGE_UNPROVEN"]
+        assert semgrep.coverage["coverageStatus"] == "degraded"
+
     @pytest.mark.parametrize("bad_tool", ALL_TOOLS)
     @pytest.mark.parametrize(
         ("bad_result", "expected_code"),

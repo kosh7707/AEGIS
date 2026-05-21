@@ -151,7 +151,7 @@ def validate_s4_bundle(bundle: dict[str, Any], *, case_id: str, build_target_id:
         if unresolved:
             raise PaperContractError(f"S4 surfaceStatus.{surface}.diagnosticRefs unresolved: {unresolved}")
     for surface in ["findings", "evidence", "sourceFiles", "functions", "includeEdges", "libraries", "toolRuns"]:
-        _validate_s4_rows(bundle[surface], surface)
+        _validate_s4_rows(bundle[surface], surface, diagnostic_ids=diagnostic_ids)
     if not isinstance(bundle.get("targetMetadata"), dict) or "trace" not in bundle["targetMetadata"]:
         raise PaperContractError("S4 targetMetadata.trace is required")
     nested = bundle.get("staticEvidenceContract") or {}
@@ -162,7 +162,7 @@ def validate_s4_bundle(bundle: dict[str, Any], *, case_id: str, build_target_id:
             raise PaperContractError("S4 claimBoundaries top-level mirror mismatch")
 
 
-def _validate_s4_rows(rows: list[Any], surface: str) -> None:
+def _validate_s4_rows(rows: list[Any], surface: str, *, diagnostic_ids: set[str]) -> None:
     id_fields = {
         "findings": "findingId",
         "evidence": "evidenceId",
@@ -183,6 +183,15 @@ def _validate_s4_rows(rows: list[Any], surface: str) -> None:
             raise PaperContractError(f"S4 {surface}[{i}] missing diagnosticRefs array")
         if not isinstance(row["diagnosticRefs"], list):
             raise PaperContractError(f"S4 {surface}[{i}].diagnosticRefs must be an array")
+        unresolved = [ref for ref in row["diagnosticRefs"] if ref not in diagnostic_ids]
+        if unresolved:
+            raise PaperContractError(f"S4 {surface}[{i}].diagnosticRefs unresolved: {unresolved}")
+        if surface == "toolRuns" and row.get("coverageDegraded") is True:
+            coverage_reasons = row.get("coverageReasons")
+            if not isinstance(coverage_reasons, list) or not coverage_reasons:
+                raise PaperContractError(f"S4 {surface}[{i}].coverageDegraded requires coverageReasons")
+            if not row["diagnosticRefs"]:
+                raise PaperContractError(f"S4 {surface}[{i}].coverageDegraded requires diagnosticRefs")
         row_id = row.get(id_field)
         if not row_id:
             raise PaperContractError(f"S4 {surface}[{i}] missing {id_field}")

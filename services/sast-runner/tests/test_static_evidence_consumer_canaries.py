@@ -168,6 +168,34 @@ def test_clean_ready_top_level_contract_is_local_static_ready() -> None:
     _assert_no_forbidden_output_tokens(summary)
 
 
+def test_coverage_degraded_semgrep_contract_is_consumer_safe_and_ready() -> None:
+    fixture = _load_fixture("clean_ready_top_level.json")
+    contract = fixture["staticEvidenceContract"]
+    contract["gates"]["coverageQuality"] = {
+        "status": "degraded",
+        "reasonCodes": ["TOOL_COVERAGE_DEGRADED:semgrep:SEMGREP_CPP_EFFECTIVE_COVERAGE_UNPROVEN"],
+        "consumerPolicy": "effective_coverage_partial_do_not_infer_negative_security_evidence",
+    }
+    semgrep = next(row for row in contract["toolEvidenceMatrix"] if row["toolId"] == "semgrep")
+    semgrep["coverageDegraded"] = True
+    semgrep["coverageReasons"] = ["SEMGREP_CPP_EFFECTIVE_COVERAGE_UNPROVEN"]
+    semgrep["coverage"] = {
+        "coverageKind": "semgrep-effective-coverage-v1",
+        "coverageStatus": "degraded",
+        "coverageReasons": ["SEMGREP_CPP_EFFECTIVE_COVERAGE_UNPROVEN"],
+    }
+    semgrep["consumerPolicy"] = "local_tool_effective_coverage_partial_not_negative_evidence"
+
+    summary = summarize_static_evidence_contract(fixture)
+
+    assert summary["systemStability"] == "pass"
+    assert summary["localStaticEvidenceReady"] is True
+    assert summary["systemReasonCodes"] == []
+    assert summary["toolConsumerPolicies"]["semgrep"] == "local_tool_effective_coverage_partial_not_negative_evidence"
+    _assert_no_forbidden_output_keys(summary)
+    _assert_no_forbidden_output_tokens(summary)
+
+
 def test_failed_tool_contract_is_degraded_partial_not_locally_ready() -> None:
     summary = summarize_static_evidence_contract(_load_fixture("failed_tool_degraded_top_level.json"))
 

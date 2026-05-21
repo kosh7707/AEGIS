@@ -46,6 +46,7 @@ from app.scanner.orchestrator import ALL_TOOLS, ScanOrchestrator, sanitize_tool_
 from app.scanner.sca_service import analyze_libraries, identify_libraries
 from app.scanner.sdk_resolver import profile_sdk_id, sdk_reference_exists
 from app.scanner.ruleset_selector import resolve_rulesets
+from app.scanner.semgrep_coverage import C_CPP_INCLUDE_EXTENSIONS
 from app.schemas.request import (
     BuildAndAnalyzeRequest,
     BuildRequest,
@@ -373,7 +374,7 @@ def _prepare_scan_dir(body: ScanRequest) -> tuple[Path, list[str], bool]:
             raise NoFilesError("projectPath not found")
 
         # 프로젝트 디렉토리에서 C/C++ 소스 파일 자동 탐색
-        extensions = {".c", ".cpp", ".cc", ".cxx", ".h", ".hpp"}
+        extensions = set(C_CPP_INCLUDE_EXTENSIONS)
         source_files = []
         for f in project_dir.rglob("*"):
             if f.suffix in extensions and f.is_file():

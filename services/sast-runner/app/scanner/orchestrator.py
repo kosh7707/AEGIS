@@ -27,6 +27,10 @@ from app.scanner.ruleset_selector import detect_language_family, semgrep_include
 from app.scanner.sarif_parser import parse_sarif
 from app.scanner.scanbuild_runner import ScanbuildRunner
 from app.scanner.sdk_resolver import get_sdk_compiler, resolve_sdk_paths
+from app.scanner.semgrep_coverage import (
+    build_semgrep_effective_coverage,
+    resolve_semgrep_custom_rules_dir,
+)
 from app.scanner.semgrep_runner import SemgrepRunner
 from app.schemas.request import BuildProfile
 from app.schemas.response import (
@@ -309,8 +313,24 @@ class ScanOrchestrator:
         # - cppcheck: original profile, scan_dir 전체
         # - semgrep, flawfinder: scan_dir 전체 (텍스트/패턴 기반)
         task_map = {}
+        semgrep_coverage: dict[str, Any] | None = None
         if "semgrep" in active_tools:
-            task_map["semgrep"] = self._run_semgrep(scan_dir, rulesets, timeout, profile)
+            from app.config import settings
+
+            semgrep_include_exts = semgrep_include_extensions(profile)
+            semgrep_coverage = build_semgrep_effective_coverage(
+                source_files=source_files,
+                rulesets=rulesets,
+                custom_rules_dir=resolve_semgrep_custom_rules_dir(settings.custom_rules_dir),
+                include_extensions=semgrep_include_exts,
+            )
+            task_map["semgrep"] = self._run_semgrep(
+                scan_dir,
+                rulesets,
+                timeout,
+                profile,
+                include_extensions=semgrep_include_exts,
+            )
         if "cppcheck" in active_tools:
             task_map["cppcheck"] = self._run_cppcheck(scan_dir, profile, timeout, compile_commands)
         if "flawfinder" in active_tools:
@@ -379,6 +399,16 @@ class ScanOrchestrator:
                     version=tool_versions.get(tool_name),
                 )
                 logger.info("Tool %s completed: %d findings in %dms", tool_name, len(findings_list), elapsed)
+
+            if tool_name == "semgrep" and semgrep_coverage is not None and tool_name in tool_results:
+                coverage_reasons = list(semgrep_coverage.get("coverageReasons") or [])
+                tool_results[tool_name] = tool_results[tool_name].model_copy(
+                    update={
+                        "coverage": semgrep_coverage,
+                        "coverage_degraded": bool(coverage_reasons),
+                        "coverage_reasons": coverage_reasons or None,
+                    },
+                )
 
             if tool_name in ("scan-build", "gcc-fanalyzer"):
                 runner = self.scanbuild if tool_name == "scan-build" else self.gcc_analyzer
@@ -694,8 +724,9 @@ class ScanOrchestrator:
     async def _run_semgrep(
         self, scan_dir: Path, rulesets: list[str], timeout: int,
         profile: BuildProfile | None = None,
+        include_extensions: list[str] | None = None,
     ) -> list[SastFinding]:
-        include_exts = semgrep_include_extensions(profile)
+        include_exts = include_extensions if include_extensions is not None else semgrep_include_extensions(profile)
         if include_exts:
             logger.info("Semgrep: filtering to extensions %s", include_exts)
         sarif = await self.semgrep.run(scan_dir, rulesets, timeout, include_extensions=include_exts)

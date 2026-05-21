@@ -58,6 +58,20 @@ def paper_context_contract_snapshot() -> dict:
             "callerReadTimeoutPolicy": "no_fixed_absolute_read_deadline_transport_fallback_only",
             "legacyTimeoutHeaderPolicy": "accepted_if_positive_not_a_semantic_deadline",
             "idempotencyFingerprintExcludes": ["requestId", "X-Request-Id", "X-Timeout-Ms", "attemptMetadata"],
+            "sourceKgQualityGatePolicy": "selectable_context_may_be_partial_with_caveats",
+            "sourceKgQualityDiagnostics": [
+                "S5_PAPER_SOURCE_KG_SMOKE_HARNESS_PROVENANCE",
+                "S5_PAPER_SOURCE_KG_LOW_CONFIDENCE_EDGES",
+                "S5_PAPER_SOURCE_KG_NODE_SNIPPET_COVERAGE_EMPTY",
+                "S5_PAPER_SOURCE_KG_EDGE_COVERAGE_EMPTY",
+                "S5_PAPER_SOURCE_KG_RICH_IR_NOT_AVAILABLE",
+            ],
+            "sourceKgPartialReadiness": {
+                "surfaceStatus": "partial",
+                "stageReadiness": "ready",
+                "sourceKgQualityGate": "accepted_with_caveats",
+                "negativeEvidenceAllowed": False,
+            },
         },
         "freezeGate": {
             "s5VisiblePacketSchemaFinalized": True,

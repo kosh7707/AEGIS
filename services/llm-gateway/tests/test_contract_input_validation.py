@@ -5,7 +5,12 @@ Pydantic 모델 검증에 의한 422 반환을 HTTP 레벨에서 확인한다.
 
 import pytest
 
-from tests.conftest import make_chat_body, make_task_body
+from tests.conftest import (
+    make_chat_body,
+    make_paper_acquisition_body,
+    make_paper_finalizer_body,
+    make_task_body,
+)
 
 
 class TestInputValidation:
@@ -179,3 +184,122 @@ class TestInputValidation:
         assert resp.json()["errorDetail"]["invalidFields"] == [
             "chat_template_kwargs.enable_thinking",
         ]
+
+    @pytest.mark.parametrize("field", [
+        "seed",
+        "logprobs",
+        "tool_choice",
+        "chat_template_kwargs.preserve_thinking",
+    ])
+    def test_chat_paper_controls_missing_common_field_422(self, client_live, field):
+        body = make_paper_acquisition_body()
+        if "." in field:
+            outer, inner = field.split(".", 1)
+            del body[outer][inner]
+        else:
+            del body[field]
+
+        resp = client_live.post(
+            "/v1/chat",
+            json=body,
+            headers={"X-AEGIS-Paper-Controls": "true"},
+        )
+
+        assert resp.status_code == 422
+        data = resp.json()
+        assert data["errorDetail"]["code"] == "INVALID_GENERATION_CONTROLS"
+        assert field in data["errorDetail"]["missingFields"]
+
+    @pytest.mark.parametrize(("field", "value"), [
+        ("seed", "not-an-int"),
+        ("seed", True),
+        ("seed", 2 ** 63),
+        ("logprobs", "false"),
+        ("chat_template_kwargs.preserve_thinking", "false"),
+    ])
+    def test_chat_paper_controls_invalid_common_field_422(self, client_live, field, value):
+        body = make_paper_acquisition_body()
+        if "." in field:
+            outer, inner = field.split(".", 1)
+            body[outer][inner] = value
+        else:
+            body[field] = value
+
+        resp = client_live.post(
+            "/v1/chat",
+            json=body,
+            headers={"X-AEGIS-Paper-Controls": "true"},
+        )
+
+        assert resp.status_code == 422
+        assert field in resp.json()["errorDetail"]["invalidFields"]
+
+    def test_chat_paper_controls_logprobs_true_requires_top_logprobs(self, client_live):
+        body = make_paper_acquisition_body()
+        body["logprobs"] = True
+
+        resp = client_live.post(
+            "/v1/chat",
+            json=body,
+            headers={"X-AEGIS-Paper-Controls": "true"},
+        )
+
+        assert resp.status_code == 422
+        assert "top_logprobs" in resp.json()["errorDetail"]["missingFields"]
+
+    def test_chat_paper_controls_logprobs_false_rejects_top_logprobs(self, client_live):
+        body = make_paper_acquisition_body()
+        body["logprobs"] = False
+        body["top_logprobs"] = 0
+
+        resp = client_live.post(
+            "/v1/chat",
+            json=body,
+            headers={"X-AEGIS-Paper-Controls": "true"},
+        )
+
+        assert resp.status_code == 422
+        assert "top_logprobs" in resp.json()["errorDetail"]["invalidFields"]
+
+    def test_chat_paper_acquisition_rejects_schema_controls(self, client_live):
+        body = make_paper_acquisition_body()
+        body["response_format"] = {"type": "json_object"}
+
+        resp = client_live.post(
+            "/v1/chat",
+            json=body,
+            headers={"X-AEGIS-Paper-Controls": "true"},
+        )
+
+        assert resp.status_code == 422
+        data = resp.json()["errorDetail"]
+        assert data["paperPhase"] == "ambiguous"
+        assert "response_format" in data["invalidFields"]
+
+    def test_chat_paper_acquisition_rejects_strict_header(self, client_live):
+        body = make_paper_acquisition_body()
+
+        resp = client_live.post(
+            "/v1/chat",
+            json=body,
+            headers={
+                "X-AEGIS-Paper-Controls": "true",
+                "X-AEGIS-Strict-JSON": "true",
+            },
+        )
+
+        assert resp.status_code == 422
+        assert "x-aegis-strict-json" in resp.json()["errorDetail"]["invalidFields"]
+
+    def test_chat_paper_finalizer_requires_json_schema_not_json_object(self, client_live):
+        body = make_paper_finalizer_body()
+        body["response_format"] = {"type": "json_object"}
+
+        resp = client_live.post(
+            "/v1/chat",
+            json=body,
+            headers={"X-AEGIS-Paper-Controls": "true"},
+        )
+
+        assert resp.status_code == 422
+        assert "response_format" in resp.json()["errorDetail"]["invalidFields"]

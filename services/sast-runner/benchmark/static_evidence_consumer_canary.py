@@ -37,6 +37,7 @@ _CONSUMER_POLICIES = {
     "do_not_use_as_negative_evidence",
     "local_tool_partial_use_with_degradation_metadata",
     "local_tool_execution_state_only_not_vulnerability_verdict",
+    "local_tool_effective_coverage_partial_not_negative_evidence",
     "local_tool_failed_do_not_use_as_negative_evidence",
     "metadata_absent_do_not_infer",
     "no_reported_finding_to_support",
@@ -125,6 +126,11 @@ _STATIC_REASON_CODES = {
     "ARTIFACT_FAILED",
     "CLAIM_SUPPORT_CLASSIFICATION_UNKNOWN",
     "EXECUTION_DEGRADED",
+    "SEMGREP_CPP_EFFECTIVE_COVERAGE_UNPROVEN",
+    "SEMGREP_CPP_TARGETS_EXCLUDED_BY_EXTENSION_FILTER",
+    "SEMGREP_C_EFFECTIVE_COVERAGE_UNPROVEN",
+    "SEMGREP_NO_C_OR_CPP_TARGETS_REPORTED",
+    "SEMGREP_NO_SOURCE_FILES_REPORTED",
 }
 _TOOL_REASON_PREFIXES = (
     "TOOL_FAILED:",
@@ -133,6 +139,7 @@ _TOOL_REASON_PREFIXES = (
     "TOOL_PARTIAL:",
     "TOOL_DEGRADED:",
     "TOOL_STATUS_UNKNOWN:",
+    "TOOL_COVERAGE_DEGRADED:",
 )
 
 
@@ -605,7 +612,10 @@ def _required_tool_matrix_ready(
     for tool_id in _TOOL_IDS:
         status = tool_matrix_statuses.get(tool_id)
         policy = tool_consumer_policies.get(tool_id)
-        if status == "ok" and policy == "local_tool_execution_state_only_not_vulnerability_verdict":
+        if status == "ok" and policy in {
+            "local_tool_execution_state_only_not_vulnerability_verdict",
+            "local_tool_effective_coverage_partial_not_negative_evidence",
+        }:
             continue
         if status == "skipped" and policy == "not_requested_or_not_applicable":
             continue
@@ -619,8 +629,13 @@ def _is_allowed_reason_code(value: Any) -> bool:
     if value in _STATIC_REASON_CODES:
         return True
     for prefix in _TOOL_REASON_PREFIXES:
-        if value.startswith(prefix) and value.removeprefix(prefix) in _TOOL_IDS:
+        suffix = value.removeprefix(prefix) if value.startswith(prefix) else None
+        if suffix in _TOOL_IDS:
             return True
+        if prefix == "TOOL_COVERAGE_DEGRADED:" and isinstance(suffix, str):
+            parts = suffix.split(":", 1)
+            if len(parts) == 2 and parts[0] in _TOOL_IDS and parts[1] in _STATIC_REASON_CODES:
+                return True
     return False
 
 

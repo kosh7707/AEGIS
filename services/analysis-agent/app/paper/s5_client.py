@@ -276,8 +276,16 @@ class S5PaperClient:
 def _prepare_response_is_context_selectable(data: dict[str, Any]) -> bool:
     status = data.get("surfaceStatus")
     readiness = data.get("stageReadiness")
-    context_selectable = bool((data.get("readiness") or {}).get("contextSelectable"))
+    readiness_detail = data.get("readiness") or {}
+    context_selectable = bool(readiness_detail.get("contextSelectable"))
     if status == "produced" and readiness == "ready" and context_selectable:
+        return True
+    if (
+        status == "partial"
+        and readiness == "ready"
+        and context_selectable
+        and readiness_detail.get("sourceKgQualityGate") == "accepted_with_caveats"
+    ):
         return True
     if status == "partial" and readiness == "ready_with_diagnostics" and context_selectable:
         return True
