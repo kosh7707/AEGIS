@@ -566,6 +566,10 @@ async def _stream_async_chat_backend(
     usage: dict[str, Any] | None = None
     saw_done = False
 
+    await async_chat_manager.mark_backend_activity(
+        request_id,
+        source="stream-dispatch",
+    )
     async with proxy_client.stream(
         "POST",
         f"{llm_endpoint}/v1/chat/completions",
@@ -1314,7 +1318,8 @@ async def _run_async_chat_request(
             error="LLM backend transport disconnected",
             error_detail=(
                 f"{exc.__class__.__name__}: {exc}; "
-                "backend disconnected before completing the async stream"
+                "backend disconnected before response headers or stream activity, "
+                "or before completing the async stream"
             ),
             retryable=True,
         )

@@ -13,6 +13,8 @@ __pycache__/
 .venv/
 **/data/qdrant/
 **/data/threat-db-raw/
+services/knowledge-base/data/s5-ledger.sqlite
+services/knowledge-base/data/s5-ledger.sqlite-*
 scripts/.pids/
 scripts/.logs/
 uploads/

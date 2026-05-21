@@ -1765,6 +1765,36 @@ class TestAsyncChatOwnershipSurface:
         assert result_data["blockedReason"] == "backend_transport_disconnected"
         assert "disconnected" in result_data["errorDetail"]["detail"]
 
+    def test_async_remote_protocol_error_before_first_byte_reports_dispatch_activity(self, client_live):
+        with patch.object(app.state, "proxy_client") as mock_client:
+            mock_client.stream = MagicMock(
+                return_value=_MockAsyncStreamResponse(
+                    enter_exc=httpx.RemoteProtocolError("Server disconnected without sending a response"),
+                )
+            )
+            submit = client_live.post("/v1/async-chat-requests", json=make_chat_body())
+            request_id = submit.json()["requestId"]
+            deadline = time.time() + 1.0
+            status_data = None
+            while time.time() < deadline:
+                status_data = client_live.get(f"/v1/async-chat-requests/{request_id}").json()
+                if status_data["state"] == "failed":
+                    break
+                time.sleep(0.01)
+
+        assert status_data is not None
+        assert status_data["state"] == "failed"
+        assert status_data["blockedReason"] == "backend_transport_disconnected"
+        assert status_data["retryable"] is True
+        activity = status_data["backendActivity"]
+        assert activity["activitySource"] == "stream-dispatch"
+        assert activity["streamChunkCount"] == 0
+        assert activity["responseBytes"] == 0
+        assert activity["approxCompletionChars"] == 0
+        assert activity["backendElapsedMs"] >= 0
+        assert activity["backendIdleMs"] >= 0
+        assert "before response headers or stream activity" in status_data["errorDetail"]
+
     def test_async_streaming_backend_http_error_preserves_http_status_failure(self, client_live):
         with patch.object(app.state, "proxy_client") as mock_client:
             mock_client.stream = MagicMock(
