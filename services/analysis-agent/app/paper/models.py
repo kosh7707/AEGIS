@@ -43,6 +43,7 @@ class ProducerArtifacts(BaseModel):
     s4StaticEvidencePath: str | None = None
     s5CodeKbPath: str | None = None
     s5FindingContextByFindingId: dict[str, str] = Field(default_factory=dict)
+    s5SourceKgExploreByFindingId: dict[str, str] = Field(default_factory=dict)
     s5GenericThreatContextByFindingId: dict[str, str] = Field(default_factory=dict)
     llmTriageByFindingId: dict[str, str] = Field(default_factory=dict)
     s5ContractSnapshotPath: str | None = None

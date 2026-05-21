@@ -351,6 +351,7 @@ def normalize_s5_rows(response: dict[str, Any], *, evidence_type: str) -> tuple[
         "rowSetId": response.get("rowSetId"),
         "surfaceStatus": response.get("surfaceStatus"),
         "rows": rows,
+        "contextCoverage": response.get("contextCoverage"),
         "diagnostics": response.get("diagnostics", []),
         "retrievalTrace": response.get("retrievalTrace", {}),
     }

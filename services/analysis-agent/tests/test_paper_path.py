@@ -10,7 +10,14 @@ from app.agent_runtime.context import reset_request_id, set_request_id
 from app.paper import api as paper_api
 from app.paper.errors import PaperContractError, PaperOperationalError
 from app.paper.s4_client import S4PaperClient
-from app.paper.s5_client import S5PaperClient, build_generic_threat_request, build_prepare_code_kb_request, validate_prepare_alias_consistency
+from app.paper.s5_client import (
+    S5PaperClient,
+    build_generic_threat_request,
+    build_prepare_code_kb_request,
+    build_source_kg_explore_request,
+    validate_prepare_alias_consistency,
+)
+from app.paper.validation import validate_s5_contract_snapshot
 
 
 @pytest.fixture(autouse=True)
@@ -277,6 +284,59 @@ def s5_context(case_id="case-001", build_target_id="target-001", *, finding_id="
                 "metadata": {},
             }
         ] if no_hit else [],
+    }
+
+
+def s5_source_kg_explore(case_id="case-001", build_target_id="target-001", *, text="Explored function body overlaps the requested finding anchor."):
+    row = s5_row(item_id="s5-source-kg-explore-row-001", text=text)
+    row["queryIntent"] = "source_kg_exploration"
+    row["sourceEvidence"]["displayRef"] = "src/main.c:10-12"
+    return {
+        "schemaVersion": "s5-explore-source-kg-response-v1",
+        "caseId": case_id,
+        "buildTargetId": build_target_id,
+        "paperRunId": "paper-run-001",
+        "requestId": "s3-s5-source-kg-explore-001",
+        "idempotencyKey": "case-001:s4-finding-001:s5:source-kg-explore:function_body",
+        "s5ProducerRunId": "s5-run-source-kg-explore-001",
+        "retrievalRunId": "s5-retrieval-source-kg-explore-001",
+        "rowSetId": "s5-row-set-source-kg-explore-001",
+        "surfaceStatus": "produced",
+        "codeKbRef": "s5-code-kb:case-001:target-001",
+        "sourceKgRef": "s5-source-kg:case-001:target-001",
+        "exploration": {"mode": "function_body", "path": "src/main.c", "lineStart": 10, "lineEnd": 10, "depth": 1},
+        "rows": [row],
+        "retrievalTrace": {
+            "queryIntent": "source_kg_exploration",
+            "returnedCount": 1,
+            "orderingPolicy": "s5-paper-stable-row-order-v1",
+            "methodsAttempted": ["function_body"],
+            "methodsUsed": ["function_body"],
+            "b2b4StableRows": True,
+        },
+        "capabilities": {"function_body": "available_from_graph_nodes_and_linked_snippets"},
+        "producerProvenance": {"component": "s5-knowledge-base"},
+        "diagnostics": [],
+    }
+
+
+def s5_context_coverage(status: str, *, path="src/main.c", line_start=10, line_end=10, returned_start=1, returned_end=5, line_overlap=False):
+    return {
+        "schemaVersion": "s5-paper-context-coverage-v1",
+        "coverageStatus": status,
+        "requestedAnchors": [{"path": path, "lineStart": line_start, "lineEnd": line_end, "function": "main"}],
+        "returnedSpans": [
+            {
+                "kind": "source_kg_snippet",
+                "path": path,
+                "startLine": returned_start,
+                "endLine": returned_end,
+                "lineOverlap": line_overlap,
+            }
+        ],
+        "lineOverlap": line_overlap,
+        "diagnostics": [{"code": "S5_PAPER_CONTEXT_NON_OVERLAPPING"}] if status == "non_overlapping" else [],
+        "pathMatchPolicy": "normalized_exact_or_suffix",
     }
 
 
@@ -575,6 +635,29 @@ def test_s5_no_hit_carries_as_diagnostic_without_verdict_promotion(client, tmp_p
     assert any(row["producer"] == "s5" and row["diagnostic"] is True for row in ledger)
 
 
+def test_unknown_can_reference_s5_diagnostic_refs_as_diagnostics_only(client, tmp_path, paper_source):
+    diagnostic_ref = "s3-diagnostic:s5:s5_finding_context:s4-finding-001:S5_PAPER_CONTEXT_NO_HIT:0"
+    diagnostic_unknown = llm_unknown()
+    diagnostic_unknown["diagnosticRefsUsed"] = [diagnostic_ref]
+    diagnostic_unknown["boundaryNotes"] = ["S5 no-hit was diagnostic-only and did not ground a TP/FP claim."]
+    body = make_case_body(
+        tmp_path,
+        paper_source,
+        s5_ctx=s5_context(no_hit=True),
+        s5_threat_data=s5_threat(no_hit=True),
+        llm=diagnostic_unknown,
+    )
+    assert client.post("/v1/paper/analysis-cases", json=body).status_code == 201
+    response = client.post("/v1/paper/analysis-cases/case-001/start")
+    assert response.status_code == 200, response.text
+    assert response.json()["summary"]["triageCounts"]["UNKNOWN"] == 1
+    triage_path = Path(body["paperRunRoot"]) / "cases" / "case-001" / "triage-envelope.jsonl"
+    row = json.loads(triage_path.read_text().splitlines()[0])
+    assert row["unknownReason"] == "UNKNOWN_INSUFFICIENT_CONTEXT"
+    assert row["diagnosticRefsUsed"] == [diagnostic_ref]
+    assert not any("Recovered invalid model triage row" in note for note in row["boundaryNotes"])
+
+
 def test_tp_cannot_cite_s5_diagnostic_ref_as_security_evidence(client, tmp_path, paper_source):
     diagnostic_ref = "s3-diagnostic:s5:s5_finding_context:s4-finding-001:S5_PAPER_CONTEXT_NO_HIT:0"
     bad_llm = llm_tp()
@@ -815,6 +898,24 @@ def test_s5_prepare_request_forwards_source_kg_inputs(tmp_path, paper_source):
     assert request["sourceContext"]["sourceKgSelectors"] == body["s5SourceKgSelectors"]
 
 
+def test_s5_contract_snapshot_requires_source_kg_exploration_tool():
+    snapshot = {
+        "consumerBoundary": "contextual_support_not_final_verdict",
+        "policies": {"mainlineVisibilityMode": "generic"},
+        "endpoints": [
+            {"toolName": "prepare_code_kb"},
+            {"toolName": "retrieve_finding_context"},
+            {"toolName": "retrieve_generic_threat_context"},
+        ],
+    }
+
+    with pytest.raises(PaperContractError):
+        validate_s5_contract_snapshot(snapshot)
+
+    snapshot["endpoints"].append({"toolName": "explore_source_kg"})
+    validate_s5_contract_snapshot(snapshot)
+
+
 def test_s5_generic_threat_request_omits_source_kg_producer_refs(tmp_path, paper_source):
     body = make_case_body(tmp_path, paper_source)
     from app.paper.models import PaperCaseCreateRequest
@@ -826,6 +927,49 @@ def test_s5_generic_threat_request_omits_source_kg_producer_refs(tmp_path, paper
     assert "producerInputRefs" not in request
     assert request["schemaVersion"] == "s5-retrieve-generic-threat-context-request-v1"
     assert request["visibilityMode"] == "generic"
+
+
+def test_s5_source_kg_explore_request_defaults_to_finding_anchor_and_stable_key(tmp_path, paper_source):
+    body = make_case_body(tmp_path, paper_source)
+    from app.paper.models import PaperCaseCreateRequest
+
+    case = PaperCaseCreateRequest.model_validate(body)
+    finding = s4_bundle()["findings"][0]
+    finding["location"]["startLine"] = 10
+    finding["location"]["endLine"] = 12
+    first = build_source_kg_explore_request(
+        case,
+        finding=finding,
+        code_kb_ref="s5-code-kb:case-001:target-001",
+        source_kg_ref="s5-source-kg:case-001:target-001",
+        exploration={"mode": "function_body", "depth": 99, "topK": 99},
+    )
+    second = build_source_kg_explore_request(
+        case,
+        finding=finding,
+        code_kb_ref="s5-code-kb:case-001:target-001",
+        source_kg_ref="s5-source-kg:case-001:target-001",
+        exploration={"mode": "function_body", "depth": 3, "topK": 10},
+    )
+    third = build_source_kg_explore_request(
+        case,
+        finding=finding,
+        code_kb_ref="s5-code-kb:case-001:target-001",
+        source_kg_ref="s5-source-kg:case-001:target-001",
+        exploration={"mode": "function_body", "lineStart": 20, "lineEnd": 22},
+    )
+
+    assert first["schemaVersion"] == "s5-explore-source-kg-request-v1"
+    assert first["queryIntent"] == "source_kg_exploration"
+    assert "producerInputRefs" not in first
+    assert first["exploration"]["path"] == "src/main.c"
+    assert first["exploration"]["lineStart"] == 10
+    assert first["exploration"]["lineEnd"] == 12
+    assert first["exploration"]["depth"] == 3
+    assert first["topK"] == 10
+    assert first["idempotencyKey"] == second["idempotencyKey"]
+    assert first["idempotencyKey"] != third["idempotencyKey"]
+    assert first["requestId"] != third["requestId"]
 
 
 def test_s5_prepare_alias_mismatch_fails_closed(tmp_path, paper_source):
@@ -1175,6 +1319,18 @@ def test_file_backed_finalizer_still_records_deterministic_s5_tool_acquisition(c
     tool_results = transcripts[0]["acquisition"]["toolResults"]
     assert {row["tool"] for row in tool_results if row["success"]} >= {"retrieve_finding_context", "retrieve_generic_threat_context"}
     assert all(row["deterministicFallback"] for row in tool_results if row["success"])
+    context_result = next(row for row in tool_results if row["tool"] == "retrieve_finding_context" and row["success"])
+    context_payload = json.loads(context_result["content"])
+    assert context_payload["coverage"]["status"] == "covered"
+    assert context_payload["rows"][0]["displayRef"] == "src/main.c:1"
+    assert context_payload["rows"][0]["textPreview"] == "Nearby code checks bounds before copy."
+    threat_result = next(row for row in tool_results if row["tool"] == "retrieve_generic_threat_context" and row["success"])
+    threat_payload = json.loads(threat_result["content"])
+    assert "coverage" not in threat_payload
+    assert threat_payload["rows"][0]["textPreview"] == "CWE-120 concerns unchecked buffer copies."
+    forbidden_private_keys = {"rawObjectRef", "producerTrace", "claimLinks", "provenance", "hidden"}
+    assert not any(key in context_result["content"] for key in forbidden_private_keys)
+    assert not any(key in threat_result["content"] for key in forbidden_private_keys)
     assert (case_root / "s5-finding-context-requests.jsonl").read_text().strip()
     assert (case_root / "s5-generic-threat-context-requests.jsonl").read_text().strip()
 
@@ -1208,6 +1364,42 @@ def test_wrong_finding_tool_call_does_not_suppress_required_s5_fallback(client, 
     assert any(row["tool"] == "retrieve_finding_context" and row["error"] == "finding_id_mismatch" for row in tool_results)
     assert any(row["tool"] == "retrieve_finding_context" and row["success"] and row["deterministicFallback"] for row in tool_results)
     assert any(row["tool"] == "retrieve_generic_threat_context" and row["success"] and row["deterministicFallback"] for row in tool_results)
+
+
+def test_unknown_acquisition_tool_stays_error_and_counts_in_quality_gate(client, tmp_path, paper_source, monkeypatch):
+    body = make_case_body(tmp_path, paper_source)
+    assert client.post("/v1/paper/analysis-cases", json=body).status_code == 201
+
+    async def unknown_tool_acquisition(self, case, *, finding, evidence_rows, acquisition_messages=None, round_index=1):
+        return (
+            {
+                "toolCalls": [{"id": "call-unknown", "name": "unknown_tool", "arguments": {"findingId": finding["findingId"]}}],
+                "assistantMessage": {
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [
+                        {
+                            "id": "call-unknown",
+                            "type": "function",
+                            "function": {"name": "unknown_tool", "arguments": json.dumps({"findingId": finding["findingId"]}, sort_keys=True)},
+                        }
+                    ],
+                },
+            },
+            {"mode": "test-unknown-tool"},
+        )
+
+    monkeypatch.setattr("app.paper.llm_client.LlmTriageClient.acquire_for_finding", unknown_tool_acquisition)
+
+    response = client.post("/v1/paper/analysis-cases/case-001/start")
+    assert response.status_code == 200, response.text
+    quality_gate = response.json()["summary"]["qualityGate"]
+    assert quality_gate["duplicateOrSkippedToolCallCount"] == 3
+    assert "ACQUISITION_TOOL_CALLS_SKIPPED_OR_DUPLICATED" in quality_gate["reasons"]
+    case_root = Path(body["paperRunRoot"]) / "cases" / "case-001"
+    transcripts = [json.loads(line) for line in (case_root / "llm-transcript.raw.jsonl").read_text().splitlines()]
+    tool_results = transcripts[0]["acquisition"]["toolResults"]
+    assert any(row["tool"] == "unknown_tool" and row["error"] == "unknown_tool" for row in tool_results)
 
 
 def test_wrong_finding_finalizer_row_recovers_to_current_finding_unknown(client, tmp_path, paper_source, monkeypatch):
@@ -1317,6 +1509,66 @@ def test_runner_uses_multi_round_acquisition_before_required_fallback(client, tm
     assert not any(row["tool"] == "retrieve_finding_context" and row["success"] and row["deterministicFallback"] for row in tool_results)
 
 
+def test_runner_executes_source_kg_exploration_and_mitigates_non_overlapping_context(client, tmp_path, paper_source, monkeypatch):
+    s4 = s4_bundle()
+    s4["findings"][0]["location"]["startLine"] = 10
+    s4["findings"][0]["location"]["endLine"] = 10
+    ctx = s5_context(text="Context from a different source span.")
+    ctx["rows"][0]["sourceEvidence"]["displayRef"] = "src/main.c:1-5"
+    body = make_case_body(tmp_path, paper_source, s4=s4, s5_ctx=ctx)
+    artifacts = Path(body["producerArtifacts"]["s5FindingContextByFindingId"]["s4-finding-001"]).parent
+    body["producerArtifacts"]["s5SourceKgExploreByFindingId"] = {
+        "s4-finding-001": write_json(artifacts / "case-001-s5-explore.json", s5_source_kg_explore())
+    }
+    assert client.post("/v1/paper/analysis-cases", json=body).status_code == 201
+
+    async def explore_acquisition(self, case, *, finding, evidence_rows, acquisition_messages=None, round_index=1):
+        if round_index == 1:
+            args = {"findingId": finding["findingId"], "mode": "function_body", "path": "src/main.c", "lineStart": 10, "lineEnd": 10}
+            return (
+                {
+                    "toolCalls": [{"id": "call-explore", "name": "explore_source_kg", "arguments": args}],
+                    "assistantMessage": {
+                        "role": "assistant",
+                        "content": None,
+                        "tool_calls": [
+                            {
+                                "id": "call-explore",
+                                "type": "function",
+                                "function": {"name": "explore_source_kg", "arguments": json.dumps(args, sort_keys=True)},
+                            }
+                        ],
+                    },
+                },
+                {"mode": "test-explore"},
+            )
+        return ({"toolCalls": [], "assistantMessage": {"role": "assistant", "content": "done"}}, {"mode": "test-done"})
+
+    monkeypatch.setattr("app.paper.llm_client.LlmTriageClient.acquire_for_finding", explore_acquisition)
+    response = client.post("/v1/paper/analysis-cases/case-001/start")
+
+    assert response.status_code == 200, response.text
+    quality = response.json()["summary"]["qualityGate"]
+    assert quality["contextCoverage"]["findingsWithNonOverlappingOnlyS5ContextRows"] == 1
+    assert quality["contextCoverage"]["unmitigatedNonOverlappingFindingIds"] == []
+    assert "SOURCE_CONTEXT_NON_OVERLAPPING_UNMITIGATED" not in quality["reasons"]
+    assert quality["sourceKgExploration"]["findingsWithExplorationRows"] == 1
+    case_root = Path(body["paperRunRoot"]) / "cases" / "case-001"
+    transcripts = [json.loads(line) for line in (case_root / "llm-transcript.raw.jsonl").read_text().splitlines()]
+    explore_result = next(row for row in transcripts[0]["acquisition"]["toolResults"] if row["tool"] == "explore_source_kg")
+    explore_payload = json.loads(explore_result["content"])
+    assert explore_payload["coverage"]["status"] == "covered"
+    assert explore_payload["rows"][0]["textPreview"] == "Explored function body overlaps the requested finding anchor."
+    summary = json.loads((case_root / "finding-evidence-summary.jsonl").read_text().splitlines()[0])
+    assert summary["s5Exploration"]["coverage"]["status"] == "covered"
+    assert summary["s5Exploration"]["modes"] == ["function_body"]
+    ledger = [json.loads(line) for line in (case_root / "evidence-ledger.jsonl").read_text().splitlines()]
+    explore_rows = [row for row in ledger if row["evidenceType"] == "s5_source_kg_exploration"]
+    assert explore_rows and all(row["relatedFindingId"] == "s4-finding-001" for row in explore_rows)
+    b4 = json.loads((case_root / "audit-packets/findings/s4-finding-001/b4.json").read_text())
+    assert any("s5_source_kg_exploration" in row["evidenceRef"] for row in b4["ledgerRows"])
+
+
 def test_runner_dedupes_required_tool_success_across_acquisition_rounds(client, tmp_path, paper_source, monkeypatch):
     body = make_case_body(tmp_path, paper_source)
     assert client.post("/v1/paper/analysis-cases", json=body).status_code == 201
@@ -1346,13 +1598,28 @@ def test_runner_dedupes_required_tool_success_across_acquisition_rounds(client, 
 
     response = client.post("/v1/paper/analysis-cases/case-001/start")
     assert response.status_code == 200, response.text
+    assert response.json()["summary"]["qualityGate"]["duplicateOrSkippedToolCallCount"] == 0
+    assert "ACQUISITION_TOOL_CALLS_SKIPPED_OR_DUPLICATED" not in response.json()["summary"]["qualityGate"]["reasons"]
     case_root = Path(body["paperRunRoot"]) / "cases" / "case-001"
     context_requests = (case_root / "s5-finding-context-requests.jsonl").read_text().splitlines()
     assert len(context_requests) == 1
     transcripts = [json.loads(line) for line in (case_root / "llm-transcript.raw.jsonl").read_text().splitlines()]
     tool_results = transcripts[0]["acquisition"]["toolResults"]
-    assert any(row["tool"] == "retrieve_finding_context" and row["success"] for row in tool_results)
-    assert any(row["tool"] == "retrieve_finding_context" and row["error"] == "duplicate_tool_call" for row in tool_results)
+    first, duplicate = [row for row in tool_results if row["tool"] == "retrieve_finding_context"]
+    assert first["success"] is True
+    assert first["newEvidenceRefs"]
+    assert duplicate["success"] is True
+    assert duplicate["error"] is None
+    assert duplicate["cachedDuplicate"] is True
+    assert duplicate["newEvidenceRefs"] == []
+    duplicate_content = json.loads(duplicate["content"])
+    assert duplicate_content["cached"] is True
+    assert duplicate_content["cachedDuplicate"] is True
+    assert duplicate_content["existingEvidenceRefs"]
+    summary = json.loads((case_root / "finding-evidence-summary.jsonl").read_text().splitlines()[0])
+    cached_timeline = [row for row in summary["toolTimeline"] if row.get("cachedDuplicate")]
+    assert cached_timeline and cached_timeline[0]["success"] is True
+    assert summary["duplicateOrSkippedToolCalls"] == []
 
 
 def test_runner_executes_round_three_then_stops_and_compacts_finalizer_notes(client, tmp_path, paper_source, monkeypatch):
@@ -1572,6 +1839,229 @@ def test_s5_produced_ready_requires_context_selectable(client, tmp_path, paper_s
     assert response.status_code == 502
 
 
+def test_quality_gate_flags_non_overlapping_s5_source_context(client, tmp_path, paper_source):
+    s4 = s4_bundle()
+    s4["findings"][0]["location"]["startLine"] = 10
+    s4["findings"][0]["location"]["endLine"] = 10
+    ctx = s5_context(text="Context from a different source span.")
+    ctx["rows"][0]["sourceEvidence"]["displayRef"] = "src/main.c:1-5"
+    body = make_case_body(tmp_path, paper_source, s4=s4, s5_ctx=ctx, llm=llm_unknown())
+
+    assert client.post("/v1/paper/analysis-cases", json=body).status_code == 201
+    response = client.post("/v1/paper/analysis-cases/case-001/start")
+
+    assert response.status_code == 200, response.text
+    quality = response.json()["summary"]["qualityGate"]
+    assert quality["status"] == "fail"
+    assert "SOURCE_CONTEXT_NON_OVERLAPPING" in quality["reasons"]
+    assert quality["contextCoverage"]["findingsWithS5ContextRows"] == 1
+    assert quality["contextCoverage"]["findingsWithOverlappingS5ContextRows"] == 0
+    assert quality["contextCoverage"]["findingsWithNonOverlappingOnlyS5ContextRows"] == 1
+    assert quality["contextCoverage"]["nonOverlappingFindingIds"] == ["s4-finding-001"]
+
+    case_root = Path(body["paperRunRoot"]) / "cases" / "case-001"
+    summary = json.loads((case_root / "finding-evidence-summary.jsonl").read_text().splitlines()[0])
+    assert summary["s5Context"]["coverage"]["status"] == "non_overlapping"
+    assert summary["s5Context"]["coverage"]["requestedAnchor"]["lineStart"] == 10
+    assert summary["s5Context"]["coverage"]["returnedSpans"][0]["displayRef"] == "src/main.c:1-5"
+
+
+def test_quality_gate_uses_s5_context_coverage_when_display_ref_is_unparseable(client, tmp_path, paper_source):
+    s4 = s4_bundle()
+    s4["findings"][0]["location"]["startLine"] = 10
+    s4["findings"][0]["location"]["endLine"] = 10
+    ctx = s5_context(text="S5 says the returned source span does not overlap the requested anchor.")
+    ctx["rows"][0]["sourceEvidence"]["displayRef"] = "src/main.c:not-a-line"
+    ctx["contextCoverage"] = s5_context_coverage("non_overlapping", line_start=10, line_end=10)
+    body = make_case_body(tmp_path, paper_source, s4=s4, s5_ctx=ctx, llm=llm_unknown())
+
+    assert client.post("/v1/paper/analysis-cases", json=body).status_code == 201
+    response = client.post("/v1/paper/analysis-cases/case-001/start")
+
+    assert response.status_code == 200, response.text
+    quality = response.json()["summary"]["qualityGate"]
+    assert quality["status"] == "fail"
+    assert quality["contextCoverage"]["findingsWithNonOverlappingOnlyS5ContextRows"] == 1
+    assert quality["contextCoverage"]["unmitigatedNonOverlappingFindingIds"] == ["s4-finding-001"]
+    case_root = Path(body["paperRunRoot"]) / "cases" / "case-001"
+    summary = json.loads((case_root / "finding-evidence-summary.jsonl").read_text().splitlines()[0])
+    assert summary["s5Context"]["coverage"]["source"] == "s5_contextCoverage"
+    assert summary["s5Context"]["coverage"]["status"] == "non_overlapping"
+    assert summary["s5Context"]["coverage"]["returnedSpans"][0]["startLine"] == 1
+    transcripts = [json.loads(line) for line in (case_root / "llm-transcript.raw.jsonl").read_text().splitlines()]
+    context_result = next(row for row in transcripts[0]["acquisition"]["toolResults"] if row["tool"] == "retrieve_finding_context")
+    context_payload = json.loads(context_result["content"])
+    assert context_payload["coverage"]["source"] == "s5_contextCoverage"
+    assert context_payload["coverage"]["status"] == "non_overlapping"
+
+
+def test_s5_context_coverage_schema_fails_closed(client, tmp_path, paper_source):
+    ctx = s5_context()
+    ctx["contextCoverage"] = {"coverageStatus": "surprisingly_good", "lineOverlap": "yes"}
+    body = make_case_body(tmp_path, paper_source, s5_ctx=ctx)
+
+    assert client.post("/v1/paper/analysis-cases", json=body).status_code == 201
+    response = client.post("/v1/paper/analysis-cases/case-001/start")
+
+    assert response.status_code == 422
+    assert response.json()["errorDetail"]["code"] == "PAPER_CONTRACT_ERROR"
+    assert "contextCoverage" in response.json()["error"]
+
+
+@pytest.mark.parametrize(
+    ("coverage_status", "expected_gate_status", "expected_reason"),
+    [
+        ("covered", "pass", None),
+        ("partial", "warn", "SOURCE_CONTEXT_PARTIAL"),
+        ("not_available", "fail", "SOURCE_CONTEXT_UNAVAILABLE_OR_ERROR"),
+        ("error", "fail", "SOURCE_CONTEXT_UNAVAILABLE_OR_ERROR"),
+    ],
+)
+def test_quality_gate_maps_s5_context_coverage_statuses(client, tmp_path, paper_source, coverage_status, expected_gate_status, expected_reason):
+    ctx = s5_context(text=f"S5 context coverage status is {coverage_status}.")
+    ctx["rows"][0]["sourceEvidence"]["displayRef"] = "src/main.c:not-a-line"
+    ctx["contextCoverage"] = s5_context_coverage(
+        coverage_status,
+        line_start=1,
+        line_end=1,
+        returned_start=1,
+        returned_end=1,
+        line_overlap=coverage_status == "covered",
+    )
+    if coverage_status in {"not_available", "error"}:
+        ctx["contextCoverage"]["returnedSpans"] = []
+    body = make_case_body(tmp_path, paper_source, s5_ctx=ctx, llm=llm_tp())
+
+    assert client.post("/v1/paper/analysis-cases", json=body).status_code == 201
+    response = client.post("/v1/paper/analysis-cases/case-001/start")
+
+    assert response.status_code == 200, response.text
+    quality = response.json()["summary"]["qualityGate"]
+    assert quality["status"] == expected_gate_status
+    if expected_reason:
+        assert expected_reason in quality["reasons"]
+    else:
+        assert quality["reasons"] == []
+    if coverage_status == "covered":
+        assert quality["contextCoverage"]["findingsWithOverlappingS5ContextRows"] == 1
+        assert quality["contextCoverage"]["partialFindingIds"] == []
+    if coverage_status == "partial":
+        assert quality["contextCoverage"]["findingsWithOverlappingS5ContextRows"] == 0
+        assert quality["contextCoverage"]["partialFindingIds"] == ["s4-finding-001"]
+    if coverage_status in {"not_available", "error"}:
+        assert quality["contextCoverage"]["unavailableOrErrorFindingIds"] == ["s4-finding-001"]
+    case_root = Path(body["paperRunRoot"]) / "cases" / "case-001"
+    summary = json.loads((case_root / "finding-evidence-summary.jsonl").read_text().splitlines()[0])
+    assert summary["s5Context"]["coverage"]["source"] == "s5_contextCoverage"
+    assert summary["s5Context"]["coverage"]["status"] == coverage_status
+
+
+def test_repeated_start_reinitializes_append_only_artifacts(client, tmp_path, paper_source):
+    body = make_case_body(tmp_path, paper_source)
+    assert client.post("/v1/paper/analysis-cases", json=body).status_code == 201
+    assert client.post("/v1/paper/analysis-cases/case-001/start").status_code == 200
+    assert client.post("/v1/paper/analysis-cases/case-001/start").status_code == 200
+
+    case_root = Path(body["paperRunRoot"]) / "cases" / "case-001"
+    for name in [
+        "s4-requests.jsonl",
+        "s5-setup-requests.jsonl",
+        "s5-finding-context.raw.jsonl",
+        "s5-generic-threat-context.raw.jsonl",
+        "llm-transcript.raw.jsonl",
+        "llm-transcript.normalized.jsonl",
+        "triage-envelope.jsonl",
+        "finding-evidence-summary.jsonl",
+        "packet-inputs.jsonl",
+    ]:
+        assert (case_root / name).read_text().count("\n") == 1, name
+
+
+def llm_fp(finding_id="s4-finding-001"):
+    return {
+        "findingId": finding_id,
+        "verdict": "FP",
+        "rationale": "Bounded evidence supports a false-positive classification for this fixture.",
+        "citedEvidenceRefs": [f"s3-evidence:s4:finding:{finding_id}"],
+        "claimEvidenceLinks": [{"claim": "fixture false positive", "stance": "supports", "evidenceRefs": [f"s3-evidence:s4:finding:{finding_id}"]}],
+        "unsupportedClaims": [],
+        "unknownReason": None,
+        "diagnosticRefsUsed": [],
+        "boundaryNotes": [],
+    }
+
+
+def test_quality_gate_fails_all_unknown_but_keeps_export_ready(client, tmp_path, paper_source):
+    body = make_case_body(tmp_path, paper_source, llm=llm_unknown())
+    assert client.post("/v1/paper/analysis-cases", json=body).status_code == 201
+    response = client.post("/v1/paper/analysis-cases/case-001/start")
+
+    assert response.status_code == 200, response.text
+    summary = response.json()["summary"]
+    assert response.json()["status"] == "PAPER_EXPORT_READY"
+    assert summary["qualityGate"]["status"] == "fail"
+    assert summary["qualityGate"]["unknownRate"] == 1.0
+    assert "ALL_FINDINGS_UNKNOWN" in summary["qualityGate"]["reasons"]
+
+    envelope = json.loads((Path(body["paperRunRoot"]) / "cases" / "case-001" / "analysis-envelope.json").read_text())
+    assert envelope["summary"]["qualityGate"] == summary["qualityGate"]
+
+
+def test_quality_gate_passes_mixed_tp_fp_with_context(client, tmp_path, paper_source):
+    body = write_multi_case_body(tmp_path, paper_source)
+    artifacts = Path(body["producerArtifacts"]["llmTriageByFindingId"]["s4-finding-001"]).parent
+    body["producerArtifacts"]["llmTriageByFindingId"]["s4-finding-001"] = write_json(artifacts / "multi-f1-tp.json", llm_tp("s4-finding-001"))
+    body["producerArtifacts"]["llmTriageByFindingId"]["s4-finding-002"] = write_json(artifacts / "multi-f2-fp.json", llm_fp("s4-finding-002"))
+
+    assert client.post("/v1/paper/analysis-cases", json=body).status_code == 201
+    response = client.post("/v1/paper/analysis-cases/case-multi/start")
+
+    assert response.status_code == 200, response.text
+    quality = response.json()["summary"]["qualityGate"]
+    assert response.json()["summary"]["triageCounts"] == {"TP": 1, "FP": 1, "UNKNOWN": 0}
+    assert quality["status"] == "pass"
+    assert quality["unknownRate"] == 0.0
+    assert quality["contextCoverage"]["findingsWithS5ContextRows"] == 2
+    assert quality["reasons"] == []
+
+
+def test_runner_appends_each_finding_before_next_finalizer(client, tmp_path, paper_source, monkeypatch):
+    body = write_multi_case_body(tmp_path, paper_source)
+    body["producerArtifacts"]["llmTriageByFindingId"] = {}
+    assert client.post("/v1/paper/analysis-cases", json=body).status_code == 201
+    case_root = Path(body["paperRunRoot"]) / "cases" / "case-multi"
+    events: list[str] = []
+
+    async def no_requested_tools(self, case, *, finding, evidence_rows, acquisition_messages=None, round_index=1):
+        if round_index == 1:
+            events.append(f"acquire:{finding['findingId']}")
+        return ({"toolCalls": [], "assistantMessage": {"role": "assistant", "content": "done"}}, {"mode": "test-no-tools", "roundIndex": round_index})
+
+    async def finalizer(self, case, *, finding, evidence_rows, acquisition_notes=None):
+        events.append(f"finalize:{finding['findingId']}")
+        if finding["findingId"] == "s4-finding-002":
+            assert (case_root / "triage-envelope.jsonl").read_text().count("\n") == 1
+            assert (case_root / "llm-transcript.raw.jsonl").read_text().count("\n") == 1
+            assert (case_root / "finding-evidence-summary.jsonl").read_text().count("\n") == 1
+        return llm_tp(finding["findingId"]), {"mode": "test-finalizer"}
+
+    monkeypatch.setattr("app.paper.llm_client.LlmTriageClient.acquire_for_finding", no_requested_tools)
+    monkeypatch.setattr("app.paper.llm_client.LlmTriageClient.finalize_finding", finalizer)
+
+    response = client.post("/v1/paper/analysis-cases/case-multi/start")
+
+    assert response.status_code == 200, response.text
+    assert events == [
+        "acquire:s4-finding-001",
+        "finalize:s4-finding-001",
+        "acquire:s4-finding-002",
+        "finalize:s4-finding-002",
+    ]
+    assert (case_root / "triage-envelope.jsonl").read_text().count("\n") == 2
+    summaries = [json.loads(line) for line in (case_root / "finding-evidence-summary.jsonl").read_text().splitlines()]
+    assert [row["findingId"] for row in summaries] == ["s4-finding-001", "s4-finding-002"]
+
+
 @pytest.mark.asyncio
 async def test_live_s7_chat_request_uses_generation_controls_and_openai_response(monkeypatch, tmp_path, paper_source):
     from app.agent_runtime.llm.generation_policy import TRACEAUDIT_QWEN36_FINALIZER_V1
@@ -1655,6 +2145,13 @@ async def test_live_s7_chat_request_uses_generation_controls_and_openai_response
     assert "X-AEGIS-Wait-While-Alive" not in captured["headers"]
     assert "tools" not in captured["json"]
     assert captured["json"]["tool_choice"] == "none"
+    finalizer_system_prompt = captured["json"]["messages"][0]["content"]
+    finalizer_user_prompt = captured["json"]["messages"][1]["content"]
+    assert "Never use s3-diagnostic refs as citedEvidenceRefs" in finalizer_system_prompt
+    assert "claimSupportEvidenceRefs" in finalizer_user_prompt
+    assert "diagnosticEvidenceRefs" in finalizer_user_prompt
+    assert "Never put s3-diagnostic:* refs in citedEvidenceRefs" in finalizer_user_prompt
+    assert "UNKNOWN_INSUFFICIENT_CONTEXT" in finalizer_user_prompt
     assert "structured_outputs" not in captured["json"]
     assert captured["json"]["response_format"]["type"] == "json_schema"
     assert captured["json"]["logprobs"] is False
@@ -1849,7 +2346,12 @@ async def test_live_s7_acquisition_request_uses_tools_auto_without_strict_json(m
     assert "X-AEGIS-Wait-While-Alive" not in captured["headers"]
     assert captured["headers"]["X-Request-Id"] == "req-paper-acquire"
     assert captured["json"]["tool_choice"] == "auto"
-    assert {tool["function"]["name"] for tool in captured["json"]["tools"]} >= {"retrieve_finding_context", "retrieve_generic_threat_context", "list_evidence_rows"}
+    acquisition_system_prompt = captured["json"]["messages"][0]["content"]
+    acquisition_user_prompt = captured["json"]["messages"][1]["content"]
+    assert "literal source tokens" in acquisition_system_prompt
+    assert "covered" in acquisition_system_prompt
+    assert "covered metadata without raw code is not enough" in acquisition_user_prompt
+    assert {tool["function"]["name"] for tool in captured["json"]["tools"]} >= {"retrieve_finding_context", "retrieve_generic_threat_context", "explore_source_kg", "list_evidence_rows"}
     assert "response_format" not in captured["json"]
     assert "structured_outputs" not in captured["json"]
     assert captured["json"]["logprobs"] is False

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 from typing import Any
 
 import httpx
@@ -130,6 +132,85 @@ def build_generic_threat_request(case: PaperCaseCreateRequest, *, finding: dict[
     return body
 
 
+SOURCE_KG_EXPLORE_MODES = {
+    "source_slice",
+    "function_body",
+    "callers",
+    "callees",
+    "symbol_lookup",
+    "neighborhood",
+    "data_flow",
+}
+
+
+def build_source_kg_explore_request(
+    case: PaperCaseCreateRequest,
+    *,
+    finding: dict[str, Any],
+    code_kb_ref: str,
+    source_kg_ref: str,
+    exploration: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    finding_id = finding["findingId"]
+    args = exploration or {}
+    mode = str(args.get("mode") or "source_slice")
+    if mode not in SOURCE_KG_EXPLORE_MODES:
+        raise PaperContractError(f"Unsupported Source KG exploration mode: {mode}")
+    location = finding.get("location") or {}
+    line_start = args.get("lineStart", location.get("startLine"))
+    line_end = args.get("lineEnd", location.get("endLine") or line_start)
+    explore_body = {
+        "mode": mode,
+        "path": args.get("path") or location.get("path"),
+        "lineStart": line_start,
+        "lineEnd": line_end,
+        "symbolName": args.get("symbolName"),
+        "functionRef": args.get("functionRef") or finding.get("functionId"),
+        "graphNodeId": args.get("graphNodeId"),
+        "depth": _bounded_int(args.get("depth"), default=1, minimum=1, maximum=3),
+    }
+    explore_body = {key: value for key, value in explore_body.items() if value is not None}
+    top_k = _bounded_int(args.get("topK"), default=5, minimum=1, maximum=10)
+    selector_suffix = _exploration_key_suffix(explore_body, top_k=top_k)
+    body = _common(
+        case,
+        schema_version="s5-explore-source-kg-request-v1",
+        request_id=f"{case.caseId}:{finding_id}:s5:source-kg-explore:{mode}:{selector_suffix}:attempt-1",
+        idempotency_key=f"{case.caseId}:{finding_id}:s5:source-kg-explore:{mode}:{selector_suffix}",
+    )
+    body.pop("producerInputRefs", None)
+    body.update(
+        {
+            "codeKbRef": code_kb_ref,
+            "sourceKgRef": source_kg_ref,
+            "queryIntent": "source_kg_exploration",
+            "retrievalProfile": "paper-source-kg-explore-default-v1",
+            "topK": top_k,
+            "exploration": explore_body,
+        }
+    )
+    if case.s5SourceKgSelectors is not None:
+        body["sourceKgSelectors"] = case.s5SourceKgSelectors
+    return body
+
+
+def _bounded_int(value: Any, *, default: int, minimum: int, maximum: int) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        parsed = default
+    return max(minimum, min(maximum, parsed))
+
+
+def _exploration_key_suffix(exploration: dict[str, Any], *, top_k: int) -> str:
+    compact = json_dumps_compact({"exploration": exploration, "topK": top_k})
+    return hashlib.sha256(compact.encode("utf-8")).hexdigest()[:16]
+
+
+def json_dumps_compact(value: dict[str, Any]) -> str:
+    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
 def validate_prepare_alias_consistency(body: dict[str, Any]) -> None:
     refs = body.get("producerInputRefs") or {}
     for top, nested in [("sourceRootRef", "sourceRootRef"), ("compileContextRef", "compileContextRef")]:
@@ -182,6 +263,35 @@ class S5PaperClient:
             expected_case_id=case.caseId,
             expected_build_target_id=case.buildTargetId,
             expected_finding_id=finding["findingId"],
+        )
+        return data, body
+
+    async def explore_source_kg(
+        self,
+        case: PaperCaseCreateRequest,
+        *,
+        finding: dict[str, Any],
+        code_kb_ref: str,
+        source_kg_ref: str,
+        exploration: dict[str, Any] | None = None,
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        body = build_source_kg_explore_request(
+            case,
+            finding=finding,
+            code_kb_ref=code_kb_ref,
+            source_kg_ref=source_kg_ref,
+            exploration=exploration,
+        )
+        path = case.producerArtifacts.s5SourceKgExploreByFindingId.get(finding["findingId"])
+        if path:
+            data = read_json(path)
+            _log_file_backed(case, path="/v1/paper/source-kg/explore", finding_id=finding["findingId"], operation_request_id=body["requestId"])
+        else:
+            data = await self._post("/v1/paper/source-kg/explore", body)
+        validate_s5_response(
+            data,
+            expected_case_id=case.caseId,
+            expected_build_target_id=case.buildTargetId,
         )
         return data, body
 

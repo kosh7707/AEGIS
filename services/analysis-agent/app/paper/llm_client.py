@@ -431,7 +431,17 @@ class LlmTriageClient:
                     "You are AEGIS TraceAudit's evidence-acquisition analyst. "
                     "Do not emit a final verdict in this turn. Use available tools "
                     "to collect the context needed for a later strict finalizer. "
-                    "If a required context tool looks relevant, call it with the current findingId."
+                    "If a required context tool looks relevant, call it with the current findingId. "
+                    "For retrieve_finding_context, inspect source coverage, displayRefs, diagnostics, "
+                    "and textPreview fields; do not fabricate source context when coverage is "
+                    "non_overlapping, not_available, or unknown. For retrieve_generic_threat_context, "
+                    "coverage is not applicable; inspect surfaceStatus, diagnostics, sourceType, "
+                    "queryIntent, and textPreview fields. If local source context is suspicious or "
+                    "insufficient, use explore_source_kg for bounded source slices, function bodies, "
+                    "or call-graph neighborhood. If the finding depends on literal source tokens, "
+                    "operators, arguments, or call-site relationships and the current textPreview is only "
+                    "metadata such as 'references symbol', use explore_source_kg even when coverage is "
+                    "covered. Do not treat exploration no_hit/not_available as safe evidence."
                 ),
             },
             {"role": "user", "content": prompt},
@@ -453,6 +463,10 @@ class LlmTriageClient:
                     "content": (
                         "You are AEGIS TraceAudit's evidence-guided SAST triage analyst. "
                         "Reason carefully over the complete bounded evidence packet before deciding. "
+                        "Never use s3-diagnostic refs as citedEvidenceRefs or claimEvidenceLinks; "
+                        "diagnostics belong only in diagnosticRefsUsed or boundaryNotes. If only "
+                        "diagnostics, no-hit, or retrieval absence support a claim, choose UNKNOWN "
+                        "with unknownReason=UNKNOWN_INSUFFICIENT_CONTEXT. "
                         "Return only the requested JSON object."
                     ),
                 },
@@ -483,6 +497,11 @@ class LlmTriageClient:
                 "- Do not decide TP/FP/UNKNOWN in this turn.",
                 "- Use tool_choice auto tool calls; never assume S5 no_hit/empty means safe.",
                 "- Prefer retrieve_finding_context and retrieve_generic_threat_context for the current finding.",
+                "- For retrieve_finding_context, inspect coverage/displayRefs/textPreview before deciding whether more evidence is needed.",
+                "- For retrieve_generic_threat_context, coverage is not applicable; inspect surfaceStatus, diagnostics, sourceType, queryIntent, and textPreview.",
+                "- If source context is non-overlapping, partial, unknown, or otherwise insufficient, prefer explore_source_kg before stopping when a bounded source slice/function/caller/callee/neighborhood query could reduce uncertainty.",
+                "- If the finding turns on literal code tokens/operators/arguments, exact call sites, or whether a variable is modified, call explore_source_kg with source_slice or function_body unless current evidence includes concrete code text for that claim; covered metadata without raw code is not enough.",
+                "- Use list_evidence_rows to inspect current normalized rows, and do not fabricate missing source context.",
                 "- You may call list_evidence_rows to inspect current normalized rows.",
                 "",
                 "Acquisition packet JSON:",
@@ -499,12 +518,25 @@ class LlmTriageClient:
         acquisition_notes: dict[str, Any],
     ) -> str:
         evidence_refs = [str(row.get("evidenceRef")) for row in evidence_rows if row.get("evidenceRef")]
+        claim_support_refs = [
+            str(row.get("evidenceRef"))
+            for row in evidence_rows
+            if row.get("evidenceRef") and not row.get("diagnostic") and row.get("surfaceStatus") == "produced"
+        ]
+        diagnostic_refs = [
+            str(row.get("evidenceRef"))
+            for row in evidence_rows
+            if row.get("evidenceRef") and row.get("diagnostic")
+        ]
         packet = {
             "caseId": case.caseId,
             "buildTargetId": case.buildTargetId,
             "findingId": finding["findingId"],
             "finding": finding,
             "knownEvidenceRefs": evidence_refs,
+            "claimSupportEvidenceRefs": claim_support_refs,
+            "allowedCitedEvidenceRefs": claim_support_refs,
+            "diagnosticEvidenceRefs": diagnostic_refs,
             "evidenceRows": evidence_rows,
             "acquisitionNotes": acquisition_notes,
         }
@@ -515,8 +547,12 @@ class LlmTriageClient:
                 "Decision policy:",
                 "- Prioritize correctness over speed or brevity.",
                 "- TP/FP require explicit citedEvidenceRefs from knownEvidenceRefs.",
+                "- citedEvidenceRefs and claimEvidenceLinks may use only claimSupportEvidenceRefs/allowedCitedEvidenceRefs.",
+                "- diagnosticEvidenceRefs are audit context only; use them only in diagnosticRefsUsed or boundaryNotes.",
                 "- If bounded evidence is insufficient, choose UNKNOWN with unknownReason=UNKNOWN_INSUFFICIENT_CONTEXT.",
                 "- Do not promote producer diagnostics, empty/no_hit, operational absence, or retrieval failure into security evidence.",
+                "- Never put s3-diagnostic:* refs in citedEvidenceRefs or claimEvidenceLinks; put them only in diagnosticRefsUsed or boundaryNotes.",
+                "- If only diagnostic/no_hit/retrieval-absence refs support a claim, choose UNKNOWN_INSUFFICIENT_CONTEXT and leave citedEvidenceRefs limited to grounding refs, or empty if no grounding refs support the claim.",
                 "- Use S4/S5 evidence only within each producer's claim boundary.",
                 "- It is acceptable to cite multiple evidence rows when the claim depends on SAST, code context, and threat context together.",
                 "",
@@ -567,6 +603,34 @@ def paper_tool_schemas() -> list[dict[str, Any]]:
                     "type": "object",
                     "properties": {"findingId": finding_id_property},
                     "required": ["findingId"],
+                    "additionalProperties": False,
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "explore_source_kg",
+                "description": "Explore bounded Source KG source slices, functions, symbols, callers, callees, neighborhoods, or data-flow availability for the current finding.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "findingId": finding_id_property,
+                        "mode": {
+                            "type": "string",
+                            "enum": ["source_slice", "function_body", "callers", "callees", "symbol_lookup", "neighborhood", "data_flow"],
+                            "description": "Bounded Source KG exploration mode.",
+                        },
+                        "path": {"type": "string", "description": "Optional source path selector. Defaults to the finding location path."},
+                        "lineStart": {"type": "integer", "description": "Optional 1-based start line selector. Defaults to the finding start line."},
+                        "lineEnd": {"type": "integer", "description": "Optional 1-based end line selector. Defaults to the finding end line/start line."},
+                        "symbolName": {"type": "string", "description": "Optional function or symbol name selector."},
+                        "functionRef": {"type": "string", "description": "Optional S4/S5 function reference selector."},
+                        "graphNodeId": {"type": "string", "description": "Optional Source KG graph node selector."},
+                        "depth": {"type": "integer", "minimum": 1, "maximum": 3, "description": "Bounded graph neighborhood depth."},
+                        "topK": {"type": "integer", "minimum": 1, "maximum": 10, "description": "Maximum Source KG rows to request."},
+                    },
+                    "required": ["findingId", "mode"],
                     "additionalProperties": False,
                 },
             },

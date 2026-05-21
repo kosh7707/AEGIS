@@ -48,6 +48,7 @@ S4_REQUIRED_SURFACES = {
 }
 S4_SURFACE_STATUSES = {"produced", "empty", "partial", "not_available", "error", "failed", "skipped"}
 S5_SURFACE_STATUSES = {"produced", "no_hit", "partial", "not_available", "error"}
+S5_CONTEXT_COVERAGE_STATUSES = {"covered", "partial", "non_overlapping", "not_available", "error"}
 FORBIDDEN_KEYS = {
     "verdict",
     "finalVerdict",
@@ -208,7 +209,7 @@ def validate_s5_contract_snapshot(snapshot: dict[str, Any]) -> None:
         raise PaperContractError("S5 contract snapshot must declare generic mainline visibility")
     endpoints = snapshot.get("endpoints") or []
     names = {e.get("toolName") for e in endpoints if isinstance(e, dict)}
-    required = {"prepare_code_kb", "retrieve_finding_context", "retrieve_generic_threat_context"}
+    required = {"prepare_code_kb", "retrieve_finding_context", "explore_source_kg", "retrieve_generic_threat_context"}
     if not required.issubset(names):
         raise PaperContractError("S5 contract snapshot missing required paper tools")
 
@@ -238,6 +239,7 @@ def validate_s5_response(
         raise PaperContractError("S5 produced response must include rows")
     for i, row in enumerate(rows):
         validate_s5_row(row, index=i)
+    _validate_s5_context_coverage(data.get("contextCoverage"))
     for diag in data.get("diagnostics", []) or []:
         if diag.get("negativeEvidenceAllowed") is not False:
             raise PaperContractError("S5 diagnostics must set negativeEvidenceAllowed=false")
@@ -252,6 +254,28 @@ def validate_s5_response(
         if not trace.get("orderingPolicy"):
             raise PaperContractError("S5 retrievalTrace.orderingPolicy is required")
         _assert_visible_text_safe(trace)
+
+
+def _validate_s5_context_coverage(coverage: Any) -> None:
+    if coverage is None:
+        return
+    if not isinstance(coverage, dict):
+        raise PaperContractError("S5 contextCoverage must be an object")
+    if coverage.get("coverageStatus") not in S5_CONTEXT_COVERAGE_STATUSES:
+        raise PaperContractError("S5 contextCoverage.coverageStatus is unknown")
+    for key in ["requestedAnchors", "returnedSpans", "diagnostics"]:
+        if key in coverage and not isinstance(coverage[key], list):
+            raise PaperContractError(f"S5 contextCoverage.{key} must be an array")
+    line_overlap = coverage.get("lineOverlap")
+    if line_overlap is not None and not isinstance(line_overlap, bool):
+        raise PaperContractError("S5 contextCoverage.lineOverlap must be boolean or null")
+    for index, span in enumerate(coverage.get("returnedSpans") or []):
+        if not isinstance(span, dict):
+            raise PaperContractError(f"S5 contextCoverage.returnedSpans[{index}] must be an object")
+        span_line_overlap = span.get("lineOverlap")
+        if span_line_overlap is not None and not isinstance(span_line_overlap, bool):
+            raise PaperContractError(f"S5 contextCoverage.returnedSpans[{index}].lineOverlap must be boolean or null")
+    _assert_visible_text_safe(coverage)
 
 
 def validate_s5_row(row: Any, *, index: int = 0) -> None:
