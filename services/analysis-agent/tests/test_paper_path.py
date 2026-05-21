@@ -1613,7 +1613,17 @@ async def test_live_s7_chat_request_uses_generation_controls_and_openai_response
         async def get(self, url, headers):
             captured.setdefault("get_urls", []).append(url)
             if url.endswith("/v1/async-chat-requests/acr-finalizer-001"):
-                return FakeResponse({"requestId": "acr-finalizer-001", "state": "completed", "resultReady": True})
+                return FakeResponse({
+                    "requestId": "acr-finalizer-001",
+                    "state": "completed",
+                    "resultReady": True,
+                    "backendActivity": {
+                        "streamChunkCount": 7,
+                        "responseBytes": 2048,
+                        "approxCompletionChars": 128,
+                        "activitySource": "stream-done",
+                    },
+                })
             if url.endswith("/v1/async-chat-requests/acr-finalizer-001/result"):
                 return FakeResponse({
                     "requestId": "acr-finalizer-001",
@@ -1658,6 +1668,11 @@ async def test_live_s7_chat_request_uses_generation_controls_and_openai_response
         "http://s7.local/v1/async-chat-requests/acr-finalizer-001/result",
     ]
     assert request["mode"] == "live"
+    assert request["s7Async"]["requestId"] == "acr-finalizer-001"
+    assert request["s7Async"]["statusUrl"] == "http://s7.local/v1/async-chat-requests/acr-finalizer-001"
+    assert request["s7Async"]["resultUrl"] == "http://s7.local/v1/async-chat-requests/acr-finalizer-001/result"
+    assert request["s7Async"]["lastStatus"]["backendActivity"]["streamChunkCount"] == 7
+    assert request["s7Async"]["lastStatus"]["backendActivity"]["activitySource"] == "stream-done"
     assert exchange_logs
     exchange = exchange_logs[-1]
     assert exchange["service"] == "s3-agent"
@@ -1799,7 +1814,17 @@ async def test_live_s7_acquisition_request_uses_tools_auto_without_strict_json(m
         async def get(self, url, headers):
             captured.setdefault("get_urls", []).append(url)
             if url.endswith("/v1/async-chat-requests/acr-acquire-001"):
-                return FakeResponse({"requestId": "acr-acquire-001", "state": "completed", "resultReady": True})
+                return FakeResponse({
+                    "requestId": "acr-acquire-001",
+                    "state": "completed",
+                    "resultReady": True,
+                    "backendActivity": {
+                        "streamChunkCount": 3,
+                        "responseBytes": 1024,
+                        "approxCompletionChars": 0,
+                        "activitySource": "stream-done",
+                    },
+                })
             if url.endswith("/v1/async-chat-requests/acr-acquire-001/result"):
                 return FakeResponse({"requestId": "acr-acquire-001", "state": "completed", "response": tool_response})
             raise AssertionError(f"unexpected GET url: {url}")
@@ -1837,6 +1862,9 @@ async def test_live_s7_acquisition_request_uses_tools_auto_without_strict_json(m
         "http://s7.local/v1/async-chat-requests/acr-acquire-001/result",
     ]
     assert request["mode"] == "live"
+    assert request["s7Async"]["requestId"] == "acr-acquire-001"
+    assert request["s7Async"]["lastStatus"]["backendActivity"]["streamChunkCount"] == 3
+    assert request["s7Async"]["lastStatus"]["backendActivity"]["activitySource"] == "stream-done"
     assert request["modelProfile"] == TRACEAUDIT_QWEN36_ACQUISITION_V1.profile_id
     assert request["generationProfile"] == TRACEAUDIT_QWEN36_ACQUISITION_V1.to_metadata(model=captured["json"]["model"])
 

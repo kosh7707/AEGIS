@@ -32,6 +32,39 @@ def _resolve_s7_url(base_url: str, candidate: str | None, fallback_path: str) ->
     return urljoin(base, target.lstrip("/"))
 
 
+def _drop_none(value: dict[str, Any]) -> dict[str, Any]:
+    return {key: item for key, item in value.items() if item is not None}
+
+
+def _compact_async_status(status_data: dict[str, Any]) -> dict[str, Any]:
+    """Keep S7 async status evidence that is useful for paper-run audit.
+
+    The full S7 status can be large and may grow additively. S3 preserves the
+    stable ownership/progress/error fields plus backendActivity so paper
+    transcripts can prove which async request was observed and whether S7 saw
+    backend stream progress.
+    """
+
+    keys = [
+        "requestId",
+        "traceRequestId",
+        "state",
+        "localAckState",
+        "phase",
+        "blockedReason",
+        "error",
+        "errorDetail",
+        "retryable",
+        "resultReady",
+        "acceptedAt",
+        "startedAt",
+        "endedAt",
+        "expiresAt",
+        "backendActivity",
+    ]
+    return _drop_none({key: status_data.get(key) for key in keys})
+
+
 class LlmTriageClient:
     def __init__(self, endpoint: str | None = None, timeout_seconds: float = 120.0):
         self.endpoint = endpoint or settings.llm_endpoint
@@ -86,7 +119,7 @@ class LlmTriageClient:
         headers = {
             "X-AEGIS-Paper-Controls": "true",
         }
-        payload, latency_ms = await self._post_chat(
+        payload, latency_ms, async_metadata = await self._post_chat(
             body,
             headers,
             case=case,
@@ -127,7 +160,7 @@ class LlmTriageClient:
             tool_call_count=len(turn.get("toolCalls") or []),
             usage=turn.get("usage"),
         )
-        return turn, {"mode": "live", **request, "body": body, "headers": headers, "rawResponse": payload}
+        return turn, {"mode": "live", **request, "body": body, "headers": headers, "rawResponse": payload, "s7Async": async_metadata}
 
     async def finalize_finding(
         self,
@@ -184,7 +217,7 @@ class LlmTriageClient:
             "X-AEGIS-Paper-Controls": "true",
             "X-AEGIS-Strict-JSON": "true",
         }
-        payload, latency_ms = await self._post_chat(
+        payload, latency_ms, async_metadata = await self._post_chat(
             body,
             headers,
             case=case,
@@ -225,7 +258,7 @@ class LlmTriageClient:
             tool_call_count=0,
             usage=payload.get("usage"),
         )
-        return parsed, {"mode": "live", **request, "body": body, "headers": headers, "rawResponse": payload}
+        return parsed, {"mode": "live", **request, "body": body, "headers": headers, "rawResponse": payload, "s7Async": async_metadata}
 
     async def triage_finding(self, case: PaperCaseCreateRequest, *, finding: dict[str, Any], evidence_rows: list[dict[str, Any]]) -> tuple[dict[str, Any], dict[str, Any]]:
         """Compatibility wrapper for older tests/callers.
@@ -245,7 +278,7 @@ class LlmTriageClient:
         case: PaperCaseCreateRequest,
         finding_id: str,
         phase: str,
-    ) -> tuple[dict[str, Any], int]:
+    ) -> tuple[dict[str, Any], int, dict[str, Any]]:
         path = "/v1/async-chat-requests"
         request_id = get_request_id()
         if request_id:
@@ -333,6 +366,14 @@ class LlmTriageClient:
             f"/v1/async-chat-requests/{async_request_id}/result",
         )
         poll_headers = {"X-Request-Id": request_id} if request_id else {}
+        async_metadata: dict[str, Any] = {
+            "requestId": async_request_id,
+            "traceRequestId": submit_data.get("traceRequestId"),
+            "statusUrl": status_url,
+            "resultUrl": result_url,
+            "acceptedAt": submit_data.get("acceptedAt"),
+            "expiresAt": submit_data.get("expiresAt"),
+        }
         async with httpx.AsyncClient(timeout=self.transport_timeout) as client:
             while True:
                 status_response = await client.get(status_url, headers=poll_headers)
@@ -346,6 +387,7 @@ class LlmTriageClient:
                 blocked_reason = status_data.get("blockedReason")
                 local_ack_state = status_data.get("localAckState")
                 result_ready = bool(status_data.get("resultReady"))
+                async_metadata["lastStatus"] = _compact_async_status(status_data)
                 if blocked_reason or local_ack_state == "ack-break":
                     raise PaperOperationalError(
                         "S7 async request reached terminal blocked state",
@@ -372,7 +414,10 @@ class LlmTriageClient:
                             detail={"body": result_data, "asyncRequestId": async_request_id},
                         )
                     total_latency_ms = int((asyncio.get_running_loop().time() - operation_started_at) * 1000)
-                    return payload, total_latency_ms
+                    async_metadata["completedAt"] = result_data.get("completedAt")
+                    async_metadata["resultState"] = result_data.get("state")
+                    async_metadata["resultExpiresAt"] = result_data.get("expiresAt")
+                    return payload, total_latency_ms, _drop_none(async_metadata)
                 raise PaperOperationalError(
                     "S7 async request did not complete successfully",
                     detail={"status": status_data, "asyncRequestId": async_request_id},
