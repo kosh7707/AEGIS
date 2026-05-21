@@ -244,6 +244,27 @@ def _threat_payload(**overrides: Any) -> dict[str, Any]:
     return payload
 
 
+def _explore_payload(**overrides: Any) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "schemaVersion": "s5-explore-source-kg-request-v1",
+        "caseId": "case-001",
+        "buildTargetId": "target-001",
+        "paperRunId": "paper-run-001",
+        "requestId": "s3-s5-source-kg-explore-001",
+        "idempotencyKey": "case-001:target-001:s5:source-kg-explore:v1",
+        "codeKbRef": "s5-code-kb:case-001:target-001",
+        "sourceKgRef": "s5-source-kg:case-001:target-001",
+        "queryIntent": "source_kg_exploration",
+        "retrievalProfile": "paper-source-kg-explore-default-v1",
+        "topK": 5,
+        "exploration": {"mode": "source_slice", "path": "ssl/t1_lib.c", "lineStart": 2580, "lineEnd": 2590},
+        "visibilityMode": "generic",
+        "forbiddenLeakageClasses": list(FORBIDDEN_LEAKAGE_CLASSES),
+    }
+    payload.update(overrides)
+    return payload
+
+
 def _visible_strings(value: Any) -> Iterable[str]:
     if isinstance(value, dict):
         for key, nested in value.items():
@@ -302,6 +323,7 @@ def test_paper_context_contract_snapshot_advertises_s3_consumable_boundary():
     assert endpoints == {
         ("POST", "/v1/paper/code-kb/prepare", "prepare_code_kb"),
         ("POST", "/v1/paper/finding-context/retrieve", "retrieve_finding_context"),
+        ("POST", "/v1/paper/source-kg/explore", "explore_source_kg"),
         ("POST", "/v1/paper/threat-context/generic", "retrieve_generic_threat_context"),
     }
     assert all(item["timeoutHeaderRequired"] is False for item in body["endpoints"])
@@ -321,6 +343,13 @@ def test_paper_context_contract_snapshot_advertises_s3_consumable_boundary():
         "sourceKgQualityGate": "accepted_with_caveats",
         "negativeEvidenceAllowed": False,
     }
+    assert body["policies"]["sourceKgCoveragePolicy"]["nonOverlappingStatus"] == {
+        "surfaceStatus": "partial",
+        "coverageStatus": "non_overlapping",
+        "diagnosticCode": "S5_PAPER_CONTEXT_NON_OVERLAPPING",
+    }
+    assert body["policies"]["sourceKgExplorationPolicy"]["toolName"] == "explore_source_kg"
+    assert body["enums"]["contextCoverageStatus"] == ["covered", "partial", "non_overlapping", "not_available", "error"]
     assert body["policies"]["mainlineForbiddenLeakageClasses"] == FORBIDDEN_LEAKAGE_CLASSES
     assert body["policies"]["forbiddenInferencePolicy"] == "producer_status_is_not_final_triage"
     assert body["freezeGate"]["s5VisiblePacketSchemaFinalized"] is True
@@ -335,6 +364,7 @@ def test_paper_context_contract_snapshot_advertises_s3_consumable_boundary():
     [
         ("/v1/paper/code-kb/prepare", _prepare_with_ingest_payload()),
         ("/v1/paper/finding-context/retrieve", _finding_payload()),
+        ("/v1/paper/source-kg/explore", _explore_payload()),
         ("/v1/paper/threat-context/generic", _threat_payload()),
     ],
 )
@@ -487,6 +517,83 @@ def test_finding_retrieve_projects_real_source_kg_rows_with_b2_b4_stable_shape(p
     _assert_no_final_authority(body)
 
 
+def test_finding_context_reports_non_overlapping_source_kg_coverage(paper_repo):
+    source = _source_payload(
+        repositorySnapshot={**_source_payload()["repositorySnapshot"], "repositoryId": "fixture-certmaker"},
+        evidenceSnippets=[
+            {
+                "evidenceSnippetId": "snippet-main-1-24",
+                "filePath": "main.cpp",
+                "lineStart": 1,
+                "lineEnd": 24,
+                "language": "cpp",
+                "snippetText": "int main() { return 0; }",
+                "provenance": {"fixture": "cert-maker-main-prefix"},
+            }
+        ],
+        graphNodes=[
+            {
+                "sourceGraphNodeId": "node-main-prefix",
+                "nodeKind": "function",
+                "stableId": "func:main",
+                "displayName": "main",
+                "filePath": "main.cpp",
+                "lineStart": 1,
+                "lineEnd": 24,
+                "symbol": {"name": "main"},
+                "evidenceSnippetId": "snippet-main-1-24",
+            }
+        ],
+        graphEdges=[],
+        richIrArtifacts=[],
+    )
+    payload = _prepare_with_ingest_payload(
+        requestId="s3-s5-prepare-certmaker-non-overlap",
+        idempotencyKey="case-001:target-001:s5:prepare-code-kb:certmaker-non-overlap",
+        sourceContext={**_base_prepare_payload()["sourceContext"], "sourceKgIngestRequest": source},
+    )
+    prep = client.post(
+        "/v1/paper/code-kb/prepare",
+        json=payload,
+        headers={"X-Request-Id": "s3-s5-prepare-certmaker-non-overlap"},
+    )
+    assert prep.status_code == 200, prep.text
+
+    finding = _finding_payload(
+        requestId="s3-s5-finding-context-certmaker-non-overlap",
+        idempotencyKey="case-001:s4-finding-certmaker:s5:finding-context:v1",
+        findingId="s4-finding-certmaker",
+    )
+    finding["finding"] = {
+        **finding["finding"],
+        "findingId": "s4-finding-certmaker",
+        "sourceAnchors": [{"displayPath": "main.cpp", "symbolName": "run", "lineStart": 35, "lineEnd": 35}],
+    }
+
+    resp = client.post(
+        "/v1/paper/finding-context/retrieve",
+        json=finding,
+        headers={"X-Request-Id": "s3-s5-finding-context-certmaker-non-overlap"},
+    )
+
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["rows"]
+    assert body["surfaceStatus"] == "partial"
+    assert body["contextCoverage"]["coverageStatus"] == "non_overlapping"
+    assert body["contextCoverage"]["lineOverlap"] is False
+    assert body["contextCoverage"]["requestedAnchors"][0]["path"] == "main.cpp"
+    assert body["contextCoverage"]["requestedAnchors"][0]["lineStart"] == 35
+    returned = body["contextCoverage"]["returnedSpans"][0]
+    assert returned["path"] == "main.cpp"
+    assert returned["startLine"] == 1
+    assert returned["endLine"] == 24
+    assert returned["lineOverlap"] is False
+    assert returned["pathMatch"] is True
+    assert any(diag["code"] == "S5_PAPER_CONTEXT_NON_OVERLAPPING" for diag in body["diagnostics"])
+    _assert_no_final_authority(body)
+
+
 def test_finding_no_hit_is_diagnostic_only_not_negative_evidence(paper_repo):
     _seed_prepare(paper_repo)
     payload = _finding_payload(
@@ -521,6 +628,49 @@ def test_finding_no_hit_is_diagnostic_only_not_negative_evidence(paper_repo):
     assert body["diagnostics"][0]["code"] == "S5_PAPER_CONTEXT_NO_HIT"
     assert body["diagnostics"][0]["negativeEvidenceAllowed"] is False
     assert body["diagnostics"][0]["consumerPolicy"] == "diagnostic_only_not_security_evidence"
+    _assert_no_final_authority(body)
+
+
+def test_source_kg_explore_source_slice_returns_bounded_snippet(paper_repo):
+    _seed_prepare(paper_repo)
+
+    resp = client.post(
+        "/v1/paper/source-kg/explore",
+        json=_explore_payload(),
+        headers={"X-Request-Id": "s3-s5-source-kg-explore-001"},
+    )
+
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["schemaVersion"] == "s5-explore-source-kg-response-v1"
+    assert body["surfaceStatus"] == "produced"
+    assert body["retrievalTrace"]["methodsUsed"] == ["source_slice"]
+    assert body["rows"]
+    assert body["rows"][0]["sourceEvidence"]["displayRef"] == "ssl/t1_lib.c:2580-2590"
+    assert body["capabilities"]["data_flow"] == "requires_rich_ir_pdg_or_taint_artifacts_else_not_available"
+    _assert_no_forbidden_leakage(body)
+    _assert_no_final_authority(body)
+
+
+def test_source_kg_explore_data_flow_reports_not_available_without_rich_ir(paper_repo):
+    _seed_prepare(paper_repo)
+    payload = _explore_payload(
+        requestId="s3-s5-source-kg-explore-data-flow",
+        idempotencyKey="case-001:target-001:s5:source-kg-explore:data-flow",
+        exploration={"mode": "data_flow", "path": "ssl/t1_lib.c", "lineStart": 2580, "lineEnd": 2590},
+    )
+
+    resp = client.post(
+        "/v1/paper/source-kg/explore",
+        json=payload,
+        headers={"X-Request-Id": "s3-s5-source-kg-explore-data-flow"},
+    )
+
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["surfaceStatus"] == "not_available"
+    assert body["rows"] == []
+    assert any(diag["code"] == "S5_PAPER_SOURCE_KG_DATA_FLOW_NOT_AVAILABLE" for diag in body["diagnostics"])
     _assert_no_final_authority(body)
 
 

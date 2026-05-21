@@ -21,6 +21,7 @@ from test_paper_context_api_contract import (  # reuse hard-now fixtures intenti
     _assert_no_final_authority,
     _assert_no_forbidden_leakage,
     _base_prepare_payload,
+    _explore_payload,
     _finding_payload,
     _prepare_with_ingest_payload,
     _seed_prepare,
@@ -287,6 +288,11 @@ def test_b2_b4_fixture_validator_accepts_real_rows_and_rejects_divergence(paper_
             lambda payload: payload.__setitem__("topK", 1),
         ),
         (
+            "/v1/paper/source-kg/explore",
+            _explore_payload,
+            lambda payload: payload["exploration"].__setitem__("lineStart", 2581),
+        ),
+        (
             "/v1/paper/threat-context/generic",
             _threat_payload,
             lambda payload: payload["apiNames"].append("strcpy"),
@@ -351,6 +357,7 @@ def _endpoint_subject(path: str) -> str:
     return {
         "/v1/paper/code-kb/prepare": "prepare_code_kb",
         "/v1/paper/finding-context/retrieve": "retrieve_finding_context",
+        "/v1/paper/source-kg/explore": "explore_source_kg",
         "/v1/paper/threat-context/generic": "retrieve_generic_threat_context",
     }[path]
 
@@ -359,15 +366,18 @@ def test_same_idempotency_key_is_endpoint_scoped(paper_repo):
     shared_key = "case-001:shared-idempotency-key:freeze"
     prepare_payload = _prepare_with_ingest_payload(idempotencyKey=shared_key, requestId="s3-s5-shared-prepare")
     finding_payload = _finding_payload(idempotencyKey=shared_key, requestId="s3-s5-shared-finding")
+    explore_payload = _explore_payload(idempotencyKey=shared_key, requestId="s3-s5-shared-explore")
     threat_payload = _threat_payload(idempotencyKey=shared_key, requestId="s3-s5-shared-threat")
 
     prepare = client.post("/v1/paper/code-kb/prepare", json=prepare_payload, headers={"X-Request-Id": prepare_payload["requestId"]})
     finding = client.post("/v1/paper/finding-context/retrieve", json=finding_payload, headers={"X-Request-Id": finding_payload["requestId"]})
+    explore = client.post("/v1/paper/source-kg/explore", json=explore_payload, headers={"X-Request-Id": explore_payload["requestId"]})
     threat = client.post("/v1/paper/threat-context/generic", json=threat_payload, headers={"X-Request-Id": threat_payload["requestId"]})
 
-    assert prepare.status_code == finding.status_code == threat.status_code == 200
+    assert prepare.status_code == finding.status_code == explore.status_code == threat.status_code == 200
     assert prepare.json()["schemaVersion"] == "s5-prepare-code-kb-response-v1"
     assert finding.json()["schemaVersion"] == "s5-retrieve-finding-context-response-v1"
+    assert explore.json()["schemaVersion"] == "s5-explore-source-kg-response-v1"
     assert threat.json()["schemaVersion"] == "s5-retrieve-generic-threat-context-response-v1"
 
 
@@ -376,6 +386,7 @@ def test_same_idempotency_key_is_endpoint_scoped(paper_repo):
     [
         ("/v1/paper/code-kb/prepare", _prepare_with_ingest_payload),
         ("/v1/paper/finding-context/retrieve", _finding_payload),
+        ("/v1/paper/source-kg/explore", _explore_payload),
         ("/v1/paper/threat-context/generic", _threat_payload),
     ],
 )
@@ -416,6 +427,7 @@ def test_malformed_forbidden_leakage_classes_fail_closed_for_all_paper_endpoints
     [
         ("/v1/paper/code-kb/prepare", _prepare_with_ingest_payload()),
         ("/v1/paper/finding-context/retrieve", _finding_payload()),
+        ("/v1/paper/source-kg/explore", _explore_payload()),
         ("/v1/paper/threat-context/generic", _threat_payload()),
     ],
 )
@@ -457,15 +469,20 @@ def test_freeze_gate_report_passes_for_real_s5_owned_fixtures(paper_repo):
         json=no_hit_payload,
         headers={"X-Request-Id": no_hit_payload["requestId"]},
     )
+    explore_resp = client.post(
+        "/v1/paper/source-kg/explore",
+        json=_explore_payload(requestId="s3-s5-source-kg-explore-report", idempotencyKey="case-001:target-001:s5:source-kg-explore:report"),
+        headers={"X-Request-Id": "s3-s5-source-kg-explore-report"},
+    )
     threat_resp = client.post(
         "/v1/paper/threat-context/generic",
         json=_threat_payload(),
         headers={"X-Request-Id": "s3-s5-threat-context-001"},
     )
-    assert finding_resp.status_code == no_hit_resp.status_code == threat_resp.status_code == 200
+    assert finding_resp.status_code == no_hit_resp.status_code == explore_resp.status_code == threat_resp.status_code == 200
 
     report = build_freeze_gate_report(
-        responses=[prepare_body, finding_resp.json(), no_hit_resp.json(), threat_resp.json()],
+        responses=[prepare_body, finding_resp.json(), no_hit_resp.json(), explore_resp.json(), threat_resp.json()],
         command_evidence=[
             {
                 "command": "pytest services/knowledge-base/tests/test_paper_context_freeze_gate.py services/knowledge-base/tests/test_paper_context_api_contract.py -q",

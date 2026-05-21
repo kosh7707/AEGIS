@@ -14,6 +14,7 @@ from fastapi import HTTPException
 from app.ledger.repository import SQLiteLedgerRepository
 from app.paper_context.models import (
     BasePaperRequest,
+    ExploreSourceKgRequest,
     PrepareCodeKbRequest,
     RetrieveFindingContextRequest,
     RetrieveGenericThreatContextRequest,
@@ -30,6 +31,8 @@ SOURCE_KG_CONTEXT_VERSION = "source-code-kg-context-v1"
 THREAT_RETRIEVAL_VERSION = "s5-threat-retrieval-evidence-v1"
 RETRIEVAL_POLICY_VERSION = "s5-paper-retrieval-policy-v1"
 GENERIC_THREAT_POLICY_VERSION = "s5-paper-generic-threat-policy-v1"
+CONTEXT_COVERAGE_VERSION = "s5-paper-context-coverage-v1"
+SOURCE_KG_EXPLORATION_POLICY_VERSION = "s5-paper-source-kg-exploration-policy-v1"
 
 _LEAKAGE_PATTERNS = [
     re.compile(r"CVE-\d{4}-\d{4,7}", re.IGNORECASE),
@@ -580,10 +583,43 @@ def prepare_code_kb(repo: SQLiteLedgerRepository, req: PrepareCodeKbRequest, x_r
     return _with_idempotency(repo, "prepare_code_kb", req, compute)
 
 
+def _normalize_source_path(path: str | None) -> str:
+    return str(path or "").replace("\\", "/").lstrip("./")
+
+
+def _path_matches(requested: str | None, returned: str | None) -> bool:
+    req = _normalize_source_path(requested)
+    ret = _normalize_source_path(returned)
+    if not req or not ret:
+        return False
+    return req == ret or req.endswith(f"/{ret}") or ret.endswith(f"/{req}")
+
+
+def _line_overlap_range(
+    req_start: int | None,
+    req_end: int | None,
+    start: int | None,
+    end: int | None,
+) -> bool | None:
+    if req_start is None and req_end is None:
+        return None
+    if req_start is None:
+        req_start = req_end
+    if req_end is None:
+        req_end = req_start
+    if req_start is None or req_end is None or start is None or end is None:
+        return None
+    return max(req_start, start) <= min(req_end, end)
+
+
 def _line_overlap(anchor: SourceAnchor, start: int | None, end: int | None) -> bool:
-    if anchor.line_start is None or anchor.line_end is None or start is None or end is None:
-        return True
-    return max(anchor.line_start, start) <= min(anchor.line_end, end)
+    """Legacy scoring overlap: missing line metadata remains a weak match.
+
+    Coverage diagnostics use ``_line_overlap_range`` so unknown line metadata is
+    explicit ``null`` rather than silently treated as covered.
+    """
+    overlap = _line_overlap_range(anchor.line_start, anchor.line_end, start, end)
+    return True if overlap is None else overlap
 
 
 def _anchor_score_node(node: dict[str, Any], anchors: list[SourceAnchor]) -> int:
@@ -592,7 +628,7 @@ def _anchor_score_node(node: dict[str, Any], anchors: list[SourceAnchor]) -> int
     best = 0
     for anchor in anchors:
         score = 0
-        if anchor.display_path and node.get("filePath") == anchor.display_path:
+        if anchor.display_path and _path_matches(anchor.display_path, node.get("filePath")):
             score += 5
         if _line_overlap(anchor, node.get("lineStart"), node.get("lineEnd")):
             score += 3
@@ -613,7 +649,7 @@ def _anchor_score_snippet(snippet: dict[str, Any], anchors: list[SourceAnchor]) 
     best = 0
     for anchor in anchors:
         score = 0
-        if anchor.display_path and snippet.get("filePath") == anchor.display_path:
+        if anchor.display_path and _path_matches(anchor.display_path, snippet.get("filePath")):
             score += 5
         if _line_overlap(anchor, snippet.get("lineStart"), snippet.get("lineEnd")):
             score += 3
@@ -630,6 +666,152 @@ def _display_ref(record: dict[str, Any]) -> str:
     return path
 
 
+def _symbol_matches(record: dict[str, Any], anchor: SourceAnchor) -> bool:
+    display = str(record.get("displayName") or "")
+    stable = str(record.get("stableId") or "")
+    entity_id = str(record.get("sourceGraphNodeId") or record.get("evidenceSnippetId") or "")
+    symbol = record.get("symbol") or {}
+    names = {display, stable, entity_id, str(symbol.get("name") or "")}
+    return bool(
+        (anchor.symbol_name and anchor.symbol_name in names)
+        or (anchor.function_ref and anchor.function_ref in names)
+    )
+
+
+def _anchor_line_overlap_for_record(record: dict[str, Any], anchors: list[SourceAnchor]) -> bool | None:
+    overlaps = [
+        _line_overlap_range(anchor.line_start, anchor.line_end, record.get("lineStart"), record.get("lineEnd"))
+        for anchor in anchors
+        if anchor.display_path is None or _path_matches(anchor.display_path, record.get("filePath"))
+    ]
+    if any(overlap is True for overlap in overlaps):
+        return True
+    if any(overlap is False for overlap in overlaps):
+        return False
+    return None
+
+
+def _coverage_span(kind: str, entity_id: str, record: dict[str, Any], anchors: list[SourceAnchor]) -> dict[str, Any]:
+    path = record.get("filePath")
+    return {
+        "kind": "source_kg_node" if kind == "node" else "source_kg_snippet",
+        "path": path,
+        "startLine": record.get("lineStart"),
+        "endLine": record.get("lineEnd"),
+        "nodeId": entity_id if kind == "node" else None,
+        "snippetId": entity_id if kind == "snippet" else record.get("evidenceSnippetId"),
+        "pathMatch": any(_path_matches(anchor.display_path, path) for anchor in anchors if anchor.display_path),
+        "lineOverlap": _anchor_line_overlap_for_record(record, anchors),
+        "symbolOrFunctionMatch": any(_symbol_matches(record, anchor) for anchor in anchors),
+    }
+
+
+def _requested_anchor_dict(anchor: SourceAnchor) -> dict[str, Any]:
+    return {
+        "path": anchor.display_path,
+        "fileRef": anchor.file_ref,
+        "lineStart": anchor.line_start,
+        "lineEnd": anchor.line_end,
+        "function": anchor.function_ref,
+        "symbol": anchor.symbol_name,
+    }
+
+
+def _coverage_diagnostic(code: str, message: str, *, status: str, refs: list[str]) -> dict[str, Any]:
+    return _diagnostic(code, message, severity="warning", surface_status=status, s3_evidence_refs=refs)
+
+
+def _build_context_coverage(
+    *,
+    req: RetrieveFindingContextRequest,
+    source_kg_prepared: bool,
+    context_resolved: bool,
+    returned_spans: list[dict[str, Any]],
+) -> tuple[dict[str, Any], list[dict[str, Any]], str | None]:
+    diagnostics: list[dict[str, Any]] = []
+    anchors = req.finding.source_anchors
+    requested = [_requested_anchor_dict(anchor) for anchor in anchors]
+    any_overlap = any(span.get("lineOverlap") is True and span.get("pathMatch") for span in returned_spans)
+    any_path_false_overlap = any(span.get("pathMatch") and span.get("lineOverlap") is False for span in returned_spans)
+    any_path_unknown_overlap = any(span.get("pathMatch") and span.get("lineOverlap") is None for span in returned_spans)
+
+    if not source_kg_prepared:
+        status = "not_available"
+        diagnostics.append(
+            _coverage_diagnostic(
+                "S5_PAPER_SOURCE_KG_NOT_PREPARED",
+                "No prepared Source KG mapping or explicit selectors were available for coverage assessment.",
+                status=status,
+                refs=req.finding.s3_evidence_refs,
+            )
+        )
+    elif not context_resolved:
+        status = "not_available"
+        diagnostics.append(
+            _coverage_diagnostic(
+                "S5_PAPER_SOURCE_KG_NOT_AVAILABLE",
+                "Prepared Source KG selectors did not resolve for coverage assessment.",
+                status=status,
+                refs=req.finding.s3_evidence_refs,
+            )
+        )
+    elif any_overlap:
+        status = "covered"
+    elif returned_spans and any_path_false_overlap:
+        status = "non_overlapping"
+        diagnostics.append(
+            _coverage_diagnostic(
+                "S5_PAPER_CONTEXT_NON_OVERLAPPING",
+                "Returned Source KG context is in the requested file scope but does not overlap the requested line/function anchor.",
+                status="partial",
+                refs=req.finding.s3_evidence_refs,
+            )
+        )
+    elif returned_spans and any_path_unknown_overlap:
+        status = "partial"
+        diagnostics.append(
+            _coverage_diagnostic(
+                "S5_PAPER_CONTEXT_PARTIAL_COVERAGE",
+                "Returned Source KG context lacks enough line metadata to prove overlap with the requested anchor.",
+                status="partial",
+                refs=req.finding.s3_evidence_refs,
+            )
+        )
+    elif returned_spans:
+        status = "partial"
+        diagnostics.append(
+            _coverage_diagnostic(
+                "S5_PAPER_CONTEXT_PARTIAL_COVERAGE",
+                "Returned Source KG context matched by symbol or other context but not by requested file/line anchor.",
+                status="partial",
+                refs=req.finding.s3_evidence_refs,
+            )
+        )
+    else:
+        status = "not_available" if not source_kg_prepared else "not_available"
+        if source_kg_prepared and context_resolved:
+            diagnostics.append(
+                _coverage_diagnostic(
+                    "S5_PAPER_SOURCE_KG_ANCHOR_NOT_SATISFIED",
+                    "Source KG exists, but no selectable row satisfied the requested source anchor.",
+                    status="no_hit",
+                    refs=req.finding.s3_evidence_refs,
+                )
+            )
+
+    coverage = {
+        "schemaVersion": CONTEXT_COVERAGE_VERSION,
+        "coverageStatus": status,
+        "requestedAnchors": requested,
+        "returnedSpans": returned_spans,
+        "lineOverlap": any_overlap,
+        "diagnostics": diagnostics,
+        "pathMatchPolicy": "normalized_exact_or_suffix",
+    }
+    top_status = "partial" if status in {"partial", "non_overlapping"} and returned_spans else None
+    return coverage, diagnostics, top_status
+
+
 def _stable_rows_for_finding(
     req: RetrieveFindingContextRequest,
     context: dict[str, Any],
@@ -637,7 +819,7 @@ def _stable_rows_for_finding(
     retrieval_run_id: str,
     row_set_id: str,
     s5_producer_run_id: str,
-) -> tuple[list[dict[str, Any]], int]:
+) -> tuple[list[dict[str, Any]], int, list[dict[str, Any]]]:
     anchors = req.finding.source_anchors
     scored: list[tuple[int, str, str, dict[str, Any], str]] = []
     for node in context.get("graphNodes") or []:
@@ -651,7 +833,9 @@ def _stable_rows_for_finding(
     scored.sort(key=lambda item: (-item[0], item[1], item[2], item[4]))
     selected = scored[: req.top_k]
     rows: list[dict[str, Any]] = []
+    spans: list[dict[str, Any]] = []
     for rank, (_score, _path, entity_id, record, kind) in enumerate(selected, start=1):
+        spans.append(_coverage_span(kind, entity_id, record, anchors))
         item_id = _stable_id("s5-item", row_set_id, kind, entity_id, rank)
         ordering_key = f"{rank:06d}:{item_id}"
         display_ref = _display_ref(record)
@@ -711,7 +895,7 @@ def _stable_rows_for_finding(
                 "diagnostics": [],
             }
         )
-    return rows, len(scored)
+    return rows, len(scored), spans
 
 
 def retrieve_finding_context(repo: SQLiteLedgerRepository, req: RetrieveFindingContextRequest, x_request_id: str | None) -> dict[str, Any]:
@@ -724,7 +908,7 @@ def retrieve_finding_context(repo: SQLiteLedgerRepository, req: RetrieveFindingC
         s5_producer_run_id = _stable_id("s5-producer-run-finding", req.case_id, req.finding_id, req.idempotency_key, fingerprint)
         retrieval_run_id = _stable_id("s5-retrieval-run-finding", req.case_id, req.finding_id, req.idempotency_key, fingerprint)
         row_set_id = _stable_id("s5-row-set", req.case_id, req.finding_id, req.idempotency_key, fingerprint)
-        rows, candidate_pool_size = (
+        rows, candidate_pool_size, returned_spans = (
             _stable_rows_for_finding(
                 req,
                 context,
@@ -733,9 +917,15 @@ def retrieve_finding_context(repo: SQLiteLedgerRepository, req: RetrieveFindingC
                 s5_producer_run_id=s5_producer_run_id,
             )
             if source_kg_prepared and context.get("resolved")
-            else ([], 0)
+            else ([], 0, [])
         )
         diagnostics: list[dict[str, Any]] = []
+        context_coverage, coverage_diagnostics, coverage_surface_status = _build_context_coverage(
+            req=req,
+            source_kg_prepared=source_kg_prepared,
+            context_resolved=bool(context.get("resolved")),
+            returned_spans=returned_spans,
+        )
         if not source_kg_prepared:
             status = "not_available"
             diagnostics.append(
@@ -757,7 +947,8 @@ def retrieve_finding_context(repo: SQLiteLedgerRepository, req: RetrieveFindingC
                 )
             )
         elif rows:
-            status = "produced"
+            status = coverage_surface_status or "produced"
+            diagnostics.extend(coverage_diagnostics)
         else:
             status = "no_hit"
             diagnostics.append(
@@ -781,6 +972,7 @@ def retrieve_finding_context(repo: SQLiteLedgerRepository, req: RetrieveFindingC
             "rowSetId": row_set_id,
             "surfaceStatus": status,
             "rows": rows,
+            "contextCoverage": context_coverage,
             "retrievalTrace": {
                 "queryIntent": req.query_intent,
                 "normalizedQuery": "S3-provided source anchors and generic source context request",
@@ -793,6 +985,7 @@ def retrieve_finding_context(repo: SQLiteLedgerRepository, req: RetrieveFindingC
                 "methodsAttempted": ["source_anchor", "symbol_neighbor", "cwe_hint"],
                 "methodsUsed": ["source_anchor"] if rows else [],
                 "sourceKgPrepared": source_kg_prepared,
+                "contextCoverageStatus": context_coverage["coverageStatus"],
             },
             "producerProvenance": _producer_provenance(req, code_kb_ref=req.code_kb_ref, source_kg_ref=req.source_kg_ref, source_kg_versions=True),
             "diagnostics": diagnostics,
@@ -800,6 +993,308 @@ def retrieve_finding_context(repo: SQLiteLedgerRepository, req: RetrieveFindingC
         return _sanitize_response(response)
 
     return _with_idempotency(repo, "retrieve_finding_context", req, compute)
+
+
+def _explore_selectors(repo: SQLiteLedgerRepository, req: ExploreSourceKgRequest) -> SourceKgSelectors | None:
+    if req.source_kg_selectors and req.source_kg_selectors.has_any():
+        return req.source_kg_selectors
+    if req.source_kg_ref:
+        return _mapping_selectors(repo, req.source_kg_ref)
+    return None
+
+
+def _exploration_has_query(req: ExploreSourceKgRequest) -> bool:
+    return bool((req.source_kg_ref) or (req.source_kg_selectors and req.source_kg_selectors.has_any()) or req.exploration.has_explicit_selector())
+
+
+def _record_matches_exploration(record: dict[str, Any], exploration) -> tuple[bool, bool | None]:
+    path_ok = True if not exploration.path else _path_matches(exploration.path, record.get("filePath"))
+    line_overlap = _line_overlap_range(exploration.line_start, exploration.line_end, record.get("lineStart"), record.get("lineEnd"))
+    line_ok = True if line_overlap is None else bool(line_overlap)
+    symbol_tokens = {
+        str(record.get("sourceGraphNodeId") or ""),
+        str(record.get("evidenceSnippetId") or ""),
+        str(record.get("displayName") or ""),
+        str(record.get("stableId") or ""),
+        str((record.get("symbol") or {}).get("name") or ""),
+    }
+    symbol_query = exploration.symbol_name or exploration.function_ref or exploration.graph_node_id
+    symbol_ok = True if not symbol_query else str(symbol_query) in symbol_tokens
+    return bool(path_ok and line_ok and symbol_ok), line_overlap
+
+
+def _node_index(context: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    return {str(node.get("sourceGraphNodeId")): node for node in context.get("graphNodes") or [] if node.get("sourceGraphNodeId")}
+
+
+def _snippet_index(context: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    return {str(snippet.get("evidenceSnippetId")): snippet for snippet in context.get("evidenceSnippets") or [] if snippet.get("evidenceSnippetId")}
+
+
+def _explore_row(
+    *,
+    req: ExploreSourceKgRequest,
+    retrieval_run_id: str,
+    row_set_id: str,
+    s5_producer_run_id: str,
+    rank: int,
+    kind: str,
+    entity_id: str,
+    record: dict[str, Any],
+    mode: str,
+) -> dict[str, Any]:
+    item_id = _stable_id("s5-source-kg-explore-item", row_set_id, kind, entity_id, rank)
+    display_ref = _display_ref(record)
+    is_node = kind == "node"
+    source_type = "symbol" if is_node else "code"
+    text = (
+        f"Source KG {mode} result near {display_ref} references symbol {record.get('displayName') or record.get('stableId') or entity_id}."
+        if is_node
+        else f"Source KG {mode} snippet near {display_ref}: {record.get('snippetText') or 'snippet text not attached'}"
+    )
+    return {
+        "schemaVersion": "s5-paper-evidence-row-v1",
+        "retrievalRunId": retrieval_run_id,
+        "itemId": item_id,
+        "sourceType": source_type,
+        "queryIntent": req.query_intent,
+        "sourceEvidence": {
+            "kind": "source_kg_exploration_node" if is_node else "source_kg_exploration_snippet",
+            "ref": f"source-kg-{kind}:{entity_id}",
+            "displayRef": display_ref,
+            "sourceCodeKgRefs": {
+                "codeKbRef": req.code_kb_ref,
+                "sourceKgRef": req.source_kg_ref,
+                "graphNodeIds": [entity_id] if is_node else [],
+                "evidenceSnippetIds": [entity_id] if not is_node else ([record.get("evidenceSnippetId")] if record.get("evidenceSnippetId") else []),
+            },
+            "threatKbRefs": None,
+        },
+        "surfaceStatus": "produced",
+        "visibleLeakageClass": "generic",
+        "text": text,
+        "rank": rank,
+        "score": 1.0,
+        "orderingKey": f"{rank:06d}:{item_id}",
+        "producerTrace": {
+            "s5ProducerRunId": s5_producer_run_id,
+            "codeKbRef": req.code_kb_ref,
+            "sourceKgRef": req.source_kg_ref,
+            "sourceCodeKgContextVersion": SOURCE_KG_CONTEXT_VERSION,
+            "retrievalPolicyVersion": RETRIEVAL_POLICY_VERSION,
+            "sourceKgExplorationPolicyVersion": SOURCE_KG_EXPLORATION_POLICY_VERSION,
+        },
+        "diagnostics": [],
+    }
+
+
+def _source_kg_exploration_rows(req: ExploreSourceKgRequest, context: dict[str, Any], *, retrieval_run_id: str, row_set_id: str, s5_producer_run_id: str) -> tuple[list[dict[str, Any]], int, list[dict[str, Any]]]:
+    mode = req.exploration.mode
+    rows: list[dict[str, Any]] = []
+    diagnostics: list[dict[str, Any]] = []
+    node_by_id = _node_index(context)
+    snippet_by_id = _snippet_index(context)
+    row_records: list[tuple[str, str, dict[str, Any]]] = []
+
+    if mode == "data_flow":
+        data_flow_artifacts = [
+            artifact
+            for artifact in context.get("richIrArtifacts") or []
+            if any(token in json.dumps(artifact, ensure_ascii=False, sort_keys=True).lower() for token in ("data_flow", "dataflow", "pdg", "taint"))
+        ]
+        if not data_flow_artifacts:
+            diagnostics.append(
+                _diagnostic(
+                    "S5_PAPER_SOURCE_KG_DATA_FLOW_NOT_AVAILABLE",
+                    "Source KG exploration cannot provide data-flow without a rich IR/PDG/taint artifact in the selected context.",
+                    severity="warning",
+                    surface_status="not_available",
+                    metadata={"richIrArtifactCount": len(context.get("richIrArtifacts") or [])},
+                )
+            )
+            return [], 0, diagnostics
+
+    if mode == "source_slice":
+        for snippet in context.get("evidenceSnippets") or []:
+            matched, _overlap = _record_matches_exploration(snippet, req.exploration)
+            if matched:
+                row_records.append(("snippet", str(snippet.get("evidenceSnippetId") or _display_ref(snippet)), snippet))
+    else:
+        seed_nodes: list[dict[str, Any]] = []
+        for node in context.get("graphNodes") or []:
+            matched, _overlap = _record_matches_exploration(node, req.exploration)
+            if matched:
+                seed_nodes.append(node)
+
+        if mode in {"function_body", "symbol_lookup", "data_flow"}:
+            for node in seed_nodes:
+                node_id = str(node.get("sourceGraphNodeId") or _display_ref(node))
+                row_records.append(("node", node_id, node))
+                snippet_id = node.get("evidenceSnippetId")
+                if snippet_id and str(snippet_id) in snippet_by_id:
+                    row_records.append(("snippet", str(snippet_id), snippet_by_id[str(snippet_id)]))
+        elif mode in {"callers", "callees", "neighborhood"}:
+            seed_ids = {str(node.get("sourceGraphNodeId")) for node in seed_nodes if node.get("sourceGraphNodeId")}
+            edges = context.get("graphEdges") or []
+            if not edges:
+                diagnostics.append(
+                    _diagnostic(
+                        "S5_PAPER_SOURCE_KG_GRAPH_NEIGHBORHOOD_NOT_AVAILABLE",
+                        "Graph-neighborhood exploration requires Source KG edges in the selected analysis context.",
+                        severity="warning",
+                        surface_status="not_available",
+                    )
+                )
+            neighbor_ids: set[str] = set()
+            edge_rows: list[dict[str, Any]] = []
+            for edge in edges:
+                src = str(edge.get("sourceGraphNodeId") or "")
+                dst = str(edge.get("targetGraphNodeId") or "")
+                if mode in {"callers", "neighborhood"} and dst in seed_ids:
+                    neighbor_ids.add(src)
+                    edge_rows.append({"edgeId": edge.get("sourceGraphEdgeId"), "sourceGraphNodeId": src, "targetGraphNodeId": dst, "edgeKind": edge.get("edgeKind")})
+                if mode in {"callees", "neighborhood"} and src in seed_ids:
+                    neighbor_ids.add(dst)
+                    edge_rows.append({"edgeId": edge.get("sourceGraphEdgeId"), "sourceGraphNodeId": src, "targetGraphNodeId": dst, "edgeKind": edge.get("edgeKind")})
+            for node_id in sorted(seed_ids | neighbor_ids):
+                if node_id in node_by_id:
+                    row_records.append(("node", node_id, node_by_id[node_id]))
+            for rank_edge, edge in enumerate(edge_rows, start=1):
+                diagnostics.append(
+                    _diagnostic(
+                        "S5_PAPER_SOURCE_KG_GRAPH_EDGE_INCLUDED",
+                        "A Source KG graph edge supported this exploratory neighborhood result.",
+                        surface_status="produced",
+                        related_item_ids=[str(edge.get("edgeId") or f"edge-{rank_edge}")],
+                        metadata=edge,
+                    )
+                )
+
+    seen: set[tuple[str, str]] = set()
+    unique_records: list[tuple[str, str, dict[str, Any]]] = []
+    for kind, entity_id, record in row_records:
+        key = (kind, entity_id)
+        if key not in seen:
+            seen.add(key)
+            unique_records.append((kind, entity_id, record))
+    unique_records.sort(key=lambda item: (_display_ref(item[2]), item[0], item[1]))
+    for rank, (kind, entity_id, record) in enumerate(unique_records[: req.top_k], start=1):
+        rows.append(
+            _explore_row(
+                req=req,
+                retrieval_run_id=retrieval_run_id,
+                row_set_id=row_set_id,
+                s5_producer_run_id=s5_producer_run_id,
+                rank=rank,
+                kind=kind,
+                entity_id=entity_id,
+                record=record,
+                mode=mode,
+            )
+        )
+    return rows, len(unique_records), diagnostics
+
+
+def explore_source_kg(repo: SQLiteLedgerRepository, req: ExploreSourceKgRequest, x_request_id: str | None) -> dict[str, Any]:
+    _enforce_common(req, x_request_id)
+    if not _exploration_has_query(req):
+        raise paper_http_error(422, "S5_PAPER_SCHEMA_INVALID", "Source KG exploration requires sourceKgRef/sourceKgSelectors or an explicit path, line, symbol, function, or graph-node selector.")
+
+    def compute(fingerprint: str) -> dict[str, Any]:
+        selectors = _explore_selectors(repo, req)
+        source_kg_prepared = selectors is not None and selectors.has_any()
+        context = _resolve_context(repo, selectors)
+        s5_producer_run_id = _stable_id("s5-producer-run-source-kg-explore", req.case_id, req.idempotency_key, fingerprint)
+        retrieval_run_id = _stable_id("s5-retrieval-run-source-kg-explore", req.case_id, req.idempotency_key, fingerprint)
+        row_set_id = _stable_id("s5-row-set-source-kg-explore", req.case_id, req.idempotency_key, fingerprint)
+        diagnostics: list[dict[str, Any]] = []
+        rows: list[dict[str, Any]] = []
+        candidate_pool_size = 0
+        if not source_kg_prepared:
+            status = "not_available"
+            diagnostics.append(
+                _diagnostic(
+                    "S5_PAPER_SOURCE_KG_NOT_PREPARED",
+                    "No prepared Source KG mapping or explicit selectors were available for exploratory Source KG query.",
+                    surface_status="not_available",
+                )
+            )
+        elif not context.get("resolved"):
+            status = "not_available"
+            diagnostics.append(
+                _diagnostic(
+                    "S5_PAPER_SOURCE_KG_NOT_AVAILABLE",
+                    "Prepared Source KG selectors did not resolve for exploratory Source KG query.",
+                    surface_status="not_available",
+                )
+            )
+        else:
+            rows, candidate_pool_size, exploration_diagnostics = _source_kg_exploration_rows(
+                req,
+                context,
+                retrieval_run_id=retrieval_run_id,
+                row_set_id=row_set_id,
+                s5_producer_run_id=s5_producer_run_id,
+            )
+            diagnostics.extend(exploration_diagnostics)
+            if rows and any(diag.get("surfaceStatus") == "not_available" for diag in diagnostics):
+                status = "partial"
+            elif rows:
+                status = "produced"
+            elif diagnostics:
+                status = "not_available"
+            else:
+                status = "no_hit"
+                diagnostics.append(
+                    _diagnostic(
+                        "S5_PAPER_SOURCE_KG_EXPLORE_NO_HIT",
+                        "No Source KG rows matched the exploratory selector.",
+                        surface_status="no_hit",
+                    )
+                )
+
+        response = {
+            "schemaVersion": "s5-explore-source-kg-response-v1",
+            "caseId": req.case_id,
+            "buildTargetId": req.build_target_id,
+            "paperRunId": req.paper_run_id,
+            "requestId": req.request_id,
+            "idempotencyKey": req.idempotency_key,
+            "s5ProducerRunId": s5_producer_run_id,
+            "retrievalRunId": retrieval_run_id,
+            "rowSetId": row_set_id,
+            "surfaceStatus": status,
+            "codeKbRef": req.code_kb_ref,
+            "sourceKgRef": req.source_kg_ref,
+            "exploration": req.exploration.model_dump(by_alias=True, exclude_none=True),
+            "rows": rows,
+            "retrievalTrace": {
+                "queryIntent": req.query_intent,
+                "normalizedQuery": "bounded Source KG exploratory selector",
+                "topK": req.top_k,
+                "returnedCount": len(rows),
+                "candidatePoolSize": candidate_pool_size,
+                "orderingPolicy": "s5-paper-stable-row-order-v1",
+                "b2b4StableRows": True,
+                "sourceKgPrepared": source_kg_prepared,
+                "methodsAttempted": [req.exploration.mode],
+                "methodsUsed": [req.exploration.mode] if rows else [],
+            },
+            "capabilities": {
+                "source_slice": "available_from_evidence_snippets",
+                "function_body": "available_from_graph_nodes_and_linked_snippets",
+                "callers": "requires_graph_edges",
+                "callees": "requires_graph_edges",
+                "symbol_lookup": "available_from_graph_nodes",
+                "neighborhood": "requires_graph_edges",
+                "data_flow": "requires_rich_ir_pdg_or_taint_artifacts_else_not_available",
+            },
+            "producerProvenance": _producer_provenance(req, code_kb_ref=req.code_kb_ref, source_kg_ref=req.source_kg_ref, source_kg_versions=True),
+            "diagnostics": diagnostics,
+        }
+        return _sanitize_response(response)
+
+    return _with_idempotency(repo, "explore_source_kg", req, compute)
 
 
 def _loads(raw: Any) -> dict[str, Any]:

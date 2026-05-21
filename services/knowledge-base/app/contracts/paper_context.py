@@ -34,6 +34,14 @@ def paper_context_contract_snapshot() -> dict:
                 "timeoutHeaderRequired": False,
             },
             {
+                "toolName": "explore_source_kg",
+                "method": "POST",
+                "path": "/v1/paper/source-kg/explore",
+                "requestSchemaVersion": "s5-explore-source-kg-request-v1",
+                "responseSchemaVersion": "s5-explore-source-kg-response-v1",
+                "timeoutHeaderRequired": False,
+            },
+            {
                 "toolName": "retrieve_generic_threat_context",
                 "method": "POST",
                 "path": "/v1/paper/threat-context/generic",
@@ -44,6 +52,8 @@ def paper_context_contract_snapshot() -> dict:
         ],
         "enums": {
             "surfaceStatus": ["produced", "no_hit", "partial", "not_available", "error"],
+            "contextCoverageStatus": ["covered", "partial", "non_overlapping", "not_available", "error"],
+            "sourceKgExploreMode": ["source_slice", "function_body", "callers", "callees", "symbol_lookup", "neighborhood", "data_flow"],
             "sourceType": ["code", "symbol", "cwe", "capec", "generic_security_note", "library_provenance", "diagnostic"],
             "visibleLeakageClass": ["generic", *FORBIDDEN_LEAKAGE_CLASSES],
             "visibilityMode": ["generic"],
@@ -66,6 +76,32 @@ def paper_context_contract_snapshot() -> dict:
                 "S5_PAPER_SOURCE_KG_EDGE_COVERAGE_EMPTY",
                 "S5_PAPER_SOURCE_KG_RICH_IR_NOT_AVAILABLE",
             ],
+            "sourceKgCoveragePolicy": {
+                "responseField": "contextCoverage",
+                "schemaVersion": "s5-paper-context-coverage-v1",
+                "pathMatchPolicy": "normalized_exact_or_suffix",
+                "lineOverlapPolicy": "tri_state_true_false_null",
+                "nonOverlappingStatus": {
+                    "surfaceStatus": "partial",
+                    "coverageStatus": "non_overlapping",
+                    "diagnosticCode": "S5_PAPER_CONTEXT_NON_OVERLAPPING",
+                },
+            },
+            "sourceKgExplorationPolicy": {
+                "toolName": "explore_source_kg",
+                "endpoint": "/v1/paper/source-kg/explore",
+                "selectorRequirement": "sourceKgRef/sourceKgSelectors plus optional explicit path,line,symbol,function,node selector; explicit selectors alone are schema-accepted but cannot resolve rows without a prepared Source KG mapping.",
+                "capabilities": {
+                    "source_slice": "evidence snippets by path and line/range",
+                    "function_body": "function graph node plus linked snippets by symbol or path/line",
+                    "callers": "incoming Source KG graph edges",
+                    "callees": "outgoing Source KG graph edges",
+                    "symbol_lookup": "graph node lookup by symbol/function/node",
+                    "neighborhood": "bounded graph-edge neighborhood",
+                    "data_flow": "not_available unless rich IR/PDG/taint artifacts are selected",
+                },
+                "limitations": ["contextual_only_no_final_verdict", "no_full_source_dump", "data_flow_requires_rich_ir"],
+            },
             "sourceKgPartialReadiness": {
                 "surfaceStatus": "partial",
                 "stageReadiness": "ready",

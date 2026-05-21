@@ -135,6 +135,39 @@ class RetrieveFindingContextRequest(BasePaperRequest):
     include_neighbor_symbols: bool | None = Field(default=None, alias="includeNeighborSymbols")
 
 
+class SourceKgExploration(_ContractModel):
+    mode: Literal[
+        "source_slice",
+        "function_body",
+        "callers",
+        "callees",
+        "symbol_lookup",
+        "neighborhood",
+        "data_flow",
+    ]
+    path: str | None = None
+    line_start: int | None = Field(default=None, alias="lineStart")
+    line_end: int | None = Field(default=None, alias="lineEnd")
+    symbol_name: str | None = Field(default=None, alias="symbolName")
+    function_ref: str | None = Field(default=None, alias="functionRef")
+    graph_node_id: str | None = Field(default=None, alias="graphNodeId")
+    depth: int = Field(default=1, ge=1, le=3)
+
+    def has_explicit_selector(self) -> bool:
+        return any([self.path, self.line_start, self.line_end, self.symbol_name, self.function_ref, self.graph_node_id])
+
+
+class ExploreSourceKgRequest(BasePaperRequest):
+    schema_version: Literal["s5-explore-source-kg-request-v1"] = Field(..., alias="schemaVersion")
+    code_kb_ref: str = Field(..., alias="codeKbRef")
+    source_kg_ref: str | None = Field(default=None, alias="sourceKgRef")
+    query_intent: Literal["source_kg_exploration"] = Field(..., alias="queryIntent")
+    retrieval_profile: str = Field(..., alias="retrievalProfile")
+    top_k: int = Field(..., alias="topK", gt=0)
+    source_kg_selectors: SourceKgSelectors | None = Field(default=None, alias="sourceKgSelectors")
+    exploration: SourceKgExploration
+
+
 class RetrieveGenericThreatContextRequest(BasePaperRequest):
     schema_version: Literal["s5-retrieve-generic-threat-context-request-v1"] = Field(..., alias="schemaVersion")
     finding_id: str = Field(..., alias="findingId")

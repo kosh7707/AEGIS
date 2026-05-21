@@ -309,7 +309,7 @@ def freeze_gate_validation_items(*, last_verified: str = "2026-05-20") -> list[d
         "whole_visible_packet_key_value_guard": "S5-visible packet validator rejects forbidden leakage/final-authority terms in both keys and values.",
         "generic_threat_leakage_corpus": "Generic Threat KB output corpus redacts CVE/GHSA/advisory/fix/exploit/patch material from visible packets.",
         "b2_b4_stable_rows_and_diagnostics": "S5-exported B2/B4 fixture preserves identical row ids, text, ordering, and diagnostic rows.",
-        "paper_endpoint_idempotency_replay_conflict_matrix": "Prepare, finding, and threat endpoints replay same-fingerprint idempotency keys and reject semantic conflicts with endpoint scoping.",
+        "paper_endpoint_idempotency_replay_conflict_matrix": "Prepare, finding, Source KG exploration, and threat endpoints replay same-fingerprint idempotency keys and reject semantic conflicts with endpoint scoping.",
         "source_kg_not_prepared_distinction": "Unprepared Source KG is not_available; prepared-but-unmatched anchors are diagnostic no_hit only.",
         "appendix_visibility_fail_closed": "Unsupported appendix/non-mainline visibility modes fail closed on all paper endpoints.",
         "s5_exported_consumer_guard_fixtures": "S5 exports S3-facing guard fixtures while leaving S3 consumer execution status pending.",

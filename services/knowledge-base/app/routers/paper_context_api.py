@@ -11,11 +11,13 @@ from fastapi import APIRouter, Header, HTTPException, Response
 from app.context import set_request_id
 from app.ledger.repository import SQLiteLedgerRepository
 from app.paper_context.models import (
+    ExploreSourceKgRequest,
     PrepareCodeKbRequest,
     RetrieveFindingContextRequest,
     RetrieveGenericThreatContextRequest,
 )
 from app.paper_context.service import (
+    explore_source_kg,
     paper_http_error,
     prepare_code_kb,
     reset_paper_context_state as _reset_service_state,
@@ -166,6 +168,25 @@ async def finding_context(
         x_request_id=x_request_id,
         response=response,
         compute=lambda: retrieve_finding_context(repo, req, x_request_id),
+    )
+
+
+@router.post("/source-kg/explore")
+async def source_kg_explore(
+    req: ExploreSourceKgRequest,
+    response: Response,
+    x_request_id: str | None = Header(None, alias="X-Request-Id"),
+    x_timeout_ms: int | None = Header(None, alias="X-Timeout-Ms"),
+) -> dict:
+    set_request_id(x_request_id or req.request_id)
+    _validate_optional_paper_timeout(x_timeout_ms)
+    repo = _require_ledger()
+    return await _run_observed_paper_call(
+        path="/v1/paper/source-kg/explore",
+        req=req,
+        x_request_id=x_request_id,
+        response=response,
+        compute=lambda: explore_source_kg(repo, req, x_request_id),
     )
 
 
