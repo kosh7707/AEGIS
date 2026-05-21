@@ -1795,6 +1795,59 @@ class TestAsyncChatOwnershipSurface:
         assert activity["backendIdleMs"] >= 0
         assert "before response headers or stream activity" in status_data["errorDetail"]
 
+    def test_async_paper_pre_first_byte_failure_exchange_log_is_redacted(self, client_live):
+        raw_prompt = "UNIQUE_FAILURE_PROMPT_DO_NOT_LOG"
+        body = make_paper_acquisition_body()
+        body["messages"] = [{"role": "user", "content": raw_prompt}]
+
+        logger, handler = _capture_exchange_logs()
+        try:
+            with patch.object(app.state, "proxy_client") as mock_client:
+                mock_client.stream = MagicMock(
+                    return_value=_MockAsyncStreamResponse(
+                        enter_exc=httpx.RemoteProtocolError("Server disconnected without sending a response"),
+                    )
+                )
+                submit = client_live.post(
+                    "/v1/async-chat-requests",
+                    json=body,
+                    headers={
+                        "X-Request-Id": "trace-async-paper-failure-redacted-001",
+                        "X-AEGIS-Paper-Controls": "true",
+                    },
+                )
+                request_id = submit.json()["requestId"]
+                deadline = time.time() + 1.0
+                status_data = None
+                while time.time() < deadline:
+                    status_data = client_live.get(f"/v1/async-chat-requests/{request_id}").json()
+                    if status_data["state"] == "failed":
+                        break
+                    time.sleep(0.01)
+        finally:
+            _release_exchange_logs(logger, handler)
+
+        assert status_data is not None
+        assert status_data["blockedReason"] == "backend_transport_disconnected"
+        serialized = "\n".join(handler.messages)
+        assert raw_prompt not in serialized
+        entries = [json.loads(m) for m in handler.messages]
+        entry = next(e for e in entries if e.get("asyncRequestId") == request_id)
+        assert entry["level"] == 40
+        assert entry["status"] == "failed"
+        assert entry["blockedReason"] == "backend_transport_disconnected"
+        assert entry["requestId"] == "trace-async-paper-failure-redacted-001"
+        assert entry["request"]["messageCount"] == 1
+        assert entry["request"]["toolCount"] == 1
+        assert entry["response"]["blockedReason"] == "backend_transport_disconnected"
+        controls = entry["controlObservability"]
+        assert controls["paperControls"] is True
+        assert controls["paperPhase"] == "acquisition"
+        assert controls["asyncRequestId"] == request_id
+        assert controls["traceRequestId"] == "trace-async-paper-failure-redacted-001"
+        assert controls["redactedBodyHash"]
+        assert controls["requestControlSnapshotHash"]
+
     def test_async_streaming_backend_http_error_preserves_http_status_failure(self, client_live):
         with patch.object(app.state, "proxy_client") as mock_client:
             mock_client.stream = MagicMock(

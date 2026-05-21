@@ -313,6 +313,87 @@ def _log_llm_exchange(
         entry["asyncRequestId"] = async_request_id
     _exchange_logger.info(json.dumps(entry, ensure_ascii=False))
 
+
+def _log_llm_exchange_failure(
+    *,
+    request_id: str,
+    exchange_type: str,
+    accepted_request_body: dict,
+    request_body: dict,
+    elapsed_ms: int,
+    strict_json: bool,
+    blocked_reason: str,
+    error: str,
+    error_detail: str,
+    retryable: bool,
+    async_request_id: str | None = None,
+    paper_controls: bool = False,
+    paper_phase: str | None = None,
+    profile_snapshot: dict[str, Any] | None = None,
+) -> None:
+    """Emit a redacted exchange record for terminal backend failures.
+
+    Successful exchanges are logged after a backend response exists. Pre-first-byte
+    failures need an explicit log path so S3 can audit whether it consumed the
+    paper/API contract correctly without relying on prompt-bearing raw logs.
+    """
+    response_data = {
+        "error": error,
+        "errorDetail": error_detail,
+        "blockedReason": blocked_reason,
+        "retryable": retryable,
+    }
+    tool_choice = request_body.get("tool_choice", "none")
+    generation = generation_log_fields(request_body, task_type=None)
+    entry: dict[str, Any] = {
+        "service": "s7-gateway",
+        "level": 40,
+        "time": int(time.time() * 1000),
+        "requestId": request_id,
+        "msg": f"[LLM exchange] {exchange_type} {request_body.get('model', '')} failed {blocked_reason} latencyMs={elapsed_ms}",
+        "type": exchange_type,
+        "elapsedMs": elapsed_ms,
+        "latencyMs": elapsed_ms,
+        "status": "failed",
+        "blockedReason": blocked_reason,
+        "error": error,
+        "errorDetail": error_detail,
+        "retryable": retryable,
+        "model": request_body.get("model", ""),
+        "strictJson": strict_json,
+        "effectiveThinking": _effective_enable_thinking(request_body),
+        "generation": generation,
+        "toolChoice": tool_choice,
+        "toolCount": len(request_body.get("tools", [])),
+    }
+    if paper_controls:
+        entry["controlObservability"] = control_observability(
+            accepted_body=accepted_request_body,
+            forwarded_body=request_body,
+            response_data=response_data,
+            request_id=request_id,
+            async_request_id=async_request_id,
+            trace_request_id=request_id,
+            paper_controls=paper_controls,
+            paper_phase=paper_phase,
+            strict_json=strict_json,
+            profile_snapshot=profile_snapshot,
+        )
+        entry["request"] = redacted_body_summary(request_body)
+        entry["response"] = {
+            **response_summary(response_data),
+            "blockedReason": blocked_reason,
+            "error": error,
+            "retryable": retryable,
+        }
+    else:
+        entry["request"] = request_body
+        entry["response"] = response_data
+    if async_request_id:
+        entry["asyncRequestId"] = async_request_id
+    _exchange_logger.warning(json.dumps(entry, ensure_ascii=False))
+
+
 def _is_truthy_header(value: str | None) -> bool:
     if value is None:
         return False
@@ -1279,6 +1360,26 @@ async def _run_async_chat_request(
         return
     except httpx.TimeoutException:
         elapsed_ms = int((time.monotonic() - start) * 1000)
+        error_detail = (
+            "LLM backend transport timed out while establishing or writing the "
+            "async request; async ownership does not impose an elapsed read ceiling"
+        )
+        _log_llm_exchange_failure(
+            request_id=record.trace_request_id,
+            exchange_type="async_chat",
+            accepted_request_body=request_body,
+            request_body=body,
+            elapsed_ms=elapsed_ms,
+            strict_json=strict_json,
+            blocked_reason="backend_timeout",
+            error="LLM Engine timeout",
+            error_detail=error_detail,
+            retryable=True,
+            async_request_id=record.request_id,
+            paper_controls=paper_controls,
+            paper_phase=paper_phase,
+            profile_snapshot=profile_snapshot,
+        )
         if circuit_breaker:
             await circuit_breaker.record_failure()
         if token_tracker:
@@ -1293,15 +1394,33 @@ async def _run_async_chat_request(
             blocked_reason="backend_timeout",
             ack_source="backend-timeout",
             error="LLM Engine timeout",
-            error_detail=(
-                "LLM backend transport timed out while establishing or writing the "
-                "async request; async ownership does not impose an elapsed read ceiling"
-            ),
+            error_detail=error_detail,
             retryable=True,
         )
         return
     except httpx.TransportError as exc:
         elapsed_ms = int((time.monotonic() - start) * 1000)
+        error_detail = (
+            f"{exc.__class__.__name__}: {exc}; "
+            "backend disconnected before response headers or stream activity, "
+            "or before completing the async stream"
+        )
+        _log_llm_exchange_failure(
+            request_id=record.trace_request_id,
+            exchange_type="async_chat",
+            accepted_request_body=request_body,
+            request_body=body,
+            elapsed_ms=elapsed_ms,
+            strict_json=strict_json,
+            blocked_reason="backend_transport_disconnected",
+            error="LLM backend transport disconnected",
+            error_detail=error_detail,
+            retryable=True,
+            async_request_id=record.request_id,
+            paper_controls=paper_controls,
+            paper_phase=paper_phase,
+            profile_snapshot=profile_snapshot,
+        )
         if circuit_breaker:
             await circuit_breaker.record_failure()
         if token_tracker:
@@ -1316,16 +1435,28 @@ async def _run_async_chat_request(
             blocked_reason="backend_transport_disconnected",
             ack_source="backend-transport-disconnected",
             error="LLM backend transport disconnected",
-            error_detail=(
-                f"{exc.__class__.__name__}: {exc}; "
-                "backend disconnected before response headers or stream activity, "
-                "or before completing the async stream"
-            ),
+            error_detail=error_detail,
             retryable=True,
         )
         return
     except BackendStreamParseError as exc:
         elapsed_ms = int((time.monotonic() - start) * 1000)
+        _log_llm_exchange_failure(
+            request_id=record.trace_request_id,
+            exchange_type="async_chat",
+            accepted_request_body=request_body,
+            request_body=body,
+            elapsed_ms=elapsed_ms,
+            strict_json=strict_json,
+            blocked_reason="backend_stream_parse_error",
+            error="LLM backend stream parse error",
+            error_detail=str(exc),
+            retryable=True,
+            async_request_id=record.request_id,
+            paper_controls=paper_controls,
+            paper_phase=paper_phase,
+            profile_snapshot=profile_snapshot,
+        )
         if circuit_breaker:
             await circuit_breaker.record_failure()
         if token_tracker:
