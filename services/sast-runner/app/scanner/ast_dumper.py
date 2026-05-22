@@ -299,6 +299,7 @@ class AstDumper:
                 "name": name,
                 "file": rel_path,
                 "line": line,
+                "endLine": end_line,
                 "calls": sorted(set(calls)),
             })
 

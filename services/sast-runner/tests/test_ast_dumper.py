@@ -155,6 +155,52 @@ class TestDumpFunctionsParallel:
         assert funcs_by_name["func_core"]["origin"] == "modified-third-party"
         assert funcs_by_name["func_core"]["originalLib"] == "mylib"
 
+    def test_function_rows_preserve_body_end_line_and_calls(self, dumper):
+        """Function extraction must expose full body extents for downstream anchoring."""
+        ast = {
+            "inner": [
+                {
+                    "kind": "FunctionDecl",
+                    "name": "trim",
+                    "loc": {"file": "/tmp/scan/main.cpp", "line": 51},
+                    "range": {"begin": {"line": 51}, "end": {"line": 67}},
+                    "inner": [
+                        {"kind": "ParmVarDecl", "name": "s"},
+                        {
+                            "kind": "CompoundStmt",
+                            "inner": [
+                                {
+                                    "kind": "CallExpr",
+                                    "inner": [
+                                        {"kind": "DeclRefExpr", "referencedDecl": {"name": "substr"}},
+                                    ],
+                                },
+                            ],
+                        },
+                    ],
+                },
+            ],
+        }
+        rows: list[dict] = []
+
+        dumper._extract_user_functions(
+            ast,
+            rel_path="main.cpp",
+            source_path="/tmp/scan/main.cpp",
+            source_lines=100,
+            out=rows,
+        )
+
+        assert rows == [
+            {
+                "name": "trim",
+                "file": "main.cpp",
+                "line": 51,
+                "endLine": 67,
+                "calls": ["substr"],
+            },
+        ]
+
 
 # ──────────────────── _dump_single failure logging ────────────────────
 

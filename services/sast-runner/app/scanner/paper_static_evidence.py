@@ -119,6 +119,8 @@ DIAGNOSTIC_REASON_CODES = {
     "SEMGREP_C_EFFECTIVE_COVERAGE_UNPROVEN",
     "SEMGREP_NO_SOURCE_FILES_REPORTED",
     "SEMGREP_NO_C_OR_CPP_TARGETS_REPORTED",
+    "TOOL_PATH_NOT_AVAILABLE",
+    "VARIABLE_NAME_NOT_AVAILABLE",
 }
 REQUIRED_TRACE_FIELDS = {
     "caseId",
@@ -573,6 +575,164 @@ def _safe_cwe_candidates(finding: dict[str, Any]) -> list[str]:
     return []
 
 
+def _safe_data_flow_steps(finding: dict[str, Any], source_file_ids: dict[str, str]) -> list[dict[str, Any]]:
+    raw_steps = finding.get("dataFlow")
+    if not isinstance(raw_steps, list):
+        return []
+    steps: list[dict[str, Any]] = []
+    for raw_step in raw_steps:
+        if not isinstance(raw_step, dict):
+            continue
+        path = raw_step.get("file") or raw_step.get("path")
+        line = raw_step.get("line")
+        if not isinstance(path, str) or not isinstance(line, int):
+            continue
+        step = {
+            "sourceFileId": source_file_ids.get(path),
+            "path": path,
+            "line": line,
+        }
+        content = raw_step.get("content")
+        if isinstance(content, str) and content:
+            step["content"] = content
+        steps.append(step)
+    return steps
+
+
+def _safe_tool_metadata(finding: dict[str, Any]) -> dict[str, Any]:
+    metadata = finding.get("metadata") if isinstance(finding.get("metadata"), dict) else {}
+    allowed_keys = {"gccFlag", "cppcheckId", "checkName"}
+    return {
+        key: value
+        for key, value in metadata.items()
+        if key in allowed_keys and isinstance(value, str) and value
+    }
+
+
+def _safe_evidence_resolution(finding: dict[str, Any]) -> dict[str, Any] | None:
+    metadata = finding.get("metadata") if isinstance(finding.get("metadata"), dict) else {}
+    evidence = metadata.get("evidenceResolution")
+    if not isinstance(evidence, dict):
+        return None
+    safe: dict[str, Any] = {}
+    for key in ("schemaVersion", "kind", "toolId", "ruleId"):
+        value = evidence.get(key)
+        if isinstance(value, str):
+            safe[key] = value
+    for key in ("cwe", "dataFlow", "origin", "location"):
+        value = evidence.get(key)
+        if isinstance(value, dict):
+            safe[key] = value
+    diagnostics = evidence.get("diagnostics")
+    if isinstance(diagnostics, list):
+        safe["diagnostics"] = [item for item in diagnostics if isinstance(item, str)]
+    return safe or None
+
+
+def _finding_category(finding: dict[str, Any], cwe_candidates: list[str]) -> str:
+    rule_id = str(finding.get("ruleId") or finding.get("rule_id") or "").lower()
+    message = str(finding.get("message") or "").lower()
+    cwes = {cwe.upper() for cwe in cwe_candidates}
+    if "CWE-78" in cwes or "popen" in rule_id or "command injection" in message or "command processor" in message:
+        return "command-injection"
+    if "CWE-401" in cwes or "malloc-leak" in rule_id or "leak" in message:
+        return "memory-leak"
+    if "CWE-457" in cwes or "uninitialized" in rule_id or "uninitialized" in message:
+        return "uninitialized-value"
+    if "CWE-563" in cwes or "deadcode" in rule_id or "deadstores" in rule_id or "unreadvariable" in rule_id:
+        return "dead-store"
+    if "performance" in rule_id:
+        return "performance"
+    if "bugprone-easily-swappable-parameters" in rule_id:
+        return "api-usability"
+    if str(finding.get("severity") or "").lower() == "style":
+        return "style"
+    return "other"
+
+
+def _security_relevance(category: str) -> str:
+    if category == "command-injection":
+        return "security"
+    if category in {"memory-leak", "uninitialized-value"}:
+        return "reliability"
+    if category in {"dead-store", "api-usability"}:
+        return "maintainability"
+    if category == "style":
+        return "style"
+    if category == "performance":
+        return "performance"
+    return "unknown"
+
+
+def _cwe_mapping_status(finding: dict[str, Any], cwe_candidates: list[str], category: str) -> str:
+    if cwe_candidates:
+        return "mapped"
+    metadata = finding.get("metadata") if isinstance(finding.get("metadata"), dict) else {}
+    if metadata.get("cwe") or metadata.get("cweId"):
+        return "mapped"
+    if category in {"style", "performance", "api-usability"}:
+        return "no_applicable_cwe"
+    return "tool_did_not_report"
+
+
+def _matching_function_id(
+    location: dict[str, Any],
+    function_rows: list[dict[str, Any]],
+) -> tuple[str | None, str]:
+    source_file_id = location.get("sourceFileId")
+    line = location.get("startLine")
+    if not isinstance(source_file_id, str) or not isinstance(line, int):
+        return None, "no_match"
+    matches = []
+    for function in function_rows:
+        if function.get("sourceFileId") != source_file_id:
+            continue
+        fn_location = function.get("location") if isinstance(function.get("location"), dict) else {}
+        start = fn_location.get("startLine")
+        end = fn_location.get("endLine")
+        if isinstance(start, int) and isinstance(end, int) and start <= line <= end:
+            matches.append(function)
+    if len(matches) == 1:
+        return matches[0].get("functionId"), "matched"
+    if len(matches) > 1:
+        return None, "ambiguous"
+    return None, "no_match"
+
+
+def _annotate_finding_clusters(rows: list[dict[str, Any]]) -> None:
+    by_location: dict[tuple[str, int], list[dict[str, Any]]] = {}
+    by_location_category: dict[tuple[str, int, str], list[dict[str, Any]]] = {}
+    for row in rows:
+        location = row.get("location") if isinstance(row.get("location"), dict) else {}
+        key = (str(location.get("path") or "<unknown>"), int(location.get("startLine") or 0))
+        category = str(row.get("findingCategory") or "other")
+        by_location.setdefault(key, []).append(row)
+        by_location_category.setdefault((*key, category), []).append(row)
+
+    for (path, line, category), clustered in by_location_category.items():
+        cluster_id = f"cluster:{path}:{line}:{category}"
+        for row in clustered:
+            row["clusterId"] = cluster_id
+            row["clusterReason"] = "same-location-and-category"
+            row["duplicateOf"] = clustered[0]["findingId"] if len(clustered) > 1 and row is not clustered[0] else None
+            row["duplicateConfidence"] = "medium" if len(clustered) > 1 else "none"
+
+    for key, colocated in by_location.items():
+        if len(colocated) <= 1:
+            for row in colocated:
+                row.setdefault("relatedFindingIds", [])
+            continue
+        for row in colocated:
+            related = [
+                other["findingId"]
+                for other in colocated
+                if other is not row and other.get("findingCategory") != row.get("findingCategory")
+            ]
+            row["relatedFindingIds"] = related
+            if related:
+                row["semanticDistinction"] = "same-location-distinct-category"
+
+
 def _project_findings(
     *,
     request: PaperStaticEvidenceRequest,
@@ -581,6 +741,8 @@ def _project_findings(
     bundle_ref: str,
     findings: list[Any],
     source_file_ids: dict[str, str],
+    function_rows: list[dict[str, Any]],
+    diagnostics: list[dict[str, Any]],
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     rows: list[dict[str, Any]] = []
     evidence_rows: list[dict[str, Any]] = []
@@ -593,22 +755,72 @@ def _project_findings(
         finding_id = f"finding:{index:04d}"
         evidence_id = f"evidence:{index:04d}:finding-message"
         source_file_id = source_file_ids.get(path)
+        cwe_candidates = _safe_cwe_candidates(finding)
+        category = _finding_category(finding, cwe_candidates)
+        data_flow = _safe_data_flow_steps(finding, source_file_ids)
+        projected_location = {
+            "sourceFileId": source_file_id,
+            "path": path,
+            "startLine": location.get("line") or 1,
+            "endLine": location.get("endLine") or location.get("end_line") or location.get("line") or 1,
+        }
+        function_id, function_match_status = _matching_function_id(projected_location, function_rows)
+        diagnostic_refs: list[str] = []
+        path_sensitive_missing = (
+            finding.get("toolId") == "gcc-fanalyzer"
+            and not data_flow
+            and "analyzer-" in str(finding.get("ruleId") or "")
+        )
+        if path_sensitive_missing:
+            diagnostic = _diagnostic(
+                request=request,
+                request_id=request_id,
+                producer_run_id=producer_run_id,
+                bundle_ref=bundle_ref,
+                index=len(diagnostics),
+                severity="info",
+                category="producer-invariant",
+                reason_code="TOOL_PATH_NOT_AVAILABLE",
+                surface="findings",
+                message="Tool did not provide a reviewer-visible diagnostic path for this finding.",
+            )
+            diagnostics.append(diagnostic)
+            diagnostic_refs.append(diagnostic["diagnosticId"])
+        if (
+            finding.get("toolId") == "gcc-fanalyzer"
+            and "<unknown>" in str(finding.get("message") or "")
+        ):
+            diagnostic = _diagnostic(
+                request=request,
+                request_id=request_id,
+                producer_run_id=producer_run_id,
+                bundle_ref=bundle_ref,
+                index=len(diagnostics),
+                severity="info",
+                category="producer-invariant",
+                reason_code="VARIABLE_NAME_NOT_AVAILABLE",
+                surface="findings",
+                message="Tool did not provide a reviewer-visible variable name for this finding.",
+            )
+            diagnostics.append(diagnostic)
+            diagnostic_refs.append(diagnostic["diagnosticId"])
         row = {
             "findingId": finding_id,
             "toolId": finding.get("toolId") or finding.get("tool_id") or "unknown",
             "ruleId": finding.get("ruleId") or finding.get("rule_id") or "unknown",
             "message": finding.get("message") or "S4 local static finding.",
             "severity": finding.get("severity") or "unknown",
-            "cweCandidates": _safe_cwe_candidates(finding),
-            "location": {
-                "sourceFileId": source_file_id,
-                "path": path,
-                "startLine": location.get("line") or 1,
-                "endLine": location.get("endLine") or location.get("end_line") or location.get("line") or 1,
-            },
-            "functionId": None,
+            "cweCandidates": cwe_candidates,
+            "cweMappingStatus": _cwe_mapping_status(finding, cwe_candidates, category),
+            "findingCategory": category,
+            "securityRelevance": _security_relevance(category),
+            "location": projected_location,
+            "functionId": function_id,
+            "functionMatchStatus": function_match_status,
+            "dataFlowStatus": "provided" if data_flow else "not_available",
+            "pathEvidenceStatus": "provided" if data_flow else ("tool_did_not_report" if path_sensitive_missing else "not_provided"),
             "evidenceRefs": [evidence_id],
-            "diagnosticRefs": [],
+            "diagnosticRefs": diagnostic_refs,
             "trace": _trace(
                 request=request,
                 request_id=request_id,
@@ -622,6 +834,14 @@ def _project_findings(
                 sourceFileId=source_file_id,
             ),
         }
+        if data_flow:
+            row["dataFlow"] = data_flow
+        tool_metadata = _safe_tool_metadata(finding)
+        if tool_metadata:
+            row["toolMetadata"] = tool_metadata
+        evidence_resolution = _safe_evidence_resolution(finding)
+        if evidence_resolution:
+            row["evidenceResolution"] = evidence_resolution
         evidence_rows.append(
             {
                 "evidenceId": evidence_id,
@@ -643,7 +863,33 @@ def _project_findings(
                 ),
             },
         )
+        for step_index, step in enumerate(data_flow):
+            dataflow_evidence_id = f"evidence:{index:04d}:dataflow:{step_index:04d}"
+            row["evidenceRefs"].append(dataflow_evidence_id)
+            text = step.get("content") or f"Dataflow step at {step.get('path')}:{step.get('line')}"
+            evidence_rows.append(
+                {
+                    "evidenceId": dataflow_evidence_id,
+                    "evidenceType": "sast-dataflow-step",
+                    "producer": "s4",
+                    "findingId": finding_id,
+                    "sourceFileId": step.get("sourceFileId"),
+                    "text": text,
+                    "consumerPolicy": "local_static_observation_not_verdict",
+                    "diagnosticRefs": [],
+                    "trace": _trace(
+                        request=request,
+                        request_id=request_id,
+                        producer_run_id=producer_run_id,
+                        bundle_ref=bundle_ref,
+                        surface="evidence",
+                        raw_object_ref=f"evidence[{len(evidence_rows)}]",
+                        sourceFileId=step.get("sourceFileId"),
+                    ),
+                },
+            )
         rows.append(row)
+    _annotate_finding_clusters(rows)
     return rows, evidence_rows
 
 
@@ -700,6 +946,11 @@ def _project_functions(
         path = function.get("file") or function.get("path") or function.get("sourcePath") or "<unknown>"
         name = function.get("name") or function.get("qualifiedName") or "unknown"
         function_id = f"func:{index:04d}"
+        calls = [
+            call
+            for call in function.get("calls", [])
+            if isinstance(call, str) and call
+        ] if isinstance(function.get("calls"), list) else []
         rows.append(
             {
                 "functionId": function_id,
@@ -710,6 +961,8 @@ def _project_functions(
                     "startLine": function.get("startLine") or function.get("line") or 1,
                     "endLine": function.get("endLine") or function.get("line") or 1,
                 },
+                "calls": calls,
+                "callCount": len(calls),
                 "diagnosticRefs": [],
                 "trace": _trace(
                     request=request,
@@ -1018,14 +1271,6 @@ async def build_paper_static_evidence_bundle(
         compile_context=compile_context,
     )
     source_file_ids = {row["path"]: row["sourceFileId"] for row in source_files}
-    finding_rows, evidence_rows = _project_findings(
-        request=request,
-        request_id=request_id,
-        producer_run_id=producer_run_id,
-        bundle_ref=bundle_ref,
-        findings=findings,
-        source_file_ids=source_file_ids,
-    )
 
     surface_diag_refs: dict[str, list[str]] = {surface: [] for surface in REQUIRED_SURFACES}
 
@@ -1061,6 +1306,17 @@ async def build_paper_static_evidence_bundle(
         diagnostics.append(diagnostic)
         surface_diag_refs["functions"].append(diagnostic["diagnosticId"])
         function_rows = []
+
+    finding_rows, evidence_rows = _project_findings(
+        request=request,
+        request_id=request_id,
+        producer_run_id=producer_run_id,
+        bundle_ref=bundle_ref,
+        findings=findings,
+        source_file_ids=source_file_ids,
+        function_rows=function_rows,
+        diagnostics=diagnostics,
+    )
 
     try:
         include_result = await include_resolver.resolve(

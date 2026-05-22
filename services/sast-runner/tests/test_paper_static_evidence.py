@@ -14,6 +14,9 @@ from app.schemas.response import (
     ExecutionReport,
     FindingsFilterInfo,
     SdkResolutionInfo,
+    SastDataFlowStep,
+    SastFinding,
+    SastFindingLocation,
     ToolExecutionResult,
 )
 
@@ -773,6 +776,294 @@ async def test_live_paper_static_evidence_endpoint_returns_valid_bundle(client, 
     ]
     assert bundle["includeEdges"][0]["fromSourceFileId"] == "src:0000"
     assert bundle["includeEdges"][0]["includeText"] == "include/header.h"
+
+    from app.scanner.paper_static_evidence import validate_paper_static_evidence_bundle
+
+    _assert_validation_passes(validate_paper_static_evidence_bundle(bundle))
+
+
+@pytest.mark.asyncio
+async def test_live_endpoint_preserves_gcc_fanalyzer_dataflow_and_function_anchor(
+    client,
+    tmp_path: Path,
+) -> None:
+    root = _make_source_root(tmp_path)
+    execution = _execution_report()
+    finding = SastFinding(
+        toolId="gcc-fanalyzer",
+        ruleId="gcc-fanalyzer:analyzer-use-of-uninitialized-value",
+        severity="warning",
+        message="use of uninitialized value 'subject'",
+        location=SastFindingLocation(file="src/main.c", line=6, column=10),
+        dataFlow=[
+            SastDataFlowStep(file="src/main.c", line=4, content="value declared here"),
+            SastDataFlowStep(file="src/main.c", line=6, content="value used here"),
+        ],
+        metadata={"cweId": "CWE-457", "gccFlag": "-Wanalyzer-use-of-uninitialized-value"},
+    )
+
+    with (
+        patch("app.routers.scan.orchestrator.run", AsyncMock(return_value=([finding], execution))),
+        patch(
+            "app.routers.scan.ast_dumper.dump_functions",
+            AsyncMock(
+                return_value={
+                    "functions": [
+                        {
+                            "name": "main",
+                            "qualifiedName": "main",
+                            "file": "src/main.c",
+                            "line": 1,
+                            "endLine": 8,
+                            "calls": ["printf"],
+                        },
+                    ],
+                },
+            ),
+        ),
+        patch("app.routers.scan.include_resolver.resolve", AsyncMock(return_value=[])),
+        patch("app.routers.scan.identify_libraries", AsyncMock(return_value=[])),
+    ):
+        response = await client.post("/v1/paper/static-evidence", json=_paper_request(root))
+
+    assert response.status_code == 200
+    bundle = response.json()
+    projected = bundle["findings"][0]
+    assert projected["functionId"] == bundle["functions"][0]["functionId"]
+    assert projected["functionMatchStatus"] == "matched"
+    assert projected["dataFlowStatus"] == "provided"
+    assert projected["pathEvidenceStatus"] == "provided"
+    assert projected["dataFlow"] == [
+        {"sourceFileId": "src:0000", "path": "src/main.c", "line": 4, "content": "value declared here"},
+        {"sourceFileId": "src:0000", "path": "src/main.c", "line": 6, "content": "value used here"},
+    ]
+    assert projected["cweMappingStatus"] == "mapped"
+    assert projected["findingCategory"] == "uninitialized-value"
+    assert projected["securityRelevance"] == "reliability"
+    assert bundle["functions"][0]["location"] == {"startLine": 1, "endLine": 8}
+    assert bundle["functions"][0]["calls"] == ["printf"]
+
+    evidence_by_id = {row["evidenceId"]: row for row in bundle["evidence"]}
+    dataflow_refs = [ref for ref in projected["evidenceRefs"] if ":dataflow:" in ref]
+    assert len(dataflow_refs) == 2
+    assert all(evidence_by_id[ref]["evidenceType"] == "sast-dataflow-step" for ref in dataflow_refs)
+    assert any("value declared here" in evidence_by_id[ref]["text"] for ref in dataflow_refs)
+
+    from app.scanner.paper_static_evidence import validate_paper_static_evidence_bundle
+
+    _assert_validation_passes(validate_paper_static_evidence_bundle(bundle))
+
+
+@pytest.mark.asyncio
+async def test_live_endpoint_diagnoses_gcc_fanalyzer_missing_path_details(
+    client,
+    tmp_path: Path,
+) -> None:
+    root = _make_source_root(tmp_path)
+    execution = _execution_report()
+    finding = SastFinding(
+        toolId="gcc-fanalyzer",
+        ruleId="gcc-fanalyzer:analyzer-use-of-uninitialized-value",
+        severity="warning",
+        message="use of uninitialized value '<unknown>'",
+        location=SastFindingLocation(file="src/main.c", line=6, column=10),
+        metadata={"cweId": "CWE-457", "gccFlag": "-Wanalyzer-use-of-uninitialized-value"},
+    )
+
+    with (
+        patch("app.routers.scan.orchestrator.run", AsyncMock(return_value=([finding], execution))),
+        patch(
+            "app.routers.scan.ast_dumper.dump_functions",
+            AsyncMock(
+                return_value={
+                    "functions": [
+                        {"name": "main", "qualifiedName": "main", "file": "src/main.c", "line": 1, "endLine": 8},
+                    ],
+                },
+            ),
+        ),
+        patch("app.routers.scan.include_resolver.resolve", AsyncMock(return_value=[])),
+        patch("app.routers.scan.identify_libraries", AsyncMock(return_value=[])),
+    ):
+        response = await client.post("/v1/paper/static-evidence", json=_paper_request(root))
+
+    assert response.status_code == 200
+    bundle = response.json()
+    projected = bundle["findings"][0]
+    assert projected["dataFlowStatus"] == "not_available"
+    assert projected["pathEvidenceStatus"] == "tool_did_not_report"
+    assert projected["diagnosticRefs"]
+    diagnostics = {row["diagnosticId"]: row for row in bundle["diagnostics"]}
+    linked = [diagnostics[ref] for ref in projected["diagnosticRefs"]]
+    assert any(row["reasonCode"] == "TOOL_PATH_NOT_AVAILABLE" for row in linked)
+    assert any(row["reasonCode"] == "VARIABLE_NAME_NOT_AVAILABLE" for row in linked)
+
+    from app.scanner.paper_static_evidence import validate_paper_static_evidence_bundle
+
+    _assert_validation_passes(validate_paper_static_evidence_bundle(bundle))
+
+
+@pytest.mark.asyncio
+async def test_live_endpoint_replays_certificate_maker_style_unknown_gcc_findings(
+    client,
+    tmp_path: Path,
+) -> None:
+    root = _make_source_root(
+        tmp_path,
+        compile_commands=[
+            {
+                "directory": str(tmp_path / "target"),
+                "command": "c++ -std=c++17 -c src/main.cpp",
+                "file": "src/main.cpp",
+            },
+        ],
+    )
+    (root / "src" / "main.cpp").write_text("\n" * 140, encoding="utf-8")
+    execution = _execution_report()
+    findings = [
+        SastFinding(
+            toolId="gcc-fanalyzer",
+            ruleId="gcc-fanalyzer:analyzer-use-of-uninitialized-value",
+            severity="warning",
+            message=f"use of uninitialized value '<unknown>' at synthetic line {line}",
+            location=SastFindingLocation(file="src/main.cpp", line=line, column=9),
+            metadata={"cweId": "CWE-457", "gccFlag": "-Wanalyzer-use-of-uninitialized-value"},
+        )
+        for line in (66, 92, 128)
+    ]
+
+    with (
+        patch("app.routers.scan.orchestrator.run", AsyncMock(return_value=(findings, execution))),
+        patch(
+            "app.routers.scan.ast_dumper.dump_functions",
+            AsyncMock(
+                return_value={
+                    "functions": [
+                        {"name": "trim", "qualifiedName": "trim", "file": "src/main.cpp", "line": 51, "endLine": 67},
+                        {
+                            "name": "split_csv",
+                            "qualifiedName": "split_csv",
+                            "file": "src/main.cpp",
+                            "line": 90,
+                            "endLine": 104,
+                        },
+                        {
+                            "name": "build_san",
+                            "qualifiedName": "build_san",
+                            "file": "src/main.cpp",
+                            "line": 106,
+                            "endLine": 129,
+                        },
+                    ],
+                },
+            ),
+        ),
+        patch("app.routers.scan.include_resolver.resolve", AsyncMock(return_value=[])),
+        patch("app.routers.scan.identify_libraries", AsyncMock(return_value=[])),
+    ):
+        response = await client.post("/v1/paper/static-evidence", json=_paper_request(root))
+
+    assert response.status_code == 200
+    bundle = response.json()
+    function_by_name = {row["name"]: row for row in bundle["functions"]}
+    expected_function_by_line = {
+        66: function_by_name["trim"]["functionId"],
+        92: function_by_name["split_csv"]["functionId"],
+        128: function_by_name["build_san"]["functionId"],
+    }
+    diagnostics = {row["diagnosticId"]: row for row in bundle["diagnostics"]}
+
+    for row in bundle["findings"]:
+        line = row["location"]["startLine"]
+        linked_reason_codes = {diagnostics[ref]["reasonCode"] for ref in row["diagnosticRefs"]}
+        assert row["functionId"] == expected_function_by_line[line]
+        assert row["functionMatchStatus"] == "matched"
+        assert row["dataFlowStatus"] == "not_available"
+        assert row["pathEvidenceStatus"] == "tool_did_not_report"
+        assert {"TOOL_PATH_NOT_AVAILABLE", "VARIABLE_NAME_NOT_AVAILABLE"} <= linked_reason_codes
+
+    from app.scanner.paper_static_evidence import validate_paper_static_evidence_bundle
+
+    _assert_validation_passes(validate_paper_static_evidence_bundle(bundle))
+
+
+@pytest.mark.asyncio
+async def test_live_endpoint_projects_related_clusters_and_local_categories(
+    client,
+    tmp_path: Path,
+) -> None:
+    root = _make_source_root(tmp_path)
+    execution = _execution_report()
+    findings = [
+        SastFinding(
+            toolId="semgrep",
+            ruleId="semgrep:rules.cpp.aegis.cpp.cwe-78-popen-with-variable",
+            severity="warning",
+            message="Potential OS command injection",
+            location=SastFindingLocation(file="src/main.c", line=35, column=1),
+            metadata={"cweId": "CWE-78"},
+        ),
+        SastFinding(
+            toolId="flawfinder",
+            ruleId="flawfinder:shell/popen",
+            severity="warning",
+            message="This causes a new program to execute and is difficult to use safely",
+            location=SastFindingLocation(file="src/main.c", line=35, column=1),
+            metadata={"cweId": "CWE-78"},
+        ),
+        SastFinding(
+            toolId="gcc-fanalyzer",
+            ruleId="gcc-fanalyzer:analyzer-malloc-leak",
+            severity="warning",
+            message="leak of 'popen(cmd, \"r\")'",
+            location=SastFindingLocation(file="src/main.c", line=35, column=1),
+            metadata={"cweId": "CWE-401"},
+        ),
+        SastFinding(
+            toolId="cppcheck",
+            ruleId="cppcheck:unreadVariable",
+            severity="style",
+            message="Variable 'exitLoop' is assigned a value that is never used.",
+            location=SastFindingLocation(file="src/main.c", line=276, column=1),
+            metadata={"cweId": "CWE-563"},
+        ),
+        SastFinding(
+            toolId="scan-build",
+            ruleId="scan-build:deadcode.DeadStores",
+            severity="warning",
+            message="Value stored to 'exitLoop' is never read",
+            location=SastFindingLocation(file="src/main.c", line=276, column=1),
+        ),
+    ]
+
+    with (
+        patch("app.routers.scan.orchestrator.run", AsyncMock(return_value=(findings, execution))),
+        patch("app.routers.scan.ast_dumper.dump_functions", AsyncMock(return_value={"functions": []})),
+        patch("app.routers.scan.include_resolver.resolve", AsyncMock(return_value=[])),
+        patch("app.routers.scan.identify_libraries", AsyncMock(return_value=[])),
+    ):
+        response = await client.post("/v1/paper/static-evidence", json=_paper_request(root))
+
+    assert response.status_code == 200
+    bundle = response.json()
+    by_id = {row["findingId"]: row for row in bundle["findings"]}
+
+    command_cluster = by_id["finding:0000"]["clusterId"]
+    assert command_cluster == by_id["finding:0001"]["clusterId"]
+    assert by_id["finding:0000"]["clusterReason"] == "same-location-and-category"
+    assert by_id["finding:0002"]["clusterId"] != command_cluster
+    assert by_id["finding:0002"]["relatedFindingIds"] == ["finding:0000", "finding:0001"]
+    assert by_id["finding:0002"]["semanticDistinction"] == "same-location-distinct-category"
+
+    dead_store_cluster = by_id["finding:0003"]["clusterId"]
+    assert dead_store_cluster == by_id["finding:0004"]["clusterId"]
+    assert by_id["finding:0003"]["findingCategory"] == "dead-store"
+    assert by_id["finding:0004"]["findingCategory"] == "dead-store"
+    assert by_id["finding:0004"]["cweMappingStatus"] == "tool_did_not_report"
+    assert by_id["finding:0000"]["securityRelevance"] == "security"
+    assert by_id["finding:0002"]["findingCategory"] == "memory-leak"
+
+    assert all("verdict" not in row for row in bundle["findings"])
 
     from app.scanner.paper_static_evidence import validate_paper_static_evidence_bundle
 
