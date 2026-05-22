@@ -135,7 +135,13 @@ class PaperCaseRunner:
                     evidence_rows=evidence_dicts,
                     acquisition_notes=finalizer_notes,
                 )
-                parsed = self._validate_or_recover_triage_row(triage_raw, finding=finding, ledger=ledger)
+                parsed = self._validate_or_recover_triage_row(
+                    triage_raw,
+                    finding=finding,
+                    ledger=ledger,
+                    context_rows=s5_context_norm_rows,
+                    exploration_rows=s5_exploration_norm_rows,
+                )
                 parsed_dict = parsed.model_dump(mode="json")
                 transcript = {
                     "findingId": finding_id,
@@ -343,7 +349,17 @@ class PaperCaseRunner:
         if arguments.get("findingId") not in {None, finding_id}:
             return _tool_result(call, success=False, error="finding_id_mismatch", content="Tool call findingId did not match current finding."), []
         dedup_key = str(name)
-        if not allow_duplicate_fallback and dedup_key in executed and name in {"retrieve_finding_context", "retrieve_generic_threat_context"}:
+        if name == "explore_source_kg":
+            dedup_key = _explore_source_kg_dedup_key(arguments, finding)
+            if not allow_duplicate_fallback and dedup_key in executed:
+                return _cached_source_kg_explore_tool_result(
+                    call,
+                    finding=finding,
+                    ledger=ledger,
+                    exploration_rows=exploration_rows,
+                    selector_key=dedup_key,
+                ), []
+        elif not allow_duplicate_fallback and dedup_key in executed and name in {"retrieve_finding_context", "retrieve_generic_threat_context"}:
             return _cached_required_context_tool_result(
                 call,
                 finding=finding,
@@ -407,6 +423,7 @@ class PaperCaseRunner:
             artifacts.append_jsonl("s5-source-kg-explore.raw.jsonl", explore_raw)
             explore_norm, explore_ledger = normalize_s5_rows(explore_raw, evidence_type="s5_source_kg_exploration")
             explore_norm["findingId"] = finding_id
+            explore_norm["s3ExploreSelectorKey"] = dedup_key
             for ledger_row in explore_ledger:
                 ledger_row.relatedFindingId = finding_id
             exploration_rows.append(explore_norm)
@@ -443,6 +460,8 @@ class PaperCaseRunner:
         *,
         finding: dict[str, Any],
         ledger: list[EvidenceLedgerRow],
+        context_rows: list[dict[str, Any]],
+        exploration_rows: list[dict[str, Any]],
     ):
         try:
             finding_ledger = _ledger_for_finding(ledger, finding["findingId"])
@@ -456,6 +475,14 @@ class PaperCaseRunner:
             if parsed.findingId != finding["findingId"]:
                 raise PaperContractError(
                     f"Finalizer row findingId mismatch: expected {finding['findingId']}, got {parsed.findingId}"
+                )
+            coverage = _unmitigated_inadequate_s5_coverage(finding, context_rows, exploration_rows)
+            verdict = getattr(parsed.verdict, "value", parsed.verdict)
+            if coverage and verdict in {"TP", "FP"}:
+                return _unknown_for_unmitigated_s5_context_gap(
+                    finding,
+                    coverage=coverage,
+                    ledger=finding_ledger,
                 )
             return parsed
         except PaperContractError as exc:
@@ -669,6 +696,68 @@ def _s5_contexts_coverage_for_finding(context_rows: list[dict[str, Any]], findin
     return _source_context_coverage(finding, _s5_rows_for_finding(context_rows, finding_id))
 
 
+def _unmitigated_inadequate_s5_coverage(
+    finding: dict[str, Any],
+    context_rows: list[dict[str, Any]],
+    exploration_rows: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    coverage = _s5_contexts_coverage_for_finding(context_rows, finding)
+    if coverage.get("status") not in {"partial", "non_overlapping", "not_available", "error"}:
+        return None
+    exploration_coverage = _source_context_coverage(finding, _s5_rows_for_finding(exploration_rows, finding["findingId"]))
+    if exploration_coverage.get("status") in {"covered", "partial"}:
+        return None
+    return {**coverage, "explorationCoverage": exploration_coverage}
+
+
+def _unknown_for_unmitigated_s5_context_gap(
+    finding: dict[str, Any],
+    *,
+    coverage: dict[str, Any],
+    ledger: list[EvidenceLedgerRow],
+):
+    fallback = fallback_unknown_for_finding(finding, reason="UNKNOWN_INSUFFICIENT_CONTEXT")
+    status = coverage.get("status") or "unknown"
+    diagnostics = coverage.get("diagnostics") if isinstance(coverage.get("diagnostics"), list) else []
+    diagnostic_codes = [str(item.get("code")) for item in diagnostics if item.get("code")]
+    diagnostic_refs = _s5_context_gap_diagnostic_refs(ledger, diagnostic_codes)
+    code_fragment = f" diagnostics={diagnostic_codes}" if diagnostic_codes else ""
+    fallback["rationale"] = (
+        f"S5 finding context coverage is {status} and no overlapping explore_source_kg result mitigated "
+        "the anchor gap, so S3 cannot make a TP/FP decision from bounded evidence."
+    )
+    fallback["unsupportedClaims"] = [
+        f"S5 contextCoverage={status} is inadequate for anchor-specific TP/FP support without overlapping exploration."
+    ]
+    fallback["diagnosticRefsUsed"] = diagnostic_refs
+    fallback["boundaryNotes"] = [
+        f"S5 contextCoverage={status}{code_fragment}; S5 context is contextual only and cannot be promoted to final authority.",
+        "UNKNOWN_INSUFFICIENT_CONTEXT preserves the S5 coverage diagnostic rather than treating diagnostic context as claim support.",
+    ]
+    return validate_triage_row(
+        fallback,
+        known_evidence_refs={row.evidenceRef for row in ledger},
+        grounding_evidence_refs=_grounding_evidence_refs(ledger),
+        diagnostic_evidence_refs=_diagnostic_evidence_refs(ledger),
+        claim_support_evidence_refs=_claim_support_evidence_refs(ledger),
+    )
+
+
+def _s5_context_gap_diagnostic_refs(ledger: list[EvidenceLedgerRow], diagnostic_codes: list[str]) -> list[str]:
+    refs: list[str] = []
+    seen: set[str] = set()
+    for row in ledger:
+        if not row.diagnostic or row.producer != "s5":
+            continue
+        haystack = " ".join(str(value or "") for value in [row.evidenceRef, row.rawObjectRef, row.sourceId, row.text])
+        if diagnostic_codes and not any(code in haystack for code in diagnostic_codes):
+            continue
+        if row.evidenceRef not in seen:
+            seen.add(row.evidenceRef)
+            refs.append(row.evidenceRef)
+    return refs
+
+
 def _s5_context_coverage(context: dict[str, Any], finding: dict[str, Any]) -> dict[str, Any]:
     coverage = context.get("contextCoverage")
     if isinstance(coverage, dict) and coverage.get("coverageStatus"):
@@ -877,11 +966,92 @@ def _cached_required_context_tool_result(
     return result
 
 
+def _cached_source_kg_explore_tool_result(
+    call: dict[str, Any],
+    *,
+    finding: dict[str, Any],
+    ledger: list[EvidenceLedgerRow],
+    exploration_rows: list[dict[str, Any]],
+    selector_key: str,
+) -> dict[str, Any]:
+    finding_id = finding["findingId"]
+    cached_context = _latest_exploration_for_selector(exploration_rows, finding_id, selector_key)
+    if cached_context is None:
+        return _tool_result(
+            call,
+            success=False,
+            error="missing_cached_exploration",
+            content=f"Duplicate explore_source_kg call could not find cached exploration for {finding_id}.",
+        )
+    item_ids = {row.get("itemId") for row in cached_context.get("rows") or []}
+    ledger_rows = [
+        row.model_dump(mode="json")
+        for row in _ledger_for_finding(ledger, finding_id)
+        if row.evidenceType == "s5_source_kg_exploration" and row.rawObjectRef in item_ids
+    ]
+    cached_refs = [row.get("evidenceRef") for row in ledger_rows if row.get("evidenceRef")]
+    payload = json.loads(
+        _s5_tool_content(
+            cached_context,
+            ledger_rows=ledger_rows,
+            coverage=_source_context_coverage(finding, cached_context.get("rows") or []),
+        )
+    )
+    payload["cached"] = True
+    payload["cachedDuplicate"] = True
+    payload["message"] = "explore_source_kg was already executed for this selector; reusing existing evidence refs."
+    payload["existingEvidenceRefs"] = cached_refs
+    result = _tool_result(
+        call,
+        success=True,
+        content=json.dumps(payload, ensure_ascii=False, sort_keys=True),
+        evidence_refs=[],
+    )
+    result["cachedDuplicate"] = True
+    return result
+
+
 def _latest_context_for_finding(context_rows: list[dict[str, Any]], finding_id: str) -> dict[str, Any] | None:
     for context in reversed(context_rows):
         if context.get("findingId") == finding_id:
             return context
     return None
+
+
+def _latest_exploration_for_selector(
+    exploration_rows: list[dict[str, Any]],
+    finding_id: str,
+    selector_key: str,
+) -> dict[str, Any] | None:
+    for context in reversed(exploration_rows):
+        if context.get("findingId") == finding_id and context.get("s3ExploreSelectorKey") == selector_key:
+            return context
+    return None
+
+
+def _explore_source_kg_dedup_key(arguments: dict[str, Any], finding: dict[str, Any]) -> str:
+    location = finding.get("location") or {}
+    selector = {
+        "mode": str(arguments.get("mode") or "source_slice"),
+        "path": arguments.get("path") or location.get("path"),
+        "lineStart": arguments.get("lineStart", location.get("startLine")),
+        "lineEnd": arguments.get("lineEnd", location.get("endLine") or location.get("startLine")),
+        "symbolName": arguments.get("symbolName"),
+        "functionRef": arguments.get("functionRef") or finding.get("functionId"),
+        "graphNodeId": arguments.get("graphNodeId"),
+        "depth": _bounded_int(arguments.get("depth"), default=1, minimum=1, maximum=3),
+        "topK": _bounded_int(arguments.get("topK"), default=5, minimum=1, maximum=10),
+    }
+    selector = {key: value for key, value in selector.items() if value is not None}
+    return f"explore_source_kg:{json.dumps(selector, ensure_ascii=False, sort_keys=True, separators=(',', ':'))}"
+
+
+def _bounded_int(value: Any, *, default: int, minimum: int, maximum: int) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        parsed = default
+    return max(minimum, min(maximum, parsed))
 
 
 def _is_recovered_triage(triage: dict[str, Any]) -> bool:
@@ -994,8 +1164,6 @@ def _grounding_evidence_refs(ledger: list[EvidenceLedgerRow]) -> set[str]:
     local_grounding_types = {
         "s4_finding",
         "s4_evidence",
-        "s5_finding_context",
-        "s5_source_kg_exploration",
     }
     return {
         row.evidenceRef
@@ -1060,6 +1228,7 @@ def _tool_result(call: dict[str, Any], *, success: bool, content: str, evidence_
         "content": content,
         "newEvidenceRefs": evidence_refs or [],
         "error": error,
+        "cachedDuplicate": False,
     }
 
 

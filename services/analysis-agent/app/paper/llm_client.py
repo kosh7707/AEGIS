@@ -523,6 +523,14 @@ class LlmTriageClient:
             for row in evidence_rows
             if row.get("evidenceRef") and not row.get("diagnostic") and row.get("surfaceStatus") == "produced"
         ]
+        local_grounding_refs = [
+            str(row.get("evidenceRef"))
+            for row in evidence_rows
+            if row.get("evidenceRef")
+            and not row.get("diagnostic")
+            and row.get("surfaceStatus") == "produced"
+            and row.get("evidenceType") in {"s4_finding", "s4_evidence"}
+        ]
         diagnostic_refs = [
             str(row.get("evidenceRef"))
             for row in evidence_rows
@@ -536,6 +544,7 @@ class LlmTriageClient:
             "knownEvidenceRefs": evidence_refs,
             "claimSupportEvidenceRefs": claim_support_refs,
             "allowedCitedEvidenceRefs": claim_support_refs,
+            "localGroundingEvidenceRefs": local_grounding_refs,
             "diagnosticEvidenceRefs": diagnostic_refs,
             "evidenceRows": evidence_rows,
             "acquisitionNotes": acquisition_notes,
@@ -548,6 +557,7 @@ class LlmTriageClient:
                 "- Prioritize correctness over speed or brevity.",
                 "- TP/FP require explicit citedEvidenceRefs from knownEvidenceRefs.",
                 "- citedEvidenceRefs and claimEvidenceLinks may use only claimSupportEvidenceRefs/allowedCitedEvidenceRefs.",
+                "- TP/FP require at least one localGroundingEvidenceRefs item in citedEvidenceRefs; S5 refs are contextual/corroborating only and cannot be the sole final authority.",
                 "- diagnosticEvidenceRefs are audit context only; use them only in diagnosticRefsUsed or boundaryNotes.",
                 "- If bounded evidence is insufficient, choose UNKNOWN with unknownReason=UNKNOWN_INSUFFICIENT_CONTEXT.",
                 "- Do not promote producer diagnostics, empty/no_hit, operational absence, or retrieval failure into security evidence.",

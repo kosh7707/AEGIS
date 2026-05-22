@@ -297,10 +297,15 @@ def normalize_s5_rows(response: dict[str, Any], *, evidence_type: str) -> tuple[
     ledger: list[EvidenceLedgerRow] = []
     rows = response.get("rows", []) or []
     response_surface_status = response.get("surfaceStatus")
+    coverage = response.get("contextCoverage") if isinstance(response.get("contextCoverage"), dict) else {}
+    coverage_status = coverage.get("coverageStatus") if evidence_type == "s5_finding_context" else None
+    coverage_marks_context_diagnostic = coverage_status in {"partial", "non_overlapping", "not_available", "error"}
     for row in rows:
         item_id = row["itemId"]
         row_surface_status = row.get("surfaceStatus")
         effective_surface_status = row_surface_status if response_surface_status == "produced" else response_surface_status
+        if coverage_marks_context_diagnostic:
+            effective_surface_status = coverage_status
         diagnostic_row = effective_surface_status != "produced"
         prefix = "s3-diagnostic" if diagnostic_row else "s3-evidence"
         ledger.append(
@@ -341,6 +346,27 @@ def normalize_s5_rows(response: dict[str, Any], *, evidence_type: str) -> tuple[
                 diagnostic=True,
             )
         )
+    for diagnostic in coverage.get("diagnostics", []) or []:
+        code = diagnostic.get("code", "S5_CONTEXT_COVERAGE_DIAGNOSTIC")
+        diag_id = f"{code}:contextCoverage:{len(ledger)}"
+        ledger.append(
+            EvidenceLedgerRow(
+                evidenceRef=f"s3-diagnostic:s5:{evidence_type}:{response.get('findingId', 'target')}:{diag_id}",
+                caseId=case_id,
+                buildTargetId=build_target_id,
+                producer="s5",
+                producerRunId=producer_run,
+                rawObjectRef=diag_id,
+                sourceId=diag_id,
+                relatedFindingId=finding_id,
+                evidenceType="s5_diagnostic",
+                text=diagnostic.get("message") or f"S5 contextCoverage diagnostic: {code}",
+                surfaceStatus=diagnostic.get("surfaceStatus") or coverage.get("coverageStatus") or response_surface_status,
+                visibleLeakageClass=diagnostic.get("visibleLeakageClass") or "generic",
+                producerTrace={"contextCoverage": True},
+                diagnostic=True,
+            )
+        )
     normalized = {
         "schemaVersion": "s3-normalized-s5-context-v1",
         "caseId": case_id,
@@ -352,6 +378,7 @@ def normalize_s5_rows(response: dict[str, Any], *, evidence_type: str) -> tuple[
         "surfaceStatus": response.get("surfaceStatus"),
         "rows": rows,
         "contextCoverage": response.get("contextCoverage"),
+        "exploration": response.get("exploration"),
         "diagnostics": response.get("diagnostics", []),
         "retrievalTrace": response.get("retrievalTrace", {}),
     }

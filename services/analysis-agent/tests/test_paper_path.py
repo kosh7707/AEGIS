@@ -1569,6 +1569,169 @@ def test_runner_executes_source_kg_exploration_and_mitigates_non_overlapping_con
     assert any("s5_source_kg_exploration" in row["evidenceRef"] for row in b4["ledgerRows"])
 
 
+def test_unmitigated_non_overlapping_s5_context_forces_unknown_and_preserves_diagnostic(client, tmp_path, paper_source):
+    s4 = s4_bundle()
+    s4["findings"][0]["location"]["startLine"] = 35
+    s4["findings"][0]["location"]["endLine"] = 35
+    ctx = s5_context(text="S5 returned main.cpp:1-24 while S4 requested main.cpp:35.")
+    ctx["rows"][0]["sourceEvidence"]["displayRef"] = "main.cpp:1-24"
+    ctx["contextCoverage"] = s5_context_coverage(
+        "non_overlapping",
+        path="main.cpp",
+        line_start=35,
+        line_end=35,
+        returned_start=1,
+        returned_end=24,
+        line_overlap=False,
+    )
+    body = make_case_body(tmp_path, paper_source, s4=s4, s5_ctx=ctx, llm=llm_tp())
+
+    assert client.post("/v1/paper/analysis-cases", json=body).status_code == 201
+    response = client.post("/v1/paper/analysis-cases/case-001/start")
+
+    assert response.status_code == 200, response.text
+    assert response.json()["summary"]["triageCounts"]["UNKNOWN"] == 1
+    case_root = Path(body["paperRunRoot"]) / "cases" / "case-001"
+    triage = json.loads((case_root / "triage-envelope.jsonl").read_text().splitlines()[0])
+    assert triage["verdict"] == "UNKNOWN"
+    assert triage["unknownReason"] == "UNKNOWN_INSUFFICIENT_CONTEXT"
+    joined = json.dumps(triage, sort_keys=True)
+    assert "S5_PAPER_CONTEXT_NON_OVERLAPPING" in joined
+    assert "contextCoverage=non_overlapping" in joined
+    assert triage["diagnosticRefsUsed"]
+    assert not triage["citedEvidenceRefs"]
+    ledger = [json.loads(line) for line in (case_root / "evidence-ledger.jsonl").read_text().splitlines()]
+    context_rows = [row for row in ledger if row["evidenceType"] == "s5_finding_context"]
+    assert context_rows and all(row["diagnostic"] for row in context_rows)
+    assert all("S5_PAPER_CONTEXT_NON_OVERLAPPING" not in ref for ref in triage["citedEvidenceRefs"])
+
+
+def test_s5_source_kg_exploration_cannot_be_sole_tp_grounding(client, tmp_path, paper_source, monkeypatch):
+    s5_explore_ref = "s3-evidence:s5:s5_source_kg_exploration:s5-source-kg-explore-row-001"
+    llm_s5_only_tp = {
+        "findingId": "s4-finding-001",
+        "verdict": "TP",
+        "rationale": "The S5 explored function body alone appears to support the finding.",
+        "citedEvidenceRefs": [s5_explore_ref],
+        "claimEvidenceLinks": [{"claim": "S5 source exploration supports TP", "stance": "supports", "evidenceRefs": [s5_explore_ref]}],
+        "unsupportedClaims": [],
+        "unknownReason": None,
+        "diagnosticRefsUsed": [],
+        "boundaryNotes": [],
+    }
+    body = make_case_body(tmp_path, paper_source, llm=llm_s5_only_tp)
+    artifacts = Path(body["producerArtifacts"]["s5FindingContextByFindingId"]["s4-finding-001"]).parent
+    body["producerArtifacts"]["s5SourceKgExploreByFindingId"] = {
+        "s4-finding-001": write_json(artifacts / "case-001-s5-explore.json", s5_source_kg_explore())
+    }
+    assert client.post("/v1/paper/analysis-cases", json=body).status_code == 201
+
+    async def explore_acquisition(self, case, *, finding, evidence_rows, acquisition_messages=None, round_index=1):
+        if round_index == 1:
+            args = {"findingId": finding["findingId"], "mode": "function_body", "path": "src/main.c", "lineStart": 10, "lineEnd": 10}
+            return (
+                {
+                    "toolCalls": [{"id": "call-explore", "name": "explore_source_kg", "arguments": args}],
+                    "assistantMessage": {
+                        "role": "assistant",
+                        "content": None,
+                        "tool_calls": [
+                            {
+                                "id": "call-explore",
+                                "type": "function",
+                                "function": {"name": "explore_source_kg", "arguments": json.dumps(args, sort_keys=True)},
+                            }
+                        ],
+                    },
+                },
+                {"mode": "test-explore"},
+            )
+        return ({"toolCalls": [], "assistantMessage": {"role": "assistant", "content": "done"}}, {"mode": "test-done"})
+
+    monkeypatch.setattr("app.paper.llm_client.LlmTriageClient.acquire_for_finding", explore_acquisition)
+    response = client.post("/v1/paper/analysis-cases/case-001/start")
+
+    assert response.status_code == 200, response.text
+    case_root = Path(body["paperRunRoot"]) / "cases" / "case-001"
+    triage = json.loads((case_root / "triage-envelope.jsonl").read_text().splitlines()[0])
+    assert triage["verdict"] == "UNKNOWN"
+    assert triage["unknownReason"] == "UNKNOWN_CLAIM_BOUNDARY"
+    assert "local grounding evidence ref" in triage["unsupportedClaims"][0]
+    ledger = [json.loads(line) for line in (case_root / "evidence-ledger.jsonl").read_text().splitlines()]
+    assert any(row["evidenceRef"] == s5_explore_ref and row["diagnostic"] is False for row in ledger)
+    assert not any(link.get("evidenceRefs") == [s5_explore_ref] for row in ledger for link in row.get("claimLinks", []))
+
+
+def test_runner_caches_duplicate_source_kg_explore_selectors_but_runs_distinct_selectors(client, tmp_path, paper_source, monkeypatch):
+    body = make_case_body(tmp_path, paper_source)
+    assert client.post("/v1/paper/analysis-cases", json=body).status_code == 201
+    s5_calls: list[dict[str, object]] = []
+
+    async def fake_explore_source_kg(self, case, *, finding, code_kb_ref, source_kg_ref, exploration=None):
+        request = build_source_kg_explore_request(
+            case,
+            finding=finding,
+            code_kb_ref=code_kb_ref,
+            source_kg_ref=source_kg_ref,
+            exploration=exploration,
+        )
+        s5_calls.append(request)
+        response = s5_source_kg_explore(text=f"exploration call {len(s5_calls)}")
+        response["requestId"] = request["requestId"]
+        response["idempotencyKey"] = request["idempotencyKey"]
+        response["codeKbRef"] = code_kb_ref
+        response["sourceKgRef"] = source_kg_ref
+        response["exploration"] = request["exploration"]
+        response["retrievalTrace"]["methodsAttempted"] = [request["exploration"]["mode"]]
+        response["retrievalTrace"]["methodsUsed"] = [request["exploration"]["mode"]]
+        response["rows"][0]["itemId"] = f"s5-source-kg-explore-row-{len(s5_calls):03d}"
+        response["rows"][0]["text"] = f"exploration call {len(s5_calls)}"
+        return response, request
+
+    async def repeated_explore_acquisition(self, case, *, finding, evidence_rows, acquisition_messages=None, round_index=1):
+        args = {"findingId": finding["findingId"], "mode": "source_slice", "path": "src/main.c", "lineStart": 10, "lineEnd": 10}
+        if round_index == 3:
+            args = {"findingId": finding["findingId"], "mode": "function_body", "path": "src/main.c", "lineStart": 10, "lineEnd": 10}
+        return (
+            {
+                "toolCalls": [{"id": f"call-explore-{round_index}", "name": "explore_source_kg", "arguments": args}],
+                "assistantMessage": {
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [
+                        {
+                            "id": f"call-explore-{round_index}",
+                            "type": "function",
+                            "function": {"name": "explore_source_kg", "arguments": json.dumps(args, sort_keys=True)},
+                        }
+                    ],
+                },
+            },
+            {"mode": f"test-explore-{round_index}"},
+        )
+
+    monkeypatch.setattr(S5PaperClient, "explore_source_kg", fake_explore_source_kg)
+    monkeypatch.setattr("app.paper.llm_client.LlmTriageClient.acquire_for_finding", repeated_explore_acquisition)
+
+    response = client.post("/v1/paper/analysis-cases/case-001/start")
+    assert response.status_code == 200, response.text
+    assert len(s5_calls) == 2
+    assert s5_calls[0]["exploration"]["mode"] == "source_slice"
+    assert s5_calls[1]["exploration"]["mode"] == "function_body"
+    case_root = Path(body["paperRunRoot"]) / "cases" / "case-001"
+    assert len((case_root / "s5-source-kg-explore-requests.jsonl").read_text().splitlines()) == 2
+    transcripts = [json.loads(line) for line in (case_root / "llm-transcript.raw.jsonl").read_text().splitlines()]
+    explore_results = [row for row in transcripts[0]["acquisition"]["toolResults"] if row["tool"] == "explore_source_kg"]
+    assert [row["cachedDuplicate"] for row in explore_results] == [False, True, False]
+    assert explore_results[1]["success"] is True
+    assert explore_results[1]["newEvidenceRefs"] == []
+    cached_payload = json.loads(explore_results[1]["content"])
+    assert cached_payload["cachedDuplicate"] is True
+    summary = json.loads((case_root / "finding-evidence-summary.jsonl").read_text().splitlines()[0])
+    assert len([row for row in summary["toolTimeline"] if row.get("cachedDuplicate")]) == 1
+    assert summary["s5Exploration"]["modes"] == ["source_slice", "function_body"]
+
+
 def test_runner_dedupes_required_tool_success_across_acquisition_rounds(client, tmp_path, paper_source, monkeypatch):
     body = make_case_body(tmp_path, paper_source)
     assert client.post("/v1/paper/analysis-cases", json=body).status_code == 201
@@ -1887,12 +2050,22 @@ def test_quality_gate_uses_s5_context_coverage_when_display_ref_is_unparseable(c
     summary = json.loads((case_root / "finding-evidence-summary.jsonl").read_text().splitlines()[0])
     assert summary["s5Context"]["coverage"]["source"] == "s5_contextCoverage"
     assert summary["s5Context"]["coverage"]["status"] == "non_overlapping"
+    assert summary["s5Context"]["coverage"]["diagnostics"][0]["code"] == "S5_PAPER_CONTEXT_NON_OVERLAPPING"
     assert summary["s5Context"]["coverage"]["returnedSpans"][0]["startLine"] == 1
+    ledger = [json.loads(line) for line in (case_root / "evidence-ledger.jsonl").read_text().splitlines()]
+    diagnostic_rows = [row for row in ledger if "S5_PAPER_CONTEXT_NON_OVERLAPPING" in row["evidenceRef"]]
+    assert diagnostic_rows
+    assert diagnostic_rows[0]["diagnostic"] is True
+    assert diagnostic_rows[0]["text"] == "S5 contextCoverage diagnostic: S5_PAPER_CONTEXT_NON_OVERLAPPING"
+    context_rows = [row for row in ledger if row["evidenceType"] == "s5_finding_context"]
+    assert context_rows and all(row["diagnostic"] for row in context_rows)
+    assert {row["surfaceStatus"] for row in context_rows} == {"non_overlapping"}
     transcripts = [json.loads(line) for line in (case_root / "llm-transcript.raw.jsonl").read_text().splitlines()]
     context_result = next(row for row in transcripts[0]["acquisition"]["toolResults"] if row["tool"] == "retrieve_finding_context")
     context_payload = json.loads(context_result["content"])
     assert context_payload["coverage"]["source"] == "s5_contextCoverage"
     assert context_payload["coverage"]["status"] == "non_overlapping"
+    assert context_payload["coverage"]["diagnostics"][0]["code"] == "S5_PAPER_CONTEXT_NON_OVERLAPPING"
 
 
 def test_s5_context_coverage_schema_fails_closed(client, tmp_path, paper_source):
@@ -1912,7 +2085,7 @@ def test_s5_context_coverage_schema_fails_closed(client, tmp_path, paper_source)
     ("coverage_status", "expected_gate_status", "expected_reason"),
     [
         ("covered", "pass", None),
-        ("partial", "warn", "SOURCE_CONTEXT_PARTIAL"),
+        ("partial", "fail", "SOURCE_CONTEXT_PARTIAL"),
         ("not_available", "fail", "SOURCE_CONTEXT_UNAVAILABLE_OR_ERROR"),
         ("error", "fail", "SOURCE_CONTEXT_UNAVAILABLE_OR_ERROR"),
     ],
@@ -1954,6 +2127,12 @@ def test_quality_gate_maps_s5_context_coverage_statuses(client, tmp_path, paper_
     summary = json.loads((case_root / "finding-evidence-summary.jsonl").read_text().splitlines()[0])
     assert summary["s5Context"]["coverage"]["source"] == "s5_contextCoverage"
     assert summary["s5Context"]["coverage"]["status"] == coverage_status
+    triage = json.loads((case_root / "triage-envelope.jsonl").read_text().splitlines()[0])
+    if coverage_status == "covered":
+        assert triage["verdict"] == "TP"
+    else:
+        assert triage["verdict"] == "UNKNOWN"
+        assert triage["unknownReason"] == "UNKNOWN_INSUFFICIENT_CONTEXT"
 
 
 def test_repeated_start_reinitializes_append_only_artifacts(client, tmp_path, paper_source):
