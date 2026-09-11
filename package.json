@@ -6,6 +6,9 @@
     "services/frontend",
     "services/backend"
   ],
+  "scripts": {
+    "test": "bash scripts/test-all.sh"
+  },
   "devDependencies": {
     "@types/node": "^25.3.5",
     "ts-node": "^10.9.2",

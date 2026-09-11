@@ -13,5 +13,6 @@
     "sourceMap": true,
     "outDir": "dist"
   },
-  "exclude": ["uploads", "logs", "node_modules", "dist"]
+  "exclude": ["uploads", "logs", "node_modules", "dist"],
+  "files": []
 }
