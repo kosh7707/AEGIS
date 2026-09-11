@@ -55,15 +55,16 @@ describe("adapter qemu smoke cli", () => {
     expect(result.stderr.replace(/^npm notice.*$/gm, "").trim()).toBe("");
 
     const parsed = parseLastJsonObject(result.stdout);
-    expect(parsed.types).toEqual([
+    // can-frame 은 ECU 가 자유 주기로 흘리므로 몇 개가 끼어드는지는 실행마다 다르다.
+    // 순서를 보장해야 하는 것은 상태/정보/주입 응답 쪽이다.
+    expect(parsed.types.filter((type: string) => type !== "can-frame")).toEqual([
       "ecu-status",
       "ecu-status",
       "ecu-info",
-      "can-frame",
       "inject-response",
-      "can-frame",
       "inject-response",
     ]);
+    expect(parsed.types).toContain("can-frame");
     expect(parsed.ecuInfo.ecu.name).toBe("QEMU_SAMPLE_MANIFEST");
     expect(parsed.firstResponse.response.success).toBe(true);
     expect(parsed.secondResponse.response.success).toBe(true);
