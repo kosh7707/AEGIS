@@ -13,10 +13,14 @@ RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[0;33m'; DIM='\033[2m'; NC='\0
 TS_SERVICES=(shared backend frontend adapter ecu-simulator container-gateway)
 PY_SERVICES=(analysis-agent build-agent knowledge-base llm-gateway sast-runner)
 
-# 자체 node_modules 가 있거나 루트 workspace 로 등록돼 있으면 실행 가능
+# 선언이 아니라 실제 설치 여부를 본다.
+# workspace 멤버는 루트 node_modules 를 공유하고, 나머지는 자체 설치가 필요하다.
 node_deps_ready() {
-  grep -q "\"services/$1\"" "$ROOT_DIR/package.json" && return 0
-  [ -d "$ROOT_DIR/services/$1/node_modules" ]
+  if grep -q "\"services/$1\"" "$ROOT_DIR/package.json"; then
+    [ -d "$ROOT_DIR/node_modules" ]
+  else
+    [ -d "$ROOT_DIR/services/$1/node_modules" ]
+  fi
 }
 
 run_ts() {
@@ -38,9 +42,11 @@ if [ $# -gt 0 ]; then targets=("$@"); else targets=("${TS_SERVICES[@]}" "${PY_SE
 
 rm -rf "$LOG_DIR"; mkdir -p "$LOG_DIR"
 
-# backend/frontend 타입체크가 @aegis/shared 의 dist 를 참조하므로 TS 대상이 있을 때만 먼저 빌드
+# backend/frontend 타입체크가 @aegis/shared 의 dist 를 참조하므로 먼저 빌드한다.
+# 의존성이 아직 설치되지 않았다면 빌드를 건너뛴다 — 그 경우 TS 스위트는 각자 SKIP 된다.
 for s in "${targets[@]}"; do
   [[ " ${TS_SERVICES[*]} " == *" $s "* ]] || continue
+  node_deps_ready shared || break
   printf "${DIM}shared 빌드...${NC}\n"
   if ! (cd "$ROOT_DIR/services/shared" && npm run build) > "$LOG_DIR/_shared-build.log" 2>&1; then
     printf "  ${RED}shared 빌드 실패${NC} — $LOG_DIR/_shared-build.log\n"; exit 1
@@ -56,12 +62,12 @@ for s in "${targets[@]}"; do
 done
 wait
 
-failed=0; skipped=0
+failed=0; skipped=0; passed=0
 for s in "${targets[@]}"; do
   [ -f "$LOG_DIR/$s.status" ] || continue
   status=$(cat "$LOG_DIR/$s.status")
   case "$status" in
-    PASS)  printf "  ${GREEN}PASS${NC}  %-18s ${DIM}%s${NC}\n" "$s" "$(grep -hoE '[0-9]+ (passed|tests? passed)' "$LOG_DIR/$s.log" | tail -1)" ;;
+    PASS)  passed=$((passed+1)); printf "  ${GREEN}PASS${NC}  %-18s ${DIM}%s${NC}\n" "$s" "$(grep -hoE '[0-9]+ (passed|tests? passed)' "$LOG_DIR/$s.log" | tail -1)" ;;
     FAIL)  printf "  ${RED}FAIL${NC}  %-18s ${DIM}%s${NC}\n" "$s" "$LOG_DIR/$s.log"; failed=$((failed+1)) ;;
     SKIP*) printf "  ${YELLOW}SKIP${NC}  %-18s ${DIM}%s${NC}\n" "$s" "${status#SKIP:}"; skipped=$((skipped+1)) ;;
   esac
@@ -72,4 +78,9 @@ if [ $failed -gt 0 ]; then
   printf "${RED}%d개 스위트 실패${NC}" "$failed"; [ $skipped -gt 0 ] && printf ", ${YELLOW}%d개 건너뜀${NC}" "$skipped"; echo
   exit 1
 fi
-printf "${GREEN}전체 통과${NC}"; [ $skipped -gt 0 ] && printf ", ${YELLOW}%d개 건너뜀${NC}" "$skipped"; echo
+# 아무 스위트도 실행되지 않은 상태를 통과로 보고하면 안 된다
+if [ $passed -eq 0 ]; then
+  printf "${YELLOW}실행된 스위트 없음${NC} — 설치를 확인해라 (README Setup)\n"
+  exit 1
+fi
+printf "${GREEN}%d개 스위트 통과${NC}" "$passed"; [ $skipped -gt 0 ] && printf ", ${YELLOW}%d개 건너뜀${NC}" "$skipped"; echo
