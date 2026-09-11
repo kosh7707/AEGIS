@@ -55,8 +55,11 @@ describe("adapter qemu smoke cli", () => {
     expect(result.stderr.replace(/^npm notice.*$/gm, "").trim()).toBe("");
 
     const parsed = parseLastJsonObject(result.stdout);
-    // can-frame 은 ECU 가 자유 주기로 흘리므로 몇 개가 끼어드는지는 실행마다 다르다.
-    // 순서를 보장해야 하는 것은 상태/정보/주입 응답 쪽이다.
+    // can-frame 은 ECU 가 자유 주기로 흘리므로 이 스모크 창 안에서 0..N 개로 변동한다.
+    // 개수도 존재 여부도 단언할 수 없으니 제외하고, CLI 가 직접 유발하는
+    // 상태/정보/주입 응답의 순서만 검사한다. can-frame 중계 자체는
+    // unit/relay.test.ts, contract/protocol.test.ts,
+    // integration/adapter.integration.test.ts 가 결정적으로 덮는다.
     expect(parsed.types.filter((type: string) => type !== "can-frame")).toEqual([
       "ecu-status",
       "ecu-status",
@@ -64,7 +67,6 @@ describe("adapter qemu smoke cli", () => {
       "inject-response",
       "inject-response",
     ]);
-    expect(parsed.types).toContain("can-frame");
     expect(parsed.ecuInfo.ecu.name).toBe("QEMU_SAMPLE_MANIFEST");
     expect(parsed.firstResponse.response.success).toBe(true);
     expect(parsed.secondResponse.response.success).toBe(true);
