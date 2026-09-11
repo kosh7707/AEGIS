@@ -51,10 +51,10 @@ def _default_log_dir() -> Path:
     """Return the repository-level canonical log directory.
 
     ``observability.md`` and ``log-analyzer`` expect S3 logs at
-    ``<AEGIS>/logs/aegis-analysis-agent.jsonl``.  This module lives one level
+    ``<AEGIS>/logs/aegis-<service>.jsonl``.  This module lives one level
     deeper than other service logging modules
-    (``services/analysis-agent/app/agent_runtime``), so a plain four-parent
-    walk lands on ``<AEGIS>/services`` and silently writes to the wrong cache
+    (``services/<service>/app/agent_runtime``), so a plain four-parent walk
+    lands on ``<AEGIS>/services`` and silently writes to the wrong cache
     surface.  Keep this path centralized to avoid another split-brain log
     location.
     """
