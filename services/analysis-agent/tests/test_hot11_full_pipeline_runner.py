@@ -4,11 +4,20 @@ import importlib.util
 import json
 from pathlib import Path
 
+import pytest
+
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 RUNNER_PATH = REPO_ROOT / "services/analysis-agent/scripts/hot11_full_pipeline_runner.py"
 MANIFEST_PATH = REPO_ROOT / "uploads/build-agent-stabilization-datasets/manifest.json"
 ORACLE_PATH = REPO_ROOT / "services/analysis-agent/eval/golden/hot11_full_pipeline_oracle.json"
+
+# The staged dataset lives under uploads/, which is deliberately untracked, so a
+# fresh clone cannot have it. Skip visibly rather than fail on a missing fixture.
+requires_staged_manifest = pytest.mark.skipif(
+    not MANIFEST_PATH.exists(),
+    reason="staged dataset manifest not present (uploads/ is untracked)",
+)
 
 
 def load_runner():
@@ -19,6 +28,7 @@ def load_runner():
     return module
 
 
+@requires_staged_manifest
 def test_oracle_covers_manifest_hot11_cases_exactly():
     manifest = json.loads(MANIFEST_PATH.read_text())
     oracle = json.loads(ORACLE_PATH.read_text())
@@ -45,6 +55,7 @@ def test_oracle_contains_no_local_network_credentials():
     assert not any(fragment in text for fragment in forbidden_fragments)
 
 
+@requires_staged_manifest
 def test_dry_run_stages_oracle_artifacts(tmp_path):
     runner = load_runner()
     args = runner.parse_args([
