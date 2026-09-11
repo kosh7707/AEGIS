@@ -81,6 +81,18 @@ npm test     # = ./scripts/test-all.sh
 ./scripts/test-all.sh backend analysis-agent
 ```
 
+#### 알려진 부하 민감 테스트
+
+`adapter`의 `qemu-real-adapter-smoke` 1건은 11개 스위트를 동시에 돌릴 때 간헐적으로
+실패한다. 스모크 두 번째 케이스가 펌웨어를 의도적으로 종료시키는데, 부하가 걸리면
+브릿지 정리가 응답 도착보다 먼저 끝나 `bridge exited with code 1`이 된다.
+전체 실행 2회 중 1회, 단독 실행 3회는 전부 통과했다(약 1초). 전체 실행에서 이 스위트만
+실패했다면 단독으로 다시 확인해라.
+
+```bash
+./scripts/test-all.sh adapter
+```
+
 #### 갓 clone한 상태에서 예상되는 skip
 
 | 위치 | 이유 |
