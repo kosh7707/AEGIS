@@ -51,7 +51,8 @@ describe("adapter qemu smoke cli", () => {
       });
     });
 
-    expect(result.stderr.trim()).toBe("");
+    // npm 12 는 실행 시 `npm notice run ...` 을 stderr 로 내보내므로 CLI 자체 출력만 검사
+    expect(result.stderr.replace(/^npm notice.*$/gm, "").trim()).toBe("");
 
     const parsed = parseLastJsonObject(result.stdout);
     expect(parsed.types).toEqual([
