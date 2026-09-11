@@ -6,6 +6,7 @@ from typing import Protocol
 
 
 class TokenUsageResponse(Protocol):
+    prompt_tokens: int
     completion_tokens: int
 
 
@@ -17,4 +18,5 @@ class TokenCounter:
     """Record LLM completion token usage on a session budget."""
 
     def record(self, response: TokenUsageResponse, session: TokenBudgetSession) -> None:
+        session.budget.total_prompt_tokens += response.prompt_tokens
         session.budget.total_completion_tokens += response.completion_tokens

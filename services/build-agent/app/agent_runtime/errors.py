@@ -107,6 +107,13 @@ class LlmContractViolationError(S3Error):
         self.gateway_request_id = gateway_request_id
 
 
+class BudgetExhaustedError(S3Error):
+    """A recovery/finalizer LLM call would exceed the request token budget."""
+
+    def __init__(self, message: str = "S3 repair/finalizer token budget exhausted"):
+        super().__init__(message, code="BUDGET_EXHAUSTED", retryable=False)
+
+
 class LlmPoolExhaustedError(S3Error):
     """HTTP 연결 풀 소진 — 동시 요청 과다."""
 

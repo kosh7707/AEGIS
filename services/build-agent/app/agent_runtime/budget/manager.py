@@ -147,3 +147,17 @@ class BudgetManager:
             and not self.can_make_call(ToolCostTier.MEDIUM)
             and not self.can_make_call(ToolCostTier.EXPENSIVE)
         )
+
+    def would_exceed_after_repair(
+        self,
+        *,
+        completion_tokens_estimate: int = 0,
+        completion_tokens: int | None = None,
+        tool_steps: int = 0,
+    ) -> bool:
+        """Return whether a bounded repair attempt would exceed loop budgets."""
+        projected_completion = completion_tokens_estimate if completion_tokens is None else completion_tokens
+        return (
+            self._budget.total_steps + tool_steps > self._budget.max_steps
+            or self._budget.total_completion_tokens + projected_completion > self._budget.max_completion_tokens
+        )

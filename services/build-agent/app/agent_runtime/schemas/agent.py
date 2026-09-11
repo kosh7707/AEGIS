@@ -76,6 +76,7 @@ class TurnRecord(BaseModel):
     """에이전트 턴 기록."""
 
     turn_number: int
+    audit_order: int = 0
     llm_response_type: str
     prompt_tokens: int = 0
     completion_tokens: int = 0
@@ -119,3 +120,4 @@ class AgentAuditInfo(BaseModel):
     created_at: str = ""
     model_name: str = ""          # S7에서 사용된 LLM 모델 식별자
     prompt_version: str = ""      # 에이전트 시스템 프롬프트 버전
+    evidenceCatalogDiagnostics: dict = Field(default_factory=dict)
