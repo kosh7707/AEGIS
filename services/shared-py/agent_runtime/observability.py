@@ -51,15 +51,18 @@ def _default_log_dir() -> Path:
     """Return the repository-level canonical log directory.
 
     ``observability.md`` and ``log-analyzer`` expect S3 logs at
-    ``<AEGIS>/logs/aegis-<service>.jsonl``.  This module lives one level
-    deeper than other service logging modules
-    (``services/<service>/app/agent_runtime``), so a plain four-parent walk
-    lands on ``<AEGIS>/services`` and silently writes to the wrong cache
-    surface.  Keep this path centralized to avoid another split-brain log
-    location.
+    ``<AEGIS>/logs/aegis-<service>.jsonl``.  Locate the repository root by
+    walking up to the directory that holds ``services`` rather than by
+    counting parents.  This module is shared between the S3 services through
+    a symlink and ``Path.resolve`` follows it, so the resolved depth no
+    longer matches the import path; counting parents is how build-agent ended
+    up logging to ``<AEGIS>/services/logs``.  ``LOG_DIR`` overrides this.
     """
 
-    return Path(__file__).resolve().parents[4] / "logs"
+    for parent in Path(__file__).resolve().parents:
+        if (parent / "services").is_dir():
+            return parent / "logs"
+    return Path.cwd() / "logs"
 
 
 def setup_logging(
