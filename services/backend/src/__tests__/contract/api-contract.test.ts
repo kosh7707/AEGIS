@@ -2380,6 +2380,10 @@ describe("API Contract Tests", () => {
     });
 
     it("GET /api/analysis/summary excludes legacy static/deep findings, runs, and gate rows without full lineage", async () => {
+      // period=30d 창 안에 머물도록 현재 시각 기준으로 잡는다 (고정 날짜는 시간이 지나면 창 밖으로 밀려난다)
+      const daysAgo = (n: number) => new Date(Date.now() - n * 86_400_000).toISOString();
+      const recentAt = daysAgo(1);
+      const olderAt = daysAgo(5);
       ctx.runDAO.save(makeRun({
         id: "run-summary-modern",
         projectId: "p-analysis-summary-agg",
@@ -2388,14 +2392,14 @@ describe("API Contract Tests", () => {
         buildTargetId: "t-modern",
         analysisExecutionId: "exec-modern",
         findingCount: 1,
-        createdAt: "2026-04-20T00:00:00Z",
+        createdAt: recentAt,
       }));
       ctx.gateResultDAO.save(makeGateResult({
         id: "gate-summary-modern",
         projectId: "p-analysis-summary-agg",
         runId: "run-summary-modern",
         status: "pass",
-        createdAt: "2026-04-20T00:00:00Z",
+        createdAt: recentAt,
       }));
       ctx.findingDAO.save(makeFinding({
         id: "finding-summary-modern",
@@ -2409,7 +2413,7 @@ describe("API Contract Tests", () => {
         sourceType: "rule-engine",
         ruleId: "RULE-MODERN",
         location: "src/modern.c:10",
-        createdAt: "2026-04-20T00:00:00Z",
+        createdAt: recentAt,
       }));
 
       ctx.runDAO.save(makeRun({
@@ -2420,14 +2424,14 @@ describe("API Contract Tests", () => {
         buildTargetId: undefined,
         analysisExecutionId: undefined,
         findingCount: 3,
-        createdAt: "2026-04-20T00:00:00Z",
+        createdAt: recentAt,
       }));
       ctx.gateResultDAO.save(makeGateResult({
         id: "gate-summary-legacy",
         projectId: "p-analysis-summary-agg",
         runId: "run-summary-legacy",
         status: "fail",
-        createdAt: "2026-04-20T00:00:00Z",
+        createdAt: recentAt,
       }));
       ctx.findingDAO.save(makeFinding({
         id: "finding-summary-legacy",
@@ -2441,7 +2445,7 @@ describe("API Contract Tests", () => {
         sourceType: "rule-engine",
         ruleId: "RULE-LEGACY",
         location: "src/legacy.c:20",
-        createdAt: "2026-03-25T00:00:00Z",
+        createdAt: olderAt,
       }));
 
       const res = await request(app).get("/api/analysis/summary?projectId=p-analysis-summary-agg&period=30d");
@@ -2451,7 +2455,7 @@ describe("API Contract Tests", () => {
       expect(res.body.data.topRules).toEqual([{ ruleId: "RULE-MODERN", hitCount: 1 }]);
       expect(res.body.data.gateStats).toMatchObject({ total: 1, passed: 1, failed: 0 });
       expect(res.body.data.trend).toEqual([
-        expect.objectContaining({ date: "2026-04-20", runCount: 1, findingCount: 1, gatePassCount: 1 }),
+        expect.objectContaining({ date: recentAt.slice(0, 10), runCount: 1, findingCount: 1, gatePassCount: 1 }),
       ]);
     });
 
