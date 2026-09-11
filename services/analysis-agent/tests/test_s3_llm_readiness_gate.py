@@ -76,7 +76,7 @@ def test_s3_p10_toolintent_p16_p19_static_readiness_markers_remain_present() -> 
         loop = (root / "app/core/agent_loop.py").read_text()
         boundary = (root / "app/agent_runtime/security/input_boundary.py").read_text()
         manager = (root / "app/agent_runtime/llm/message_manager.py").read_text()
-        tool_intent = (root / "app/agent_runtime/tools/tool_intent.py").read_text()
+        tool_intent = (root / "app/tools/tool_intent.py").read_text()
 
         assert "warnings.warn" in caller and "DeprecationWarning" in caller
         assert "body.update(controls.to_gateway_fields())" in caller

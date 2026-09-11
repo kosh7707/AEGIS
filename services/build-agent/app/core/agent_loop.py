@@ -18,7 +18,7 @@ from app.agent_runtime.llm.turn_summarizer import TurnSummarizer
 from app.agent_runtime.observability import agent_log
 from app.agent_runtime.policy.retry import RetryPolicy
 from app.agent_runtime.schemas.agent import LlmResponse
-from app.agent_runtime.tools.tool_intent import (
+from app.tools.tool_intent import (
     ToolIntentError,
     available_tool_names,
     build_tool_intent_messages,

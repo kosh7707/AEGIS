@@ -5,7 +5,7 @@ import json
 import pytest
 
 from app.agent_runtime.schemas.agent import LlmResponse, ToolCallRequest
-from app.agent_runtime.tools.tool_intent import (
+from app.tools.tool_intent import (
     build_tool_intent_messages,
     ToolIntentError,
     parse_tool_intent,

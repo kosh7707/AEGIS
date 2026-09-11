@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from app.agent_runtime.schemas.agent import LlmResponse, ToolResult
-from app.agent_runtime.tools.tool_intent import (
+from app.tools.tool_intent import (
     ToolIntentError,
     parse_tool_intent,
     tool_intent_to_request,
