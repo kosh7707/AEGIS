@@ -12,14 +12,19 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
 from pathlib import Path
 from typing import Any
 
-DEFAULT_SOURCE_ROOT = Path("/home/kosh/RE100/RE100")
-DEFAULT_DEST_ROOT = Path("/home/kosh/AEGIS/uploads/build-agent-stabilization-datasets")
+REPO_ROOT = Path(__file__).resolve().parents[3]
+
+# The RE100 projects and the TI SDK live outside this repository, so they are
+# machine-local: override them per checkout rather than hardcoding one home.
+DEFAULT_SOURCE_ROOT = Path(os.environ.get("AEGIS_HOT11_SOURCE_ROOT") or Path.home() / "RE100/RE100")
+DEFAULT_DEST_ROOT = REPO_ROOT / "uploads/build-agent-stabilization-datasets"
 DEFAULT_MANIFEST = DEFAULT_DEST_ROOT / "manifest.json"
-DEFAULT_SDK_ROOT = Path("/home/kosh/ti-sdk")
+DEFAULT_SDK_ROOT = Path(os.environ.get("AEGIS_TI_SDK_ROOT") or Path.home() / "ti-sdk")
 DEFAULT_SETUP_SCRIPT = "linux-devkit/environment-setup-armv7at2hf-neon-linux-gnueabi"
 DEFAULT_SYSROOT = "linux-devkit/sysroots/armv7at2hf-neon-linux-gnueabi"
 DEFAULT_TOOLCHAIN_TRIPLET = "arm-none-linux-gnueabihf"

@@ -23,7 +23,8 @@ import urllib.error
 import urllib.request
 from typing import Any
 
-DEFAULT_MANIFEST = Path("/home/kosh/AEGIS/uploads/build-agent-stabilization-datasets/manifest.json")
+REPO_ROOT = Path(__file__).resolve().parents[3]
+DEFAULT_MANIFEST = REPO_ROOT / "uploads/build-agent-stabilization-datasets/manifest.json"
 DEFAULT_BUILD_URL = "http://localhost:8003"
 DEFAULT_TIMEOUT_SEC = 900
 
@@ -584,7 +585,7 @@ def _write_summary_markdown(path: Path, summary: dict[str, Any]) -> None:
 
 
 def _default_output_dir(run_label: str) -> Path:
-    return Path("/home/kosh/AEGIS/uploads/build-agent-stabilization-runs") / run_label
+    return REPO_ROOT / "uploads/build-agent-stabilization-runs" / run_label
 
 
 def run_dry_run(cases: list[ManifestCase], manifest: Path, output_dir: Path, run_label: str) -> dict[str, Any]:
