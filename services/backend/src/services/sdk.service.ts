@@ -863,7 +863,7 @@ export class SdkService {
   }
 
   private troubleshootingUrl(code: SdkErrorCode): string {
-    return `wiki/canon/troubleshooting/sdk#${code.toLowerCase().replace(/_/g, "-")}`;
+    return `https://github.com/kosh7707/AEGIS/blob/main/docs/troubleshooting/sdk.md#${code.toLowerCase().replace(/_/g, "-")}`;
   }
 
   private getDirectorySize(root: string): number {

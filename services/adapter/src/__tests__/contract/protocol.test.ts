@@ -10,7 +10,7 @@ import type {
 
 /**
  * Protocol contract tests — verifies TypeScript type definitions
- * match the documented API contract in docs/api/adapter-api.md.
+ * match the documented API contract in docs/contracts/adapter.md.
  *
  * Each test creates a well-typed sample object and checks runtime shape.
  * If a field is removed or renamed in protocol.ts, these tests will fail.

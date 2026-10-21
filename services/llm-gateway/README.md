@@ -33,9 +33,7 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 - `GET /v1/models` — 등록된 model profile 목록
 - `GET /v1/prompts` — 등록된 prompt template 목록
 
-상세: `wiki/canon/api/llm-gateway-api.md` (aegis-static-wiki repo)
-
-레거시 `docs/**` 경로가 남아있는 메모/주석은 `wiki/system/migration-map.md` (aegis-static-wiki repo) 로 해석한다.
+상세 API 계약은 [`../../docs/contracts/llm-gateway.md`](../../docs/contracts/llm-gateway.md), 설치와 실행 절차는 [`../../docs/runbook.md`](../../docs/runbook.md)를 참고한다.
 
 ## 내부 구조
 

@@ -1,7 +1,7 @@
 /**
  * S3 Build Agent HTTP 클라이언트
  *
- * API 계약: docs/api/build-agent-api.md
+ * API 계약: docs/contracts/build-agent.md
  * POST /v1/tasks — build-resolve (빌드 명령어/프로필 자동 탐색)
  * GET  /v1/health — 서비스 상태
  */

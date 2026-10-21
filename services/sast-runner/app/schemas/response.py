@@ -72,7 +72,7 @@ class ExecutionReport(BaseModel):
     model_config = {"populate_by_name": True, "by_alias": True}
 
 
-# --- SastFinding (mirrors docs/api/shared-models.md:253-289 exactly) ---
+# --- SastFinding (see docs/contracts/sast-runner.md) ---
 
 class SastFindingLocation(BaseModel):
     file: str

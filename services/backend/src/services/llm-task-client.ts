@@ -2,7 +2,7 @@
  * S7 LLM Gateway v1 Task API 클라이언트
  *
  * 동시성 제어(concurrency queue) 내장. 모든 LLM 호출은 이 클라이언트를 통해 수행.
- * API 계약: docs/api/llm-gateway-api.md
+ * API 계약: docs/contracts/llm-gateway.md
  */
 import { createLogger } from "../lib/logger";
 import {

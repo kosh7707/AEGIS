@@ -331,7 +331,7 @@ describe("SdkService", () => {
         code: "EXTRACT_FAILED",
         retryable: false,
         recoverable: false,
-        troubleshootingUrl: "wiki/canon/troubleshooting/sdk#extract-failed",
+        troubleshootingUrl: "https://github.com/kosh7707/AEGIS/blob/main/docs/troubleshooting/sdk.md#extract-failed",
       }),
     }));
     expect(notificationService.emit).toHaveBeenCalledWith(expect.objectContaining({

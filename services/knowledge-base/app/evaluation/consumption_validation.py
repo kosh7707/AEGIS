@@ -116,7 +116,7 @@ CONDITIONAL_PASS_REQUIREMENTS = {
     "static-tool-rule-coverage": {"status": "fixture_backed", "evidenceRefs": ["fixtures/corpus-ingestion-v1/source-manifest.json", "tests/test_corpus_ingestion_v1.py"], "rationale": "Semgrep/Cppcheck/clang-tidy/gcc-fanalyzer/scan-build/Flawfinder fixtures are tracked."},
     "package-identity-not-keyword-only": {"status": "fixture_backed", "evidenceRefs": ["fixtures/corpus-ingestion-v1/raw/package_identity_curl.json", "tests/test_corpus_ingestion_v1.py"], "rationale": "Package alias/CPE/repo identity fixture avoids NVD keyword-only identity."},
     "s4-external-knowledge-gap-plans-s5": {"status": "fixture_backed", "evidenceRefs": ["fixtures/consumption-validation-v1/manifest.json", "tests/test_consumption_validation_v1.py"], "rationale": "G010 scenario covers S4 external vulnerability knowledge not provided leading to S5 cveDiscovery planning."},
-    "knowledge-hit-not-claim-support": {"status": "fixture_backed", "evidenceRefs": ["fixtures/consumption-validation-v1/manifest.json", "wiki/canon/specs/s3-claim-evidence-state-machine/evidence-ref-and-slots.md"], "rationale": "G010 scenarios assert S5 knowledge hits are contextual only unless S3 validates local refs."},
+    "knowledge-hit-not-claim-support": {"status": "fixture_backed", "evidenceRefs": ["fixtures/consumption-validation-v1/manifest.json", "docs/invariants.md#knowledge-base"], "rationale": "G010 scenarios assert S5 knowledge hits are contextual only unless S3 validates local refs."},
 }
 
 

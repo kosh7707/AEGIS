@@ -1,7 +1,7 @@
 /**
  * S5 Knowledge Base HTTP 클라이언트
  *
- * API 계약: docs/api/knowledge-base-api.md
+ * API 계약: docs/contracts/knowledge-base.md
  * POST /v1/code-graph/{projectId}/ingest — 코드그래프 적재
  * GET  /v1/code-graph/{projectId}/stats  — 적재 통계
  * DELETE /v1/code-graph/{projectId}      — 코드그래프 삭제

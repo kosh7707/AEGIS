@@ -1,6 +1,6 @@
 """API 계약서 대비 HTTP 레벨 응답 shape 검증 테스트.
 
-계약서: wiki/canon/api/knowledge-base-api.md
+계약서: docs/contracts/knowledge-base.md
 기존 test_api_error_responses.py는 에러 경로 위주.
 이 파일은 **성공 경로의 응답 shape**이 계약서와 일치하는지 검증한다.
 """

@@ -1,42 +1,34 @@
-# AEGIS Repository — Wiki-First Agent Instructions
+# AEGIS — Repository-local Agent Instructions
 
-## Canonical documentation surface
-- The canonical agent-facing documentation for AEGIS now lives in **`/home/kosh/aegis-static-wiki`**.
-- Start with:
-  - `/home/kosh/aegis-static-wiki/wiki/canon/charter/aegis.md`
-  - `/home/kosh/aegis-static-wiki/wiki/system/index.md`
-  - your lane entry page under `/home/kosh/aegis-static-wiki/wiki/canon/handoff/**`
-- Treat this repository’s local `docs/**` tree as a **migration/compatibility surface**, not the primary source of truth.
+## Documentation
 
-## Required behavior
-1. From `~/AEGIS`, begin local bootstrap with:
-   - `docs/AEGIS.md` for routing
-   - `docs/mcp.md` for MCP availability and usage
-2. When you need project guidance, specs, API contracts, handoff notes, roadmaps, or work requests, **read the wiki first** after that bootstrap step.
-3. Use the locally exposed MCPs according to the bootstrap docs:
-   - `aegis-static-wiki` for canonical docs / WRs / session evidence
-   - `log-analyzer` for runtime log diagnosis
-4. When you update documentation, **update the wiki canon page first**.
-5. Only update `docs/**` in this repo when doing one of the following:
-   - maintaining compatibility redirects/notices
-   - performing migration sync into the wiki
-   - preserving a temporary local mirror during cutover
-6. Do not introduce new durable process guidance that exists only under `docs/**`.
+- The current documentation lives in this repository under `docs/`.
+- Start with `README.md`, then `docs/README.md` and `docs/overview.md`.
+- Read `docs/runbook.md` before installing, running, testing or restoring data.
+- Read `docs/invariants.md` and the relevant `docs/contracts/*.md` before changing service boundaries.
+- Use `docs/limitations.md` to distinguish supported behavior, experiments and unverified paths.
+- Source code, schemas and regression tests determine current behavior. Update the matching local documentation with interface changes.
+- No separate documentation checkout, wiki server, session-history system, lane router or work-request workflow is required.
 
-## Lane bootstrap router
-- Treat `docs/AEGIS.md` as the **local bootstrap source of truth** for lane routing from `~/AEGIS`.
-- Treat `docs/mcp.md` as the **local bootstrap source of truth** for MCP availability and first-use guidance.
-- When the user explicitly declares a lane in the prompt (`S1`, `S1-QA`, `S2`, `S3`, `S4`, `S5`, `S6`, `S7`), immediately:
-  1. read `docs/AEGIS.md`,
-  2. read `docs/mcp.md`,
-  3. resolve the lane's canonical wiki handoff entrypoint,
-  4. restrict initial repository exploration to that lane's owned code paths.
-- Trigger only on **explicit** lane declarations; do not infer a lane from vague intent.
-- If multiple lane tokens appear in the same prompt, **the last explicit lane token wins**.
-- If the same lane is declared again in the same session, treat the bootstrap as idempotent unless the lane changes.
-- If no lane is declared, fall back to the ordinary docs bootstrap behavior without forced rerouting.
+## Changes
 
-## Migration intent
-- The project is migrating from `AEGIS/docs/**` to `aegis-static-wiki/wiki/canon/**`.
-- If a local `docs/**` page and a wiki canon page disagree, the **wiki canon page wins**.
-- If a wiki canon page is missing or stale, sync from the current local source into the wiki and then continue from the wiki copy.
+- Follow the user's task scope. Inspect relevant code across service boundaries when needed.
+- Keep changes small and preserve API fields, states, error codes and evidence semantics unless their change is explicitly requested.
+- Write a bounded plan before cleanup/refactoring; run relevant existing regression tests before behavior-affecting edits.
+- Reuse existing code and add no dependencies without an explicit request.
+- Keep current operating guidance in `docs/`; do not recreate session/WR archives or duplicate API schemas in prose.
+- Keep secrets, real `.env` files, uploads, DBs, virtual environments and local tool state such as `.omx/` and `.omc/` out of commits.
+
+## Verification
+
+- Run the smallest relevant service tests and typechecks, then inspect the output.
+- `npm test` invokes all installed service suites; inspect skipped suites and optional tool/data tests.
+- Check changed documentation links and code/schema references; run `git diff --check` before committing.
+- Report checks actually run and any remaining limits. Mock output, open ports and process liveness do not establish real analysis readiness.
+- Commit using an intent-first message with relevant native Git trailers (`Tested:`, `Not-tested:`, `Constraint:`, `Confidence:`).
+
+## Optional tools
+
+- `.mcp.json` configures `log-analyzer` for runtime log diagnosis and `stitch` for its design tooling.
+- Tool availability depends on the current client and local installation. Read Markdown and source directly when a tool is unavailable.
+- The log analyzer's interpreter is `tools/log-analyzer/.venv/bin/python`; it reads `logs/`. It is not needed to run or read the product documentation.

@@ -1,7 +1,7 @@
 /**
  * S4 SAST Runner HTTP 클라이언트
  *
- * API 계약: docs/api/sast-runner-api.md
+ * API 계약: docs/contracts/sast-runner.md
  * POST /v1/scan — 6개 SAST 도구 병렬 실행
  * GET  /v1/health — 서비스 상태
  */

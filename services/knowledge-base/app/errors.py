@@ -1,6 +1,6 @@
 """Observability 규격 에러 응답 헬퍼.
 
-docs/specs/observability.md 에 정의된 공통 에러 포맷:
+docs/contracts/shared-models.md 에 정의된 공통 에러 포맷:
   {success: false, error: string, errorDetail: {code, message, requestId, retryable}}
 """
 

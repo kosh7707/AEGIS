@@ -3,22 +3,13 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import pytest
-
 from app.scanner.orchestrator import ALL_TOOLS
 from benchmark.golden_corpus_validator import load_manifest
 from benchmark.tool_portfolio_governance import GOVERNANCE_GATES, build_governance_report
 
 MANIFEST_PATH = Path(__file__).parent / "fixtures" / "golden_corpus_v1" / "manifest.json"
-WIKI_PAGE = Path(__file__).parents[4] / "aegis-static-wiki" / "wiki" / "canon" / "specs" / "sast-runner-tool-portfolio-governance-v1.md"
+GOVERNANCE_CONTRACT = Path(__file__).parents[3] / "docs" / "contracts" / "sast-tool-governance.md"
 FORBIDDEN_VERDICT_KEYS = {"vulnerable", "safe", "affected", "clean", "riskScore", "securityVerdict"}
-
-# The governance spec lives in the sibling aegis-static-wiki checkout, which a
-# clone of this repository alone does not provide.
-requires_wiki_checkout = pytest.mark.skipif(
-    not WIKI_PAGE.exists(),
-    reason="sibling aegis-static-wiki checkout not present",
-)
 
 
 def _manifest() -> dict:
@@ -91,9 +82,8 @@ def test_governance_includes_benchmark_slice_evidence_without_changing_decision(
     assert evidence["weakestSlices"]["allVariants"][0]["cwe"] == "CWE-457"
 
 
-@requires_wiki_checkout
-def test_governance_wiki_page_documents_decision_gates_and_no_tool_change() -> None:
-    text = WIKI_PAGE.read_text()
+def test_governance_contract_documents_decision_gates_and_no_tool_change() -> None:
+    text = GOVERNANCE_CONTRACT.read_text()
 
     assert "Decision: **keep-current-six-tools**" in text
     for tool_id in ALL_TOOLS:

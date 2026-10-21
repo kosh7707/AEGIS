@@ -1,7 +1,7 @@
 /**
  * S3 Analysis Agent HTTP 클라이언트
  *
- * API 계약: docs/api/analysis-agent-api.md
+ * API 계약: docs/contracts/analysis-agent.md
  * POST /v1/tasks — deep-analyze (프로젝트 보안 심층 분석)
  * GET  /v1/health — 서비스 상태
  */

@@ -1,10 +1,5 @@
 {
   "mcpServers": {
-    "aegis-static-wiki": {
-      "command": "node",
-      "args": ["../aegis-static-wiki/tools/wiki/mcpServer.js"],
-      "cwd": "../aegis-static-wiki"
-    },
     "stitch": {
       "command": "stitch-mcp",
       "args": ["proxy"]
